@@ -7,8 +7,7 @@
 <link rel="icon" type="image/png" href="img/favicon.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Naerum Naerum">
-<meta property="og:description" content="내루미와 함께하는 초원 시작페이지">
+<meta property="og:title" content="내루미">
 <meta property="og:url" content="https://naeru.me/">
 <meta property="og:image" content="https://naeru.me/img/og.jpg">
 <meta property="og:image:width" content="1200">
@@ -30,38 +29,48 @@
                  -apple-system, sans-serif;
   }
 
+  /* 시간대별 정지 프레임(각 영상의 첫 프레임)은 JS가
+     --freeze-a/--freeze-b 변수로 주입한다 */
+
   /* 루프 순간 브라우저가 비디오를 한 프레임 놓쳐도
      어두운 배경 대신 동일한 정지 프레임이 보이도록,
      첫 프레임(=핑퐁 마지막 프레임)을 영상 뒤에 깔아둠 */
   .bg-still {
     position: fixed;
     inset: 0;
-    background-image: url("img/sky-freeze.jpg");
+    background-image: var(--freeze-a);
     background-size: cover;
     background-position: center;
   }
 
-  /* ── 배경 영상 ────────────────────────────────── */
+  /* ── 배경 영상: A/B 두 장을 겹쳐두고 시간대가 바뀌면
+     currentTime을 맞춘 뒤 크로스페이드(같은 원본 영상의
+     색보정 변형들이라 픽셀이 정렬됨 → 순수 색상 디졸브) ── */
   video.bg {
     position: fixed;
     inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
+    opacity: 0;
+    transition: opacity 2.5s ease;
   }
+  video.bg.on { opacity: 1; }
 
   /* ── 구름 고정: 첫 프레임을 하늘 영역에만 덮어서
      구름 움직임을 정지. 영상과 같은 16:9 + cover라서
      창 크기와 무관하게 픽셀이 정확히 정렬됨.
      마스크는 세로(하늘~지평선 위) × 가로(양옆 나무 회피)
-     교집합, 경계는 그라디언트로 부드럽게 블렌드 ───── */
+     교집합, 경계는 그라디언트로 부드럽게 블렌드.
+     비디오와 같은 이유로 A/B 두 장을 겹쳐 크로스페이드 ── */
   .sky-freeze {
     position: fixed;
     inset: 0;
     pointer-events: none;
-    background-image: url("img/sky-freeze.jpg");
     background-size: cover;
     background-position: center;
+    opacity: 0;
+    transition: opacity 2.5s ease;
     -webkit-mask-image:
       linear-gradient(to bottom,
         black 0%, black 42%, transparent 58%),
@@ -75,8 +84,11 @@
         transparent 16%, black 28%, black 68%, transparent 80%);
     mask-composite: intersect;
   }
+  .sky-freeze.on { opacity: 1; }
+  #freezeA { background-image: var(--freeze-a); }
+  #freezeB { background-image: var(--freeze-b); }
 
-  /* 은은한 비네트 — cozy한 깊이감 */
+  /* 은은한 비네트 — cozy한 깊이감, 밤에는 조금 더 깊게 */
   .vignette {
     position: fixed;
     inset: 0;
@@ -84,9 +96,13 @@
     background: radial-gradient(
       ellipse at center,
       transparent 55%,
-      rgba(10, 14, 25, 0.35) 100%
+      rgba(10, 14, 25, 0.42) 100%
     );
+    opacity: 0.85;
+    transition: opacity 2.5s ease;
   }
+  body[data-variant="night"] .vignette { opacity: 1; }
+  body[data-variant="day"]   .vignette { opacity: 0.6; }
 
   /* ── 시계: 내루미를 가리지 않도록 상단 배치 ─────── */
   .clock-wrap {
@@ -147,11 +163,11 @@
 
 <div class="bg-still"></div>
 
-<video class="bg" autoplay muted loop playsinline
-       preload="auto" poster="img/sky-freeze.jpg"
-       src="img/meadow.mp4"></video>
+<video id="bgA" class="bg" muted loop playsinline preload="auto"></video>
+<video id="bgB" class="bg" muted loop playsinline preload="none"></video>
 
-<div class="sky-freeze"></div>
+<div id="freezeA" class="sky-freeze"></div>
+<div id="freezeB" class="sky-freeze"></div>
 
 <div class="vignette"></div>
 
@@ -166,6 +182,84 @@
 (function () {
   var TZ = "Asia/Seoul";
 
+  /* ── 시간대 → 배경 변형 ──────────────────────────
+     아침노을 05–08 / 낮 08–17 / 저녁노을 17–20 / 밤 20–05
+     URL로 강제 가능: ?v=dawn|day|dusk|night, ?h=22    */
+  function variantFor(h) {
+    if (h >= 5 && h < 8)   return "dawn";
+    if (h >= 8 && h < 17)  return "day";
+    if (h >= 17 && h < 20) return "dusk";
+    return "night";
+  }
+
+  var params = new URLSearchParams(location.search);
+  var forced = params.get("v");
+  var fakeH  = params.get("h");
+  if (["dawn", "day", "dusk", "night"].indexOf(forced) < 0) forced = null;
+
+  function seoulHour(now) {
+    if (fakeH !== null) return parseInt(fakeH, 10) % 24;
+    return parseInt(new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ, hour: "2-digit", hour12: false
+    }).format(now), 10) % 24;
+  }
+
+  function currentVariant() {
+    return forced || variantFor(seoulHour(new Date()));
+  }
+
+  /* ── A/B 비디오 + 하늘 프리즈 크로스페이드 ────── */
+  var vids    = [document.getElementById("bgA"), document.getElementById("bgB")];
+  var freezes = [document.getElementById("freezeA"), document.getElementById("freezeB")];
+  var slot    = 0;          // 현재 활성 슬롯 (0=A, 1=B)
+  var active  = null;       // 현재 변형 이름
+  var root    = document.documentElement;
+
+  function srcOf(v)    { return "img/meadow-" + v + ".mp4"; }
+  function freezeOf(v) { return 'url("img/sky-' + v + '.jpg")'; }
+
+  function show(variant) {           // 최초 로드: 즉시 표시
+    active = variant;
+    document.body.dataset.variant = variant;
+    root.style.setProperty("--freeze-a", freezeOf(variant));
+    var v = vids[slot];
+    v.poster = "img/sky-" + variant + ".jpg";
+    v.src = srcOf(variant);
+    v.classList.add("on");
+    freezes[slot].classList.add("on");
+    v.play();
+  }
+
+  function crossfadeTo(variant) {    // 시간대 변경: 부드럽게 전환
+    active = variant;
+    document.body.dataset.variant = variant;
+    var oldSlot = slot, newSlot = 1 - slot;
+    slot = newSlot;
+    var vNew = vids[newSlot], vOld = vids[oldSlot];
+    root.style.setProperty(newSlot === 0 ? "--freeze-a" : "--freeze-b",
+                           freezeOf(variant));
+    vNew.src = srcOf(variant);
+    vNew.load();
+    vNew.addEventListener("canplay", function onReady() {
+      vNew.removeEventListener("canplay", onReady);
+      // 같은 푸티지이므로 재생 위치를 맞추면 완전한 색상 디졸브가 됨
+      try { vNew.currentTime = vOld.currentTime; } catch (e) {}
+      vNew.play();
+      requestAnimationFrame(function () {
+        vNew.classList.add("on");
+        freezes[newSlot].classList.add("on");
+        vOld.classList.remove("on");
+        freezes[oldSlot].classList.remove("on");
+      });
+      setTimeout(function () {       // 페이드 종료 후 이전 영상 해제
+        vOld.pause();
+        vOld.removeAttribute("src");
+        vOld.load();
+      }, 3000);
+    });
+  }
+
+  /* ── 시계 ──────────────────────────────────────── */
   function render() {
     var now = new Date();
 
@@ -185,8 +279,13 @@
       new Intl.DateTimeFormat("en-US", {
         timeZone: TZ, month: "short", day: "numeric", year: "numeric"
       }).format(now);
+
+    // 시간대가 바뀌었으면 배경 크로스페이드
+    var v = currentVariant();
+    if (v !== active) crossfadeTo(v);
   }
 
+  show(currentVariant());
   render();
   // 다음 분 경계에 맞춰 갱신 (초 표시가 없으므로 분 단위면 충분)
   function tick() {
