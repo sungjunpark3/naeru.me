@@ -88,6 +88,36 @@
   #freezeA { background-image: var(--freeze-a); }
   #freezeB { background-image: var(--freeze-b); }
 
+  /* ── 비 레이어: 하늘 프리즈 위에서도 비가 계속 내리도록
+     영상이 아닌 DOM에서 렌더. 줄기는 수직 텍스처, 레이어를
+     skewX로 기울여 낙하 방향 = 줄기 축. 텍스처 높이(1024px)
+     단위로 background-position을 굴리므로 완벽 루프.
+     원경(가늘고 느림)/근경(굵고 빠름) 2겹으로 깊이감 ──── */
+  .rain {
+    position: fixed;
+    inset: -14% -8%;
+    pointer-events: none;
+    transform: skewX(-8deg);
+    background-repeat: repeat;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 2.5s ease, visibility 2.5s;
+    animation: rainfall linear infinite;
+    animation-play-state: paused;
+  }
+  .rain-far  { background-image: url("img/rain-far.png");  animation-duration: 1.8s; }
+  .rain-near { background-image: url("img/rain-near.png"); animation-duration: 0.95s; }
+  @keyframes rainfall { to { background-position: 0 1024px; } }
+  body[data-weather="rain"] .rain {
+    visibility: visible;
+    animation-play-state: running;
+  }
+  body[data-weather="rain"] .rain-far  { opacity: 0.5; }
+  body[data-weather="rain"] .rain-near { opacity: 0.62; }
+  /* 밤에는 줄기가 너무 하얗게 뜨지 않게 */
+  body[data-weather="rain"][data-variant^="night"] .rain-far  { opacity: 0.26; }
+  body[data-weather="rain"][data-variant^="night"] .rain-near { opacity: 0.34; }
+
   /* 은은한 비네트 — cozy한 깊이감, 밤에는 조금 더 깊게 */
   .vignette {
     position: fixed;
@@ -101,8 +131,8 @@
     opacity: 0.85;
     transition: opacity 2.5s ease;
   }
-  body[data-variant="night"] .vignette { opacity: 1; }
-  body[data-variant="day"]   .vignette { opacity: 0.6; }
+  body[data-variant^="night"] .vignette { opacity: 1; }
+  body[data-variant="day"]    .vignette { opacity: 0.6; }
 
   /* ── 시계: 내루미를 가리지 않도록 상단 배치 ─────── */
   .clock-wrap {
@@ -156,6 +186,7 @@
   /* 움직임 최소화 설정 존중 */
   @media (prefers-reduced-motion: reduce) {
     .clock-inner, .time .colon { animation: none !important; }
+    .rain { display: none !important; }
   }
 </style>
 </head>
@@ -168,6 +199,9 @@
 
 <div id="freezeA" class="sky-freeze"></div>
 <div id="freezeB" class="sky-freeze"></div>
+
+<div class="rain rain-far"></div>
+<div class="rain rain-near"></div>
 
 <div class="vignette"></div>
 
@@ -182,20 +216,25 @@
 (function () {
   var TZ = "Asia/Seoul";
 
-  /* ── 시간대 → 배경 변형 ──────────────────────────
+  /* ── 시간대 → 배경 밴드 ──────────────────────────
      아침노을 05–08 / 낮 08–17 / 저녁노을 17–20 / 밤 20–05
-     URL로 강제 가능: ?v=dawn|day|dusk|night, ?h=22    */
-  function variantFor(h) {
+     서울에 비가 오면 "-rain" 변형(흐린 그레이딩+비 레이어).
+     URL 강제: ?v=dawn|day|dusk|night, ?h=22, ?w=rain|clear */
+  function bandFor(h) {
     if (h >= 5 && h < 8)   return "dawn";
     if (h >= 8 && h < 17)  return "day";
     if (h >= 17 && h < 20) return "dusk";
     return "night";
   }
 
-  var params = new URLSearchParams(location.search);
-  var forced = params.get("v");
-  var fakeH  = params.get("h");
+  var params  = new URLSearchParams(location.search);
+  var forced  = params.get("v");
+  var fakeH   = params.get("h");
+  var forcedW = params.get("w");
   if (["dawn", "day", "dusk", "night"].indexOf(forced) < 0) forced = null;
+  if (["rain", "clear"].indexOf(forcedW) < 0) forcedW = null;
+
+  var weather = forcedW === "rain" ? "rain" : "clear";
 
   function seoulHour(now) {
     if (fakeH !== null) return parseInt(fakeH, 10) % 24;
@@ -205,7 +244,26 @@
   }
 
   function currentVariant() {
-    return forced || variantFor(seoulHour(new Date()));
+    var band = forced || bandFor(seoulHour(new Date()));
+    return band + (weather === "rain" ? "-rain" : "");
+  }
+
+  /* ── 서울 실황 (Open-Meteo, 키 불필요·CORS 허용) ──
+     WMO 코드가 강수(이슬비·비·눈·소나기·뇌우)면 rain */
+  var METEO = "https://api.open-meteo.com/v1/forecast" +
+              "?latitude=37.5665&longitude=126.978&current=weather_code";
+  var RAINY = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67,
+               71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99];
+
+  function fetchWeather() {
+    if (forcedW) return Promise.resolve();
+    return fetch(METEO)
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var c = d && d.current && d.current.weather_code;
+        weather = RAINY.indexOf(c) >= 0 ? "rain" : "clear";
+      })
+      .catch(function () {});   // 실패 시 마지막 상태 유지
   }
 
   /* ── A/B 비디오 + 하늘 프리즈 크로스페이드 ────── */
@@ -221,6 +279,7 @@
   function show(variant) {           // 최초 로드: 즉시 표시
     active = variant;
     document.body.dataset.variant = variant;
+    document.body.dataset.weather = weather;
     root.style.setProperty("--freeze-a", freezeOf(variant));
     var v = vids[slot];
     v.poster = "img/sky-" + variant + ".jpg";
@@ -230,9 +289,10 @@
     v.play();
   }
 
-  function crossfadeTo(variant) {    // 시간대 변경: 부드럽게 전환
+  function crossfadeTo(variant) {    // 시간대·날씨 변경: 부드럽게 전환
     active = variant;
     document.body.dataset.variant = variant;
+    document.body.dataset.weather = weather;
     var oldSlot = slot, newSlot = 1 - slot;
     slot = newSlot;
     var vNew = vids[newSlot], vOld = vids[oldSlot];
@@ -285,8 +345,25 @@
     if (v !== active) crossfadeTo(v);
   }
 
-  show(currentVariant());
-  render();
+  /* ── 시작: 날씨를 최대 900ms까지 기다렸다가 표시
+     (지연·실패 시 일단 맑음으로 시작, 도착하면 전환) ── */
+  function sync() {
+    var v = currentVariant();
+    if (v !== active) crossfadeTo(v);
+  }
+  var booted = false;
+  function boot() {
+    if (booted) { sync(); return; }
+    booted = true;
+    show(currentVariant());
+    render();
+    setInterval(function () {        // 날씨 실황 10분 주기 갱신
+      fetchWeather().then(sync);
+    }, 600000);
+  }
+  fetchWeather().then(boot);
+  setTimeout(boot, 900);
+
   // 다음 분 경계에 맞춰 갱신 (초 표시가 없으므로 분 단위면 충분)
   function tick() {
     render();
