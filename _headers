@@ -4,5 +4,10 @@
 # → 재방문 시 네트워크 대기 없이 즉시 표시되고, 재배포한 자산도
 #   다음 방문이면 반영됨. index.html은 Netlify 기본값
 #   (max-age=0, must-revalidate)을 유지해 로직 변경이 즉시 반영됨.
+# 검색엔진 비노출: HTML은 meta robots, 영상·이미지 등 나머지
+# 자산은 이 헤더가 담당 (이미지 검색 인덱싱 차단)
+/*
+  X-Robots-Tag: noindex, nofollow
+
 /img/*
   Cache-Control: public, max-age=3600, stale-while-revalidate=604800
