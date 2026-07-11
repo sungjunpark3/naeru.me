@@ -1,0 +1,8 @@
+# Netlify 캐시 정책
+# 배경 영상·정지 프레임: 1시간은 캐시에서 즉시 사용, 그 후 1주일까지는
+# 캐시본을 먼저 띄우고 백그라운드에서 재검증(stale-while-revalidate)
+# → 재방문 시 네트워크 대기 없이 즉시 표시되고, 재배포한 자산도
+#   다음 방문이면 반영됨. index.html은 Netlify 기본값
+#   (max-age=0, must-revalidate)을 유지해 로직 변경이 즉시 반영됨.
+/img/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=604800

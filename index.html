@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1a1f2e">
 <title>Naerum Naerum</title>
 <link rel="icon" type="image/png" href="img/favicon.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
@@ -15,6 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600&display=swap"
       rel="stylesheet">
 <style>
@@ -30,7 +32,8 @@
   }
 
   /* 시간대별 정지 프레임(각 영상의 첫 프레임)은 JS가
-     --freeze-a/--freeze-b 변수로 주입한다 */
+     --still(전체 배경)·--freeze-a/--freeze-b(하늘 프리즈)
+     변수로 주입한다 */
 
   /* 루프 순간 브라우저가 비디오를 한 프레임 놓쳐도
      어두운 배경 대신 동일한 정지 프레임이 보이도록,
@@ -38,7 +41,7 @@
   .bg-still {
     position: fixed;
     inset: 0;
-    background-image: var(--freeze-a);
+    background-image: var(--still);
     background-size: cover;
     background-position: center;
   }
@@ -183,10 +186,13 @@
     text-shadow: 0 1px 12px rgba(20, 25, 40, 0.6);
   }
 
-  /* 움직임 최소화 설정 존중 */
+  /* 움직임 최소화 설정 존중: 영상 없이 정지 프레임만 표시
+     (JS도 이 경우 영상을 아예 로드하지 않음) */
   @media (prefers-reduced-motion: reduce) {
     .clock-inner, .time .colon { animation: none !important; }
     .rain { display: none !important; }
+    video.bg { display: none !important; }
+    .sky-freeze { transition: none !important; }
   }
 </style>
 </head>
@@ -217,10 +223,22 @@
   var TZ = "Asia/Seoul";
 
   /* ── 시간대 → 배경 밴드 ──────────────────────────
-     아침노을 05–08 / 낮 08–17 / 저녁노을 17–20 / 밤 20–05
+     서울의 실제 일출·일몰(Open-Meteo daily) 기준:
+     dawn = 일출−40분~+50분, dusk = 일몰−50분~+40분,
+     그 사이가 day, 나머지가 night. 실황을 아직 못 받았으면
+     고정 밴드(05–08/08–17/17–20/20–05)로 폴백.
      서울에 비가 오면 "-rain" 변형(흐린 그레이딩+비 레이어).
      URL 강제: ?v=dawn|day|dusk|night, ?h=22, ?w=rain|clear */
-  function bandFor(h) {
+  var sun = null;                    // {sr, ss} 자정 기준 분 단위
+
+  function bandFor(min) {
+    if (sun) {
+      if (min >= sun.sr - 40 && min < sun.sr + 50) return "dawn";
+      if (min >= sun.sr + 50 && min < sun.ss - 50) return "day";
+      if (min >= sun.ss - 50 && min < sun.ss + 40) return "dusk";
+      return "night";
+    }
+    var h = Math.floor(min / 60);
     if (h >= 5 && h < 8)   return "dawn";
     if (h >= 8 && h < 17)  return "day";
     if (h >= 17 && h < 20) return "dusk";
@@ -234,34 +252,74 @@
   if (["dawn", "day", "dusk", "night"].indexOf(forced) < 0) forced = null;
   if (["rain", "clear"].indexOf(forcedW) < 0) forcedW = null;
 
-  var weather = forcedW === "rain" ? "rain" : "clear";
+  /* 직전 방문에서 저장한 날씨·일출일몰(3시간 이내)로 즉시
+     시작해서 첫 화면부터 정확한 변형을 띄우고, 실황 도착 후
+     다르면 크로스페이드로 정정 */
+  var WKEY    = "naeru-weather";
+  var cachedW = null;
+  try {
+    var c = JSON.parse(localStorage.getItem(WKEY) || "null");
+    if (c && Date.now() - c.t < 3 * 3600000 &&
+        (c.w === "rain" || c.w === "clear")) {
+      cachedW = c.w;
+      if (typeof c.sr === "number" && typeof c.ss === "number") {
+        sun = { sr: c.sr, ss: c.ss };
+      }
+    }
+  } catch (e) {}
+  var weather = forcedW || cachedW || "clear";
 
-  function seoulHour(now) {
-    if (fakeH !== null) return parseInt(fakeH, 10) % 24;
-    return parseInt(new Intl.DateTimeFormat("en-GB", {
-      timeZone: TZ, hour: "2-digit", hour12: false
-    }).format(now), 10) % 24;
+  function seoulMinutes(now) {
+    if (fakeH !== null) return (parseInt(fakeH, 10) % 24) * 60;
+    var t = new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false
+    }).formatToParts(now);
+    var p = {};
+    t.forEach(function (x) { p[x.type] = x.value; });
+    return (parseInt(p.hour, 10) % 24) * 60 + parseInt(p.minute, 10);
   }
 
   function currentVariant() {
-    var band = forced || bandFor(seoulHour(new Date()));
+    var band = forced || bandFor(seoulMinutes(new Date()));
     return band + (weather === "rain" ? "-rain" : "");
   }
 
   /* ── 서울 실황 (Open-Meteo, 키 불필요·CORS 허용) ──
-     WMO 코드가 강수(이슬비·비·눈·소나기·뇌우)면 rain */
+     WMO 코드가 강수(이슬비·비·눈·소나기·뇌우)면 rain.
+     일출·일몰도 같은 요청으로 받아 밴드 계산에 사용 */
   var METEO = "https://api.open-meteo.com/v1/forecast" +
-              "?latitude=37.5665&longitude=126.978&current=weather_code";
+              "?latitude=37.5665&longitude=126.978" +
+              "&current=weather_code" +
+              "&daily=sunrise,sunset&forecast_days=1" +
+              "&timezone=Asia%2FSeoul";
   var RAINY = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67,
                71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99];
 
+  function minutesOf(iso) {     // "2026-07-10T05:17" → 317
+    var m = /T(\d\d):(\d\d)/.exec(iso || "");
+    return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
+  }
+
+  var lastFetch = 0;
   function fetchWeather() {
     if (forcedW) return Promise.resolve();
     return fetch(METEO)
       .then(function (r) { return r.json(); })
       .then(function (d) {
         var c = d && d.current && d.current.weather_code;
-        weather = RAINY.indexOf(c) >= 0 ? "rain" : "clear";
+        weather   = RAINY.indexOf(c) >= 0 ? "rain" : "clear";
+        lastFetch = Date.now();
+        if (d && d.daily) {
+          var sr = minutesOf(d.daily.sunrise && d.daily.sunrise[0]);
+          var ss = minutesOf(d.daily.sunset  && d.daily.sunset[0]);
+          if (sr !== null && ss !== null) sun = { sr: sr, ss: ss };
+        }
+        try {
+          localStorage.setItem(WKEY, JSON.stringify({
+            w: weather, t: lastFetch,
+            sr: sun && sun.sr, ss: sun && sun.ss
+          }));
+        } catch (e) {}
       })
       .catch(function () {});   // 실패 시 마지막 상태 유지
   }
@@ -272,21 +330,41 @@
   var slot    = 0;          // 현재 활성 슬롯 (0=A, 1=B)
   var active  = null;       // 현재 변형 이름
   var root    = document.documentElement;
+  var noMotion =
+    matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  function srcOf(v)    { return "img/meadow-" + v + ".mp4"; }
+  /* HEVC 10-bit(같은 화질, 용량↓)를 지원하면 우선 사용,
+     아니면 H.264. 재생 에러 시에도 H.264로 폴백 */
+  var HEVC = document.createElement("video")
+    .canPlayType('video/mp4; codecs="hvc1.2.4.L153.B0"') !== "";
+
+  function srcOf(v) {
+    return "img/meadow-" + v + (HEVC ? ".hevc" : "") + ".mp4";
+  }
   function freezeOf(v) { return 'url("img/sky-' + v + '.jpg")'; }
+
+  vids.forEach(function (v) {
+    v.addEventListener("error", function () {
+      if (!HEVC || !v.getAttribute("src")) return;
+      HEVC = false;
+      v.src = srcOf(active);
+      v.play().catch(function () {});
+    });
+  });
 
   function show(variant) {           // 최초 로드: 즉시 표시
     active = variant;
     document.body.dataset.variant = variant;
     document.body.dataset.weather = weather;
+    root.style.setProperty("--still", freezeOf(variant));
     root.style.setProperty("--freeze-a", freezeOf(variant));
+    freezes[slot].classList.add("on");
+    if (noMotion) return;            // 움직임 최소화: 영상 로드 생략
     var v = vids[slot];
     v.poster = "img/sky-" + variant + ".jpg";
     v.src = srcOf(variant);
     v.classList.add("on");
-    freezes[slot].classList.add("on");
-    v.play();
+    v.play().catch(function () {});
   }
 
   function crossfadeTo(variant) {    // 시간대·날씨 변경: 부드럽게 전환
@@ -295,16 +373,22 @@
     document.body.dataset.weather = weather;
     var oldSlot = slot, newSlot = 1 - slot;
     slot = newSlot;
-    var vNew = vids[newSlot], vOld = vids[oldSlot];
     root.style.setProperty(newSlot === 0 ? "--freeze-a" : "--freeze-b",
                            freezeOf(variant));
+    if (noMotion) {                  // 정지 프레임끼리 즉시 교체
+      freezes[newSlot].classList.add("on");
+      freezes[oldSlot].classList.remove("on");
+      root.style.setProperty("--still", freezeOf(variant));
+      return;
+    }
+    var vNew = vids[newSlot], vOld = vids[oldSlot];
     vNew.src = srcOf(variant);
     vNew.load();
     vNew.addEventListener("canplay", function onReady() {
       vNew.removeEventListener("canplay", onReady);
       // 같은 푸티지이므로 재생 위치를 맞추면 완전한 색상 디졸브가 됨
       try { vNew.currentTime = vOld.currentTime; } catch (e) {}
-      vNew.play();
+      vNew.play().catch(function () {});
       requestAnimationFrame(function () {
         vNew.classList.add("on");
         freezes[newSlot].classList.add("on");
@@ -315,6 +399,8 @@
         vOld.pause();
         vOld.removeAttribute("src");
         vOld.load();
+        // 프레임 드랍 대비 정지 프레임도 현재 변형으로 교체
+        root.style.setProperty("--still", freezeOf(variant));
       }, 3000);
     });
   }
@@ -345,7 +431,8 @@
     if (v !== active) crossfadeTo(v);
   }
 
-  /* ── 시작: 날씨를 최대 900ms까지 기다렸다가 표시
+  /* ── 시작: 캐시·강제값이 있으면 대기 없이 즉시 표시,
+     캐시 없는 첫 방문만 실황을 최대 900ms 기다림
      (지연·실패 시 일단 맑음으로 시작, 도착하면 전환) ── */
   function sync() {
     var v = currentVariant();
@@ -357,12 +444,31 @@
     booted = true;
     show(currentVariant());
     render();
-    setInterval(function () {        // 날씨 실황 10분 주기 갱신
+    setInterval(function () {        // 날씨 실황 5분 주기 갱신
+      if (document.hidden) return;   // 복귀 시 아래 핸들러가 재조회
       fetchWeather().then(sync);
-    }, 600000);
+    }, 300000);
   }
   fetchWeather().then(boot);
-  setTimeout(boot, 900);
+  if (forcedW || cachedW) boot();
+  else setTimeout(boot, 900);
+
+  // 탭이 숨겨지면 영상을 멈춰 배터리 절약, 다시 보이면
+  // 영상 재개 + 시계·배경 즉시 갱신 + 날씨 재확인
+  // (백그라운드에선 타이머가 제한돼 실황이 밀릴 수 있음)
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) {
+      vids[0].pause();
+      vids[1].pause();
+      return;
+    }
+    if (!booted) return;
+    if (!noMotion && vids[slot].src) {
+      vids[slot].play().catch(function () {});
+    }
+    render();
+    if (Date.now() - lastFetch > 60000) fetchWeather().then(sync);
+  });
 
   // 다음 분 경계에 맞춰 갱신 (초 표시가 없으므로 분 단위면 충분)
   function tick() {
