@@ -148,7 +148,6 @@
     justify-content: flex-start;
     padding-top: 8vh;
     user-select: none;
-    z-index: 6;              /* 생일 장식(색종이·배너)보다 위, 시각 가독성 유지 */
   }
 
   .clock-inner {
@@ -196,66 +195,6 @@
     video.bg { display: none !important; }
     .sky-freeze { transition: none !important; }
   }
-
-  /* ── 생일 장식(매년 7/21, Asia/Seoul): 상단 깃발줄 + 배너 +
-     내루미 머리 위 꼬깔모자 + 색종이. 기본 숨김, JS가 생일에만
-     body.birthday를 붙여 노출 ─────────────────────────────── */
-  #party { position: fixed; inset: 0; pointer-events: none;
-    z-index: 5; display: none; }
-  body.birthday #party { display: block; }
-
-  /* 상단 깃발 줄(뷰포트 폭에 맞춰 JS가 곡선+깃발 생성) */
-  #garland { position: fixed; top: 0; left: 0; width: 100%; line-height: 0; }
-
-  /* 생일 배너(플래카드) — 시계와 내루미 사이 빈 공간에 */
-  .bday-banner {
-    position: fixed; left: 50%; top: 30vh; transform: translateX(-50%);
-    padding: .5em 2.3em; white-space: nowrap;
-    font-weight: 600; font-size: clamp(1.05rem, 2.7vw, 1.75rem);
-    letter-spacing: .01em; color: #fff7fa;
-    background: linear-gradient(180deg, #ff90ac, #ec4f78);
-    clip-path: polygon(0 0, 100% 0, calc(100% - 17px) 50%, 100% 100%,
-      0 100%, 17px 50%);
-    text-shadow: 0 1px 6px rgba(120, 20, 50, .45);
-    box-shadow: 0 10px 26px rgba(180, 40, 80, .32),
-      inset 0 2px 0 rgba(255, 255, 255, .4),
-      inset 0 -3px 6px rgba(150, 20, 60, .25);
-    animation: bannerSway 5s ease-in-out infinite;
-  }
-  .bday-banner::before, .bday-banner::after {
-    content: ""; position: absolute; top: -1.05em;
-    width: 2px; height: 1.1em; background: rgba(255, 255, 255, .55);
-  }
-  .bday-banner::before { left: 26%; transform: rotate(9deg); }
-  .bday-banner::after  { right: 26%; transform: rotate(-9deg); }
-  @keyframes bannerSway {
-    0%, 100% { transform: translateX(-50%) rotate(-1.1deg); }
-    50%      { transform: translateX(-50%) rotate(1.1deg); }
-  }
-
-  /* 꼬깔모자 — JS가 내루미 머리 위치(cover 변환)에 배치·크기 조정 */
-  #hat { position: fixed; left: 0; top: 0; transform-origin: 50% 100%;
-    filter: drop-shadow(0 6px 8px rgba(40, 20, 30, .35));
-    animation: hatBob 4s ease-in-out infinite; }
-  #hat svg { display: block; width: 100%; height: auto; }
-  @keyframes hatBob {
-    0%, 100% { transform: translate(-50%, -100%) rotate(-13deg); }
-    50%      { transform: translate(-50%, -100%) rotate(-9deg); }
-  }
-
-  /* 색종이 */
-  .confetti { position: fixed; top: -6vh; width: 9px; height: 13px;
-    opacity: .85; border-radius: 1px; animation: confFall linear infinite; }
-  @keyframes confFall {
-    0%   { transform: translateY(-10vh) rotate(0); }
-    100% { transform: translateY(112vh) rotate(540deg); }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .bday-banner, #hat { animation: none; }
-    #hat { transform: translate(-50%, -100%) rotate(-11deg); }
-    .confetti { display: none; }
-  }
 </style>
 </head>
 <body>
@@ -272,40 +211,6 @@
 <div class="rain rain-near"></div>
 
 <div class="vignette"></div>
-
-<!-- 생일 장식(기본 숨김) — 아래 스크립트가 7/21에만 노출 -->
-<div id="party">
-  <div id="garland"></div>
-  <div class="bday-banner">생일 축하해, 내루미! &#127874;</div>
-  <div id="hat">
-    <svg viewBox="0 0 100 152" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="pcone" x1="0" y1="0" x2=".45" y2="1">
-          <stop offset="0" stop-color="#ff92b0"/>
-          <stop offset="1" stop-color="#e64d76"/>
-        </linearGradient>
-        <pattern id="pstripe" width="26" height="26"
-                 patternUnits="userSpaceOnUse" patternTransform="rotate(-34)">
-          <rect width="13" height="26" fill="#fff4ea"/>
-        </pattern>
-        <clipPath id="pclip"><path d="M50 8 L85 138 Q50 127 15 138 Z"/></clipPath>
-      </defs>
-      <path d="M50 8 L85 138 Q50 127 15 138 Z" fill="url(#pcone)"/>
-      <g clip-path="url(#pclip)" opacity=".72">
-        <rect x="0" y="0" width="100" height="152" fill="url(#pstripe)"/>
-      </g>
-      <path d="M15 138 Q50 127 85 138 Q50 150 15 138 Z" fill="#ffd6e0"/>
-      <g>
-        <circle cx="50" cy="9" r="10.5" fill="#ffdd7a"/>
-        <circle cx="45.5" cy="5.5" r="5.2" fill="#fff0b6"/>
-        <circle cx="55" cy="7" r="5" fill="#ffd464"/>
-        <circle cx="50" cy="13" r="5" fill="#ffd868"/>
-        <circle cx="52" cy="9" r="3.4" fill="#fff3c6"/>
-      </g>
-    </svg>
-  </div>
-  <div id="confetti"></div>
-</div>
 
 <div class="clock-wrap">
   <div class="clock-inner">
@@ -572,111 +477,6 @@
     setTimeout(tick, 60000 - (Date.now() % 60000) + 50);
   }
   setTimeout(tick, 60000 - (Date.now() % 60000) + 50);
-})();
-</script>
-
-<script>
-/* ── 생일 장식(매년 7/21, Asia/Seoul) ─────────────────────────
-   내루미는 배경 영상에 구워진 고정 캐릭터다. 영상(과 정지 프레임)은
-   object-fit/background 모두 cover로 그려지므로, 프레임 안에서의 머리
-   좌표(비율 u,v)를 동일한 cover 변환으로 화면 좌표에 매핑하면 어떤
-   화면비에서도 꼬깔모자가 머리 위에 정확히 얹힌다. 시계·배경 코드와
-   독립된 IIFE라 여기서 에러가 나도 본체엔 영향 없음.
-   테스트: ?bday=1 강제 표시, ?bday=0 강제 숨김 ──────────────── */
-(function () {
-  var TZ = "Asia/Seoul";
-  var params = new URLSearchParams(location.search);
-
-  var BDAY_MONTH = 7, BDAY_DAY = 21;
-  function isBirthday() {
-    var f = params.get("bday");
-    if (f === "1") return true;
-    if (f === "0") return false;
-    var mm, dd;
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: TZ, month: "numeric", day: "numeric"
-    }).formatToParts(new Date()).forEach(function (x) {
-      if (x.type === "month") mm = parseInt(x.value, 10);
-      if (x.type === "day")   dd = parseInt(x.value, 10);
-    });
-    return mm === BDAY_MONTH && dd === BDAY_DAY;
-  }
-
-  if (!isBirthday()) return;          // 생일이 아니면 아무것도 안 함
-  document.body.classList.add("birthday");
-
-  var VIDEO_AR = 16 / 9;   // 배경 프레임 비율
-  var HEAD_U   = 0.517;    // 내루미 머리 꼭대기: 프레임 가로 비율
-  var HEAD_V   = 0.712;    // 〃 세로 비율(모자 밑동이 얹히는 지점)
-
-  var hat     = document.getElementById("hat");
-  var garland = document.getElementById("garland");
-
-  // 화면을 덮는 배경 프레임의 실제 크기·오프셋(cover) 계산
-  function coverBox() {
-    var W = innerWidth, H = innerHeight, Dw, Dh;
-    if (W / H >= VIDEO_AR) { Dw = W; Dh = W / VIDEO_AR; }
-    else                   { Dh = H; Dw = H * VIDEO_AR; }
-    return { Dw: Dw, Dh: Dh, left: (W - Dw) / 2, top: (H - Dh) / 2 };
-  }
-
-  function placeHat() {
-    var b = coverBox();
-    hat.style.width = (0.042 * b.Dw) + "px";          // 밑동 너비 ≈ 머리폭
-    hat.style.left  = (b.left + HEAD_U * b.Dw) + "px"; // 머리 꼭대기 화면 x
-    hat.style.top   = (b.top  + HEAD_V * b.Dh) + "px"; // 〃 y
-  }
-
-  // 상단 깃발 줄: 뷰포트 폭에 맞춰 살짝 처진 곡선 + 삼각 깃발
-  var COLS = ["#ff6b8b", "#ffce56", "#63c7e8", "#8fd98f", "#f4a3c9", "#ffab73"];
-  function buildGarland() {
-    var W = innerWidth, cx = W / 2, yEnd = 8, sag = 24;
-    function sy(x) { var t = (x - cx) / cx; return yEnd + sag * (1 - t * t); }
-    var step = 82, n = Math.floor((W - 24) / step);
-    var start = (W - n * step) / 2;
-    var d = "M0 " + sy(0).toFixed(1);
-    for (var x = 12; x <= W; x += 12) d += " L" + x + " " + sy(x).toFixed(1);
-    var flags = "";
-    for (var i = 0; i <= n; i++) {
-      var fx = start + i * step, w = 28, h = 30;
-      var yl = sy(fx - w / 2), yr = sy(fx + w / 2), yc = sy(fx);
-      flags += '<path d="M' + (fx - w / 2).toFixed(1) + ' ' + yl.toFixed(1) +
-               ' L' + (fx + w / 2).toFixed(1) + ' ' + yr.toFixed(1) +
-               ' L' + fx.toFixed(1) + ' ' + (yc + h).toFixed(1) +
-               ' Z" fill="' + COLS[i % COLS.length] + '" opacity=".93"/>' +
-               '<circle cx="' + fx.toFixed(1) + '" cy="' + yc.toFixed(1) +
-               '" r="2.3" fill="#7a5a44"/>';
-    }
-    garland.innerHTML =
-      '<svg width="' + W + '" height="120" viewBox="0 0 ' + W + ' 120" ' +
-      'xmlns="http://www.w3.org/2000/svg"><path d="' + d +
-      '" fill="none" stroke="#8a6d5a" stroke-width="2.4" ' +
-      'stroke-linecap="round"/>' + flags + '</svg>';
-  }
-
-  // 색종이(가벼운 낙하) — 움직임 최소화 설정이면 생략
-  function buildConfetti() {
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    var box = document.getElementById("confetti"), html = "";
-    for (var i = 0; i < 15; i++) {
-      var l = Math.random() * 100, dur = 8 + Math.random() * 7,
-          del = -Math.random() * 12, w = 7 + Math.random() * 5;
-      html += '<i class="confetti" style="left:' + l.toFixed(1) +
-              'vw;width:' + w.toFixed(1) + 'px;height:' + (w * 1.5).toFixed(1) +
-              'px;background:' + COLS[i % COLS.length] +
-              ';animation-duration:' + dur.toFixed(1) +
-              's;animation-delay:' + del.toFixed(1) + 's;"></i>';
-    }
-    box.innerHTML = html;
-  }
-
-  function layout() { placeHat(); buildGarland(); }
-  layout();
-  buildConfetti();
-  var t;
-  addEventListener("resize", function () {
-    clearTimeout(t); t = setTimeout(layout, 120);
-  });
 })();
 </script>
 
