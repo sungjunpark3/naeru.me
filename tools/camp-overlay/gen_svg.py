@@ -186,7 +186,7 @@ def pool(cx, fy, w, d, h, k=.84):
              f'fill="none" stroke="#eef7fb" stroke-width="{w*.012:.0f}" '
              f'opacity=".45" stroke-linecap="round"/>')
     # 잔디 위 비치볼
-    bx2, by2, br2 = cx - w * .74, fy + h * .74, w * .118
+    bx2, by2, br2 = cx - w * .66, fy + h * .82, w * .072
     o.append(f'<ellipse cx="{bx2:.0f}" cy="{by2 + br2*.95:.0f}" rx="{br2*1.0:.0f}" '
              f'ry="{br2*.30:.0f}" fill="#33381f" opacity=".28" filter="url(#soft)"/>')
     o.append(f'<circle cx="{bx2:.0f}" cy="{by2:.0f}" r="{br2:.0f}" fill="#f4ecdb"/>')
@@ -203,7 +203,7 @@ def pool(cx, fy, w, d, h, k=.84):
     o.append(f'<circle cx="{bx2 - br2*.34:.0f}" cy="{by2 - br2*.40:.0f}" '
              f'r="{br2*.22:.0f}" fill="#fffaf0" opacity=".7"/>')
     # 튜브 하나 띄우기
-    tx, ty, tr = cx + w * .19, fy - d * .40, w * .105
+    tx, ty, tr = cx - w * .30, fy - d * .46, w * .078
     o.append(f'<ellipse cx="{tx:.0f}" cy="{ty:.0f}" rx="{tr:.0f}" ry="{tr*.52:.0f}" '
              f'fill="none" stroke="#e79b7d" stroke-width="{tr*.46:.0f}"/>')
     o.append(f'<ellipse cx="{tx:.0f}" cy="{ty - tr*.12:.0f}" rx="{tr*.78:.0f}" '
@@ -344,12 +344,73 @@ DEFS = '''
 '''
 
 # 배치 상수 -----------------------------------------------------------
-TENT_A = dict(cx=2560, gy=1722, w=520, h=330)     # 오른쪽 큰 텐트
-TENT_B = dict(cx=1560, gy=1636, w=356, h=228)     # 왼쪽 작은(먼) 텐트
-POOL   = dict(cx=1672, fy=1866, w=452, d=142, h=54, k=.74)  # 내루미 앞 물놀이 풀장
+#' 내루미는 배경 영상에 구워진 정지 캐릭터다(미세한 숨쉬기 모션만 있음).
+#' 풀장 안에 세우려면 뒤쪽 테두리가 몸통을 가로지르는데, 그 부분을 덮어
+#' 그리면 캐릭터가 지워진다. 그래서 풀 레이어(back)의 알파에 내루미
+#' 실루엣 구멍을 뚫고(수면선 아래는 뚫지 않음 → 다리는 물에 잠김),
+#' 모자·물결처럼 몸 위에 올라가야 하는 것만 front 레이어로 뺀다.
+TENT_A  = dict(cx=2690, gy=1706, w=470, h=300)    # 오른쪽 큰 텐트
+TENT_B  = dict(cx=1500, gy=1596, w=330, h=212)    # 왼쪽 작은(먼) 텐트
+POOL    = dict(cx=2025, fy=1786, w=780, d=246, h=76, k=.80)   # 내루미가 든 풀장
+NAERU   = dict(cx=2025, top=1399, hw=150, hcx=1995)           # 머리 기준점
+WATER_Y = 1645                                    # 내루미 몸에 걸리는 수면선
 
 
-def build_base():
+def cap(hcx, hy, w, txt="문지은T"):
+    """야구모자. hcx=머리 중심 x, hy=챙이 걸리는 y, w=모자 폭.
+       내루미가 살짝 왼쪽을 보고 있어 챙도 왼쪽으로"""
+    hw = w / 2
+    crown_top = hy - w * .44
+    return (
+        f'<g transform="rotate(-8 {hcx} {hy})" filter="url(#paintS)">'
+        # 챙
+        f'<path d="M{hcx-hw*.72:.0f},{hy-2:.0f} '
+        f'Q{hcx-hw*1.34:.0f},{hy-10:.0f} {hcx-hw*1.58:.0f},{hy+6:.0f} '
+        f'Q{hcx-hw*1.22:.0f},{hy+16:.0f} {hcx-hw*.60:.0f},{hy+12:.0f} Z" '
+        f'fill="#2b574d"/>'
+        f'<path d="M{hcx-hw*1.58:.0f},{hy+6:.0f} '
+        f'Q{hcx-hw*1.28:.0f},{hy+26:.0f} {hcx-hw*.60:.0f},{hy+16:.0f}" '
+        f'fill="none" stroke="#4a7d70" stroke-width="4" opacity=".7"/>'
+        # 크라운
+        f'<path d="M{hcx-hw:.0f},{hy+2:.0f} '
+        f'Q{hcx-hw*1.03:.0f},{crown_top:.0f} {hcx:.0f},{crown_top-4:.0f} '
+        f'Q{hcx+hw*1.03:.0f},{crown_top:.0f} {hcx+hw:.0f},{hy+2:.0f} '
+        f'Q{hcx:.0f},{hy+18:.0f} {hcx-hw:.0f},{hy+2:.0f} Z" fill="#f1e8d5"/>'
+        # 밑단 밴드
+        f'<path d="M{hcx-hw:.0f},{hy+2:.0f} Q{hcx:.0f},{hy+18:.0f} '
+        f'{hcx+hw:.0f},{hy+2:.0f} L{hcx+hw*.98:.0f},{hy-8:.0f} '
+        f'Q{hcx:.0f},{hy+8:.0f} {hcx-hw*.98:.0f},{hy-8:.0f} Z" fill="#2b574d"/>'
+        # 꼭지 단추
+        f'<circle cx="{hcx:.0f}" cy="{crown_top-1:.0f}" r="{w*.042:.0f}" '
+        f'fill="#2b574d"/>'
+        # 글자
+        f'<text x="{hcx:.0f}" y="{hy-w*.055:.0f}" text-anchor="middle" '
+        f'font-family="Pretendard" font-size="{w*.20:.0f}" font-weight="800" '
+        f'letter-spacing="-1" fill="#2b574d">{txt}</text>'
+        f'</g>')
+
+
+def splash(cx, wy, rx):
+    """수면선에서 몸통을 감싸는 물결. front 레이어(몸 위)에 올라간다"""
+    o = []
+    for (k, op, wd) in [(1.00, .48, 8), (1.20, .26, 6), (1.42, .15, 5)]:
+        o.append(f'<ellipse cx="{cx:.0f}" cy="{wy + (k-1)*22:.0f}" '
+                 f'rx="{rx*k:.0f}" ry="{rx*k*.17:.0f}" fill="none" '
+                 f'stroke="#d6ecf6" stroke-width="{wd}" opacity="{op}"/>')
+    # 몸통 바로 앞 물결 하이라이트
+    o.append(f'<path d="M{cx-rx*.72:.0f},{wy+6:.0f} q{rx*.34:.0f},{-14} '
+             f'{rx*.68:.0f},0" stroke="#f0fbff" stroke-width="8" fill="none" '
+             f'stroke-linecap="round" opacity=".55"/>')
+    # 물방울 몇 개
+    for (dx, dy, r) in [(-.86, -.34, 7), (.78, -.26, 6), (-.52, -.52, 5),
+                        (.98, -.10, 5)]:
+        o.append(f'<circle cx="{cx+rx*dx:.0f}" cy="{wy+rx*dy:.0f}" r="{r}" '
+                 f'fill="#e6f4fb" opacity=".7"/>')
+    return "".join(o)
+
+
+def build_back():
+    """내루미 뒤에 깔리는 것 전부 — 밧줄·현수막·텐트·풀장"""
     o = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
          f'viewBox="0 0 {W} {H}">', DEFS]
 
@@ -392,7 +453,6 @@ def build_base():
     o.append(f'<path d="{cloth}" fill="url(#cloth)"/>')
     o.append(f'<path d="{cloth}" fill="url(#clothFold)"/>')
     o.append(f'<path d="{cloth}" fill="url(#clothLight)"/>')
-    # 위·아래 크림색 띠
     o.append(f'<polyline points="{poly(edge_path(lambda x: top_y(x) + 20, BX0, BX1, 40))}" '
              f'fill="none" stroke="#e7dcc2" stroke-width="13" opacity=".92"/>')
     o.append(f'<polyline points="{poly(edge_path(lambda x: bot_y(x) - 20, BX0, BX1, 40))}" '
@@ -421,7 +481,6 @@ def build_base():
         f'<text x="1920" y="{cy+108:.0f}" font-size="158" font-weight="800" '
         f'letter-spacing="10">여름수련회</text>'
         f'</g>')
-    # 좌우 소나무 장식
     o.append('<g filter="url(#paintS)">')
     for sx in (1210, 2630):
         o.append(pine(sx, (top_y(sx) + bot_y(sx)) / 2 - 10, 0.92))
@@ -434,7 +493,6 @@ def build_base():
     o.append('</g>')
     o.append(grass(TENT_A["cx"] + 10, TENT_A["gy"] + 10, TENT_A["w"] * 1.16,
                    hi=54, seed=3.1))
-    # 먼 텐트는 대기원근 때문에 살짝 흐리고 밝게
     o.append('<g filter="url(#paint)" opacity=".93">')
     o.append(tent(front="#b6c2c0", side="#9aa9a8", ridge="#6f7c7b",
                   door="#5a6462", shade="#a7b3b2", guy="#8f9a97", **TENT_B))
@@ -442,7 +500,7 @@ def build_base():
     o.append(grass(TENT_B["cx"] + 6, TENT_B["gy"] + 8, TENT_B["w"] * 1.16,
                    hi=36, seed=7.7))
 
-    # ── 풀장 ──────────────────────────────────────────────────────
+    # ── 풀장 (내루미가 이 안에 서 있다) ───────────────────────────
     o.append(pool(**POOL))
     o.append(grass(POOL["cx"], POOL["fy"] + POOL["h"] * 1.22,
                    POOL["w"] * 1.06, hi=26, seed=5.3, blades=False))
@@ -451,13 +509,19 @@ def build_base():
     return "\n".join(o)
 
 
-def build_glow():
-    return f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}"/>'
+def build_front():
+    """내루미 위에 올라가는 것 — 모자와 수면선 물결"""
+    o = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
+         f'viewBox="0 0 {W} {H}">', DEFS]
+    o.append(splash(NAERU["cx"], WATER_Y, 168))
+    o.append(cap(NAERU["hcx"], NAERU["top"] + 18, NAERU["hw"] * 1.02))
+    o.append('</svg>')
+    return "\n".join(o)
 
 
 if __name__ == "__main__":
     which = sys.argv[1]
-    out = build_base() if which == "base" else build_glow()
+    out = build_back() if which == "back" else build_front()
     body = ('<style>html,body{margin:0;padding:0;background:transparent;'
             'overflow:hidden}svg{display:block}</style>\n' + out)
     open(sys.argv[2], "w").write(body)

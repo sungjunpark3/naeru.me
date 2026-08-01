@@ -1,9 +1,16 @@
 #!/bin/zsh
 # 여름수련회(신덕수양관) 장식을 배경 영상에 굽는다.
-#   gen_svg.py로 4K 오버레이 SVG → Edge 헤드리스로 투명 PNG → 밴드별 그레이딩
-#   → ffmpeg 합성 → x264/x265 인코딩 → 첫 프레임 jpg
+#   gen_svg.py로 4K 오버레이 SVG 2장 → Edge 헤드리스로 투명 PNG →
+#   punch.py로 back 레이어에 내루미 구멍 → 밴드별 그레이딩 →
+#   ffmpeg 합성 → x264/x265 인코딩 → 첫 프레임 jpg
 # 위에서 아래로 한 번에 읽히도록 단계를 나누지 않았다. 그림만 고칠 땐
 # gen_svg.py 수정 후 이 스크립트를 그냥 다시 돌리면 된다.
+#
+# 레이어를 둘로 나눈 이유: 내루미는 영상에 구워진 캐릭터라 풀장 뒤 테두리를
+# 그대로 덮어 그리면 몸이 지워진다. back(내루미 뒤에 깔릴 것) 알파에서
+# 내루미 실루엣을 도려내면 그 자리엔 원본 영상 픽셀이 그대로 보이므로
+# 미세한 숨쉬기 모션까지 살아남는다. 모자·물결처럼 몸 위에 올라가야 하는
+# 것만 front로 뺀다.
 #
 # 밤 변형은 만들지 않는다 (night/night-rain은 원본 그대로 씀).
 set -e
@@ -18,8 +25,11 @@ VARIANTS=(dusk day dawn dusk-rain day-rain dawn-rain)
 
 
 # 1. 오버레이 아트 -----------------------------------------------------
-#' 무보정(=dusk) 톤 기준으로 한 장만 그린다. 밴드별 색은 3단계에서 맞춘다.
-python3 $HERE/gen_svg.py base $B/ovl_base.html
+#' 무보정(=dusk) 톤 기준으로 그린다. 밴드별 색은 4단계에서 맞춘다.
+#' 마스크 키잉 기준 프레임도 같은 무보정 영상의 첫 프레임을 쓴다.
+ffmpeg -v error -i img/meadow-dusk.mp4 -frames:v 1 -y $B/base4k.png
+python3 $HERE/gen_svg.py back  $B/ovl_back.html
+python3 $HERE/gen_svg.py front $B/ovl_front.html
 
 
 # 2. Edge 헤드리스 렌더 ------------------------------------------------
@@ -27,19 +37,27 @@ python3 $HERE/gen_svg.py base $B/ovl_base.html
 #' 그대로 나온다. 파일을 쓰고도 프로세스가 안 죽으므로 폴링 후 PID만 kill
 #' (사용자 Edge 상시 실행 중 — 광역 pkill 금지)
 EDGE="/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
-rm -f $B/ovl_base.png
-"$EDGE" --headless=new --disable-gpu --hide-scrollbars \
-  --default-background-color=00000000 --force-color-profile=srgb \
-  --window-size=3840,2160 --screenshot="$B/ovl_base.png" \
-  --user-data-dir="$B/edgeprof" "file://$B/ovl_base.html" >/dev/null 2>&1 &
-EPID=$!
-for i in $(seq 1 120); do [ -s $B/ovl_base.png ] && break; sleep 0.5; done
-sleep 1.5; kill $EPID 2>/dev/null || true; wait $EPID 2>/dev/null || true
-[ -s $B/ovl_base.png ] || { echo "render failed"; exit 1 }
-echo "rendered $B/ovl_base.png"
+render() {
+  rm -f $B/$1.png
+  "$EDGE" --headless=new --disable-gpu --hide-scrollbars \
+    --default-background-color=00000000 --force-color-profile=srgb \
+    --window-size=3840,2160 --screenshot="$B/$1.png" \
+    --user-data-dir="$B/edgeprof" "file://$B/$1.html" >/dev/null 2>&1 &
+  local p=$!
+  for i in $(seq 1 120); do [ -s $B/$1.png ] && break; sleep 0.5; done
+  sleep 1.5; kill $p 2>/dev/null || true; wait $p 2>/dev/null || true
+  [ -s $B/$1.png ] || { echo "render failed: $1"; exit 1 }
+  echo "rendered $B/$1.png"
+}
+render ovl_back
+render ovl_front
 
 
-# 3. 밴드별 그레이딩 ---------------------------------------------------
+# 3. 내루미 실루엣 구멍 뚫기 -------------------------------------------
+python3 $HERE/punch.py $B
+
+
+# 4. 밴드별 그레이딩 ---------------------------------------------------
 #' 배경 영상을 만들 때 쓴 체인을 오버레이에 그대로 먹여야 색이 붙는다.
 #' 색보정 필터가 RGBA를 안전하게 못 다뤄서 알파를 떼뒀다 다시 붙인다.
 grade_of() {
@@ -54,29 +72,34 @@ grade_of() {
 }
 
 for V in $VARIANTS; do
-  ffmpeg -v error -i $B/ovl_base.png -filter_complex "
-    [0:v]format=rgba,split=2[a][b];
-    [a]alphaextract[al];
-    [b]format=rgb24,$(grade_of $V),format=rgba[gr];
-    [gr][al]alphamerge[out]" \
-    -map "[out]" -pix_fmt rgba -frames:v 1 -y $B/ovl-$V.png
+  for L in back_holed front; do
+    ffmpeg -v error -i $B/ovl_$L.png -filter_complex "
+      [0:v]format=rgba,split=2[a][b];
+      [a]alphaextract[al];
+      [b]format=rgb24,$(grade_of $V),format=rgba[gr];
+      [gr][al]alphamerge[out]" \
+      -map "[out]" -pix_fmt rgba -frames:v 1 -y $B/ovl-$L-$V.png
+  done
   echo "graded $V"
 done
 
 
-# 4. 합성 + 인코딩 -----------------------------------------------------
+# 5. 합성 + 인코딩 -----------------------------------------------------
+#' back → (원본 영상의 내루미가 구멍으로 비침) → front 순서로 얹는다.
 #' 원본은 x264 crf21 / x265 crf23. 재인코딩 세대 손실 상쇄로 한 단씩 올린다.
 #' 프레임 수(316)는 절대 바뀌면 안 된다 — 핑퐁 루프가 튄다.
 for V in $VARIANTS; do
   echo "=== $V h264 $(date +%T)"
-  ffmpeg -v error -i img/meadow-$V.mp4 -i $B/ovl-$V.png \
-    -filter_complex "[0:v][1:v]overlay=0:0:format=auto,format=yuv420p[v]" \
+  ffmpeg -v error -i img/meadow-$V.mp4 -i $B/ovl-back_holed-$V.png -i $B/ovl-front-$V.png \
+    -filter_complex "[0:v][1:v]overlay=0:0:format=auto[a];
+                     [a][2:v]overlay=0:0:format=auto,format=yuv420p[v]" \
     -map "[v]" -an -c:v libx264 -preset slow -crf 20 \
     -movflags +faststart -y img/meadow-$V-camp.mp4
 
   echo "=== $V hevc $(date +%T)"
-  ffmpeg -v error -i img/meadow-$V.mp4 -i $B/ovl-$V.png \
-    -filter_complex "[0:v][1:v]overlay=0:0:format=auto,format=yuv420p10le[v]" \
+  ffmpeg -v error -i img/meadow-$V.mp4 -i $B/ovl-back_holed-$V.png -i $B/ovl-front-$V.png \
+    -filter_complex "[0:v][1:v]overlay=0:0:format=auto[a];
+                     [a][2:v]overlay=0:0:format=auto,format=yuv420p10le[v]" \
     -map "[v]" -an -c:v libx265 -preset medium -crf 22 -pix_fmt yuv420p10le \
     -tag:v hvc1 -color_primaries bt709 -color_trc bt709 -colorspace bt709 \
     -x265-params log-level=error:colorprim=bt709:transfer=bt709:colormatrix=bt709 \
