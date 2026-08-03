@@ -47,6 +47,11 @@
     background-position: center;
   }
 
+  /* 공에 맞는 순간 배경 전체를 아주 잠깐 흔든다. 세 겹을 같은 값으로
+     움직여야 정렬이 유지되고, 살짝 확대해서 흔들린 만큼 가장자리에
+     빈 틈이 생기지 않게 한다 (기본값 none이면 아무 영향 없음) */
+  .bg-still, video.bg, .sky-freeze { transform: var(--bg-shake, none); }
+
   /* ── 배경 영상: A/B 두 장을 겹쳐두고 시간대가 바뀌면
      currentTime을 맞춘 뒤 크로스페이드(같은 원본 영상의
      색보정 변형들이라 픽셀이 정렬됨 → 순수 색상 디졸브) ── */
@@ -187,6 +192,29 @@
     text-shadow: 0 1px 12px rgba(20, 25, 40, 0.6);
   }
 
+  /* ── 프레임 박스: 배경 영상이 cover로 실제 차지하는 사각형.
+     이 안에서는 좌표를 프레임 비율로 쓸 수 있어서, 영상에 구워진
+     내루미 머리 같은 지점을 화면비와 무관하게 정확히 가리킬 수 있다.
+     cover 계산을 개체마다 하지 않고 이 상자 하나에만 하는 게 요점 ── */
+  #frame {
+    position: fixed;
+    pointer-events: none;
+    z-index: 1;              /* 비네트 위, 시계 아래 */
+  }
+  #ball, #bonk {
+    position: absolute;
+    left: 0;
+    top: 0;
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+  #ball svg { display: block; width: 100%; height: 100%; }
+  #bonk {
+    border-radius: 50%;
+    border: 2px solid rgba(255, 252, 245, 0.85);
+  }
+  .clock-wrap { z-index: 2; }
+
   /* 움직임 최소화 설정 존중: 영상 없이 정지 프레임만 표시
      (JS도 이 경우 영상을 아예 로드하지 않음) */
   @media (prefers-reduced-motion: reduce) {
@@ -194,6 +222,7 @@
     .rain { display: none !important; }
     video.bg { display: none !important; }
     .sky-freeze { transition: none !important; }
+    #frame { display: none !important; }
   }
 </style>
 </head>
@@ -211,6 +240,23 @@
 <div class="rain rain-near"></div>
 
 <div class="vignette"></div>
+
+<!-- 가끔 날아와 내루미 머리를 때리고 사라지는 공.
+     프레임 박스 안에 비율로 배치되므로 화면비가 뭐든 머리에 맞는다 -->
+<div id="frame">
+  <div id="ball">
+    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="47" fill="#f4ecdb"/>
+      <path d="M50,50 L50,3 A47,47 0 0 1 90.7,26.5 Z" fill="#d9755a"/>
+      <path d="M50,50 L90.7,73.5 A47,47 0 0 1 50,97 Z" fill="#5e97b3"/>
+      <path d="M50,50 L9.3,73.5 A47,47 0 0 1 9.3,26.5 Z" fill="#e0b45f"/>
+      <circle cx="50" cy="50" r="47" fill="none"
+              stroke="rgba(62,46,36,.20)" stroke-width="3"/>
+      <circle cx="34" cy="32" r="11" fill="#fffaf0" opacity=".55"/>
+    </svg>
+  </div>
+  <div id="bonk"></div>
+</div>
 
 <div class="clock-wrap">
   <div class="clock-inner">
@@ -477,6 +523,166 @@
     setTimeout(tick, 60000 - (Date.now() % 60000) + 50);
   }
   setTimeout(tick, 60000 - (Date.now() % 60000) + 50);
+})();
+</script>
+
+<script>
+/* ── 공 콩 ────────────────────────────────────────────────────────
+   몇 분에 한 번, 화면 밖에서 공이 날아와 내루미 머리를 때리고 튕겨
+   나간다. 시계·배경 코드와 독립된 IIFE라 여기서 터져도 본체는 멀쩡.
+
+   왜 DOM인가: 배경은 316프레임 핑퐁 루프라 영상에 구우면 (1) 13초마다
+   반복돼서 "가끔"이 안 되고 (2) 후반부가 역재생이라 때린 게 도로 안
+   때린 게 된다. 랜덤 타이밍은 구조상 DOM일 수밖에 없다.
+
+   왜 이건 좌표가 안 어긋나는가: 위치 계산을 개체마다 하지 않는다.
+   #frame 하나만 cover 사각형으로 맞춰두고 공은 그 안에서 프레임
+   비율로 움직이므로, 화면비가 뭐든 머리 위치와 크기가 같이 따라간다.
+
+   내루미는 영상에 구워져 있어 움찔할 수 없다. 그래서 연기는 공이 다
+   한다(찌그러짐 + 임팩트 링) + 배경을 190ms 흔든다. 맞고도 표정이
+   그대로인 게 이 장면의 의도다.
+
+   ?ball=0 끄기 / ?ball=1 즉시·반복(빈도 튜닝용) ─────────────────── */
+(function () {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var flag = new URLSearchParams(location.search).get("ball");
+  if (flag === "0") return;
+  var DEBUG = flag === "1";
+
+  var AR     = 16 / 9;
+  var HEAD_U = 0.523, HEAD_V = 0.634;   // 공 중심이 머리에 닿는 지점
+  var BALL_W = 0.024;                   // 프레임 폭 대비 공 지름
+  var IN_MS  = 640, HIT_MS = 110, OUT_MS = 820;
+  var FIRST  = [20000, 45000];          // 첫 등장까지
+  var GAP    = [120000, 360000];        // 그 뒤 간격 — 여기만 만지면 됨
+
+  var frame = document.getElementById("frame");
+  var ball  = document.getElementById("ball");
+  var bonk  = document.getElementById("bonk");
+  var root  = document.documentElement;
+  var W = 0, H = 0;                     // 프레임 박스 크기(px)
+
+  function layout() {
+    var vw = innerWidth, vh = innerHeight;
+    if (vw / vh >= AR) { W = vw; H = vw / AR; }
+    else               { H = vh; W = vh * AR; }
+    frame.style.width  = W + "px";
+    frame.style.height = H + "px";
+    frame.style.left   = ((vw - W) / 2) + "px";
+    frame.style.top    = ((vh - H) / 2) + "px";
+    // 좌우 마진을 반지름만큼 당겨두면 transform 좌표 = 공의 중심
+    var d = BALL_W * W;
+    ball.style.width = ball.style.height = d + "px";
+    ball.style.margin = (-d / 2) + "px 0 0 " + (-d / 2) + "px";
+  }
+  addEventListener("resize", layout);
+  layout();
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+  function qbez(p0, c, p1, t) {         // 2차 베지어 = 던진 궤적
+    var u = 1 - t;
+    return [u * u * p0[0] + 2 * u * t * c[0] + t * t * p1[0],
+            u * u * p0[1] + 2 * u * t * c[1] + t * t * p1[1]];
+  }
+
+  function place(u, v, rot, sx, sy) {
+    ball.style.transform =
+      "translate(" + (u * W).toFixed(1) + "px," + (v * H).toFixed(1) + "px)" +
+      " rotate(" + rot.toFixed(1) + "deg) scale(" + sx.toFixed(3) + "," +
+      sy.toFixed(3) + ")";
+  }
+
+  function shake() {
+    var t0 = performance.now(), MS = 190;
+    (function step(now) {
+      var t = (now - t0) / MS;
+      if (t >= 1) { root.style.setProperty("--bg-shake", "none"); return; }
+      var damp = (1 - t) * (1 - t);
+      root.style.setProperty("--bg-shake",
+        "scale(1.008) translate(" +
+        (Math.sin(t * Math.PI * 6) * 3.2 * damp).toFixed(2) + "px," +
+        (Math.cos(t * Math.PI * 5) * 2.0 * damp).toFixed(2) + "px)");
+      requestAnimationFrame(step);
+    })(t0);
+  }
+
+  function ring() {                     // 임팩트 순간 퍼지는 원
+    var d = BALL_W * W * 2.0;
+    var at = "translate(" + (HEAD_U * W).toFixed(1) + "px," +
+             (HEAD_V * H).toFixed(1) + "px)";
+    bonk.style.transition = "none";
+    bonk.style.width = bonk.style.height = d + "px";
+    bonk.style.margin = (-d / 2) + "px 0 0 " + (-d / 2) + "px";
+    bonk.style.borderWidth = Math.max(1.5, d * 0.045).toFixed(1) + "px";
+    bonk.style.transform = at + " scale(.35)";
+    bonk.style.opacity = ".85";
+    requestAnimationFrame(function () {
+      bonk.style.transition =
+        "transform .42s cubic-bezier(.2,.7,.3,1), opacity .42s ease-out";
+      bonk.style.transform = at + " scale(1.5)";
+      bonk.style.opacity = "0";
+    });
+  }
+
+  function bounce(dir, spin) {          // 머리에서 튕겨 날아가며 사라짐
+    var p0 = [HEAD_U, HEAD_V];
+    var c  = [HEAD_U + dir * 0.26, HEAD_V - 0.24];
+    var p1 = [HEAD_U + dir * 0.72, HEAD_V + 0.12];
+    var t0 = performance.now();
+    (function step(now) {
+      var t = (now - t0) / OUT_MS;
+      if (t >= 1) { ball.style.opacity = "0"; schedule(); return; }
+      var p = qbez(p0, c, p1, t);
+      place(p[0], p[1], spin * (1 + t * 1.4), 1, 1);
+      ball.style.opacity = String(Math.max(0, 1 - Math.max(0, (t - .55) / .45)));
+      requestAnimationFrame(step);
+    })(t0);
+  }
+
+  function hit(dir, spin) {             // 찌그러졌다 돌아오는 한 박자
+    ring();
+    shake();
+    var t0 = performance.now();
+    (function step(now) {
+      var t = (now - t0) / HIT_MS;
+      if (t >= 1) { bounce(dir, spin); return; }
+      var k = Math.sin(t * Math.PI);
+      place(HEAD_U, HEAD_V, spin, 1 + .30 * k, 1 - .28 * k);
+      requestAnimationFrame(step);
+    })(t0);
+  }
+
+  function toss() {
+    var dir = Math.random() < 0.5 ? 1 : -1;        // 1 = 왼쪽에서 날아옴
+    // 프레임은 항상 뷰포트보다 넓으므로, 프레임 밖 = 화면 밖이 보장된다
+    var p0 = [dir > 0 ? -0.14 : 1.14, rand(0.20, 0.32)];
+    var p1 = [HEAD_U, HEAD_V];
+    // 조절점을 출발 높이에 두고 가로로 절반쯤 밀면 포물선 낙하가 된다
+    var c  = [p0[0] + (p1[0] - p0[0]) * 0.55, p0[1] - 0.04];
+    var spin = rand(140, 300) * dir;
+    var t0 = performance.now();
+    ball.style.opacity = "1";
+    (function step(now) {
+      var t = (now - t0) / IN_MS;
+      if (t >= 1) { hit(dir, spin); return; }
+      var e = t * t * .35 + t * .65;               // 끝에서 살짝 가속
+      var p = qbez(p0, c, p1, e);
+      place(p[0], p[1], spin * e, 1, 1);
+      requestAnimationFrame(step);
+    })(t0);
+  }
+
+  function schedule(first) {
+    var ms = DEBUG ? (first ? 1000 : 5000)
+                   : rand.apply(null, first ? FIRST : GAP);
+    setTimeout(function () {
+      if (document.hidden) { schedule(); return; }  // 숨은 탭에선 건너뜀
+      toss();
+    }, ms);
+  }
+  schedule(true);
 })();
 </script>
 
