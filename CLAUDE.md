@@ -25,8 +25,7 @@ tools/       자산 생성 스크립트 (사이트 구성요소 아님, 재현�
 | `img/meadow-<변형>.hevc.mp4` | HEVC 10bit 병행본 (지원 브라우저 우선) |
 | `img/sky-<변형>.jpg` | 해당 영상의 **첫 프레임**. poster + `--still` + 하늘 프리즈 3역 |
 
-`<변형>` = `{dawn,day,dusk,night}` × `{"", -rain}` × `{"", -camp}`.
-`-camp`는 `night` 계열엔 없다 (아래 3절).
+`<변형>` = `{dawn,day,dusk,night}` × `{"", -rain}` — 8종.
 
 ### 렌더링 레이어 (아래 → 위)
 
@@ -86,17 +85,28 @@ tools/       자산 생성 스크립트 (사이트 구성요소 아님, 재현�
 
 ---
 
-## 3. 현재 상태 — 여름수련회(신덕수양관) 장식
+## 3. 지난 작업 — 여름수련회(신덕수양관) 장식 · **현재 미적용**
 
-`meadow-{dawn,day,dusk}[-rain]-camp.*` 6종에 현수막·삼각깃발·랜턴·텐트 2동·
-파란 사각 풀장·튜브·비치볼을 구워뒀고, **내루미가 풀장 안에 들어가 "문지은T"
-캡모자를 쓰고 있다.** **밤 변형은 만들지 않았다** — `night`, `night-rain`은
-항상 원본을 쓴다(`campOf()`가 `night` 접두사를 건너뜀).
+2026-08-01~02에 `-camp` 변형 6종을 만들어 배포했다가 08-03에 되돌렸다.
+현수막·삼각깃발·랜턴·텐트 2동·파란 사각 풀장·튜브·비치볼, 그리고 **풀장 안에
+들어가 "문지은T" 캡모자를 쓴 내루미**. 밤 변형은 만들지 않았다.
 
-- 켜고 끄기: `index.html`의 `var CAMP = params.get("camp") !== "0";`
-  - 되돌릴 때는 `var CAMP = false;` 한 줄이면 끝 (자산은 남겨둬도 무방)
-  - 테스트: `?camp=0`
-- 재생 실패 시 HEVC → H.264 → 장식 없는 원본 순으로 자동 후퇴
+지금 `index.html`과 `img/`는 장식 이전 상태다. 다시 켜려면:
+
+1. `./tools/camp-overlay/build.sh` — `-camp` 자산 18개 재생성 (약 7분)
+2. `index.html`의 `srcOf`/`freezeOf`/`poster`가 변형 이름에 `-camp`를 붙이게
+   한다. 되돌린 커밋(`3e95fc8`)에 있던 형태:
+
+```js
+var CAMP = params.get("camp") !== "0";
+function campOf(v) {
+  return (CAMP && v.indexOf("night") !== 0) ? v + "-camp" : v;
+}
+```
+
+`data-variant`는 건드리지 않아야 CSS 선택자(`body[data-variant="day"]` 등)가
+안 깨진다. 재생 실패 시 HEVC → H.264 → 장식 없는 원본으로 후퇴시켜 뒀었다.
+아트·좌표·마스크는 `tools/camp-overlay/gen_svg.py`에 그대로 남아 있다.
 
 ---
 

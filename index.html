@@ -339,35 +339,16 @@
   var HEVC = document.createElement("video")
     .canPlayType('video/mp4; codecs="hvc1.2.4.L153.B0"') !== "";
 
-  /* ── 여름수련회(신덕수양관) 배경 ────────────────────────
-     현수막·텐트·풀장을 영상 프레임에 구운 "-camp" 변형을 쓴다.
-     DOM 오버레이가 아니라 배경 픽셀이라 화면비가 어떻든 위치·크기가
-     배경과 정확히 같이 움직인다. 밤 변형은 만들지 않았으므로
-     night/night-rain 은 항상 원본. 되돌릴 땐 CAMP = false 한 줄
-     (자산은 그대로 둬도 무방). 테스트용 강제 해제는 ?camp=0 */
-  var CAMP = params.get("camp") !== "0";
-
-  function campOf(v) {
-    return (CAMP && v.indexOf("night") !== 0) ? v + "-camp" : v;
-  }
   function srcOf(v) {
-    return "img/meadow-" + campOf(v) + (HEVC ? ".hevc" : "") + ".mp4";
+    return "img/meadow-" + v + (HEVC ? ".hevc" : "") + ".mp4";
   }
-  function freezeOf(v) { return 'url("img/sky-' + campOf(v) + '.jpg")'; }
+  function freezeOf(v) { return 'url("img/sky-' + v + '.jpg")'; }
 
-  /* 재생 실패 시 HEVC → H.264 → 수련회 장식 없는 원본 순으로 후퇴 */
   vids.forEach(function (v) {
     v.addEventListener("error", function () {
-      if (!v.getAttribute("src")) return;
-      if (HEVC) HEVC = false;
-      else if (CAMP) CAMP = false;
-      else return;
+      if (!HEVC || !v.getAttribute("src")) return;
+      HEVC = false;
       v.src = srcOf(active);
-      v.poster = "img/sky-" + campOf(active) + ".jpg";
-      // 정지 프레임도 같이 되돌려야 하늘 프리즈에만 장식이 남지 않는다
-      root.style.setProperty(slot === 0 ? "--freeze-a" : "--freeze-b",
-                             freezeOf(active));
-      root.style.setProperty("--still", freezeOf(active));
       v.play().catch(function () {});
     });
   });
@@ -381,7 +362,7 @@
     freezes[slot].classList.add("on");
     if (noMotion) return;            // 움직임 최소화: 영상 로드 생략
     var v = vids[slot];
-    v.poster = "img/sky-" + campOf(variant) + ".jpg";
+    v.poster = "img/sky-" + variant + ".jpg";
     v.src = srcOf(variant);
     v.classList.add("on");
     v.play().catch(function () {});
