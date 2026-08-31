@@ -47,10 +47,14 @@
     background-position: center;
   }
 
-  /* 공에 맞는 순간 배경 전체를 아주 잠깐 흔든다. 세 겹을 같은 값으로
+  /* 공에 맞는 순간 배경 전체를 아주 잠깐 흔든다. 겹들을 같은 값으로
      움직여야 정렬이 유지되고, 살짝 확대해서 흔들린 만큼 가장자리에
-     빈 틈이 생기지 않게 한다 (기본값 none이면 아무 영향 없음) */
-  .bg-still, video.bg, .sky-freeze { transform: var(--bg-shake, none); }
+     빈 틈이 생기지 않게 한다 (기본값 none이면 아무 영향 없음).
+     plate·#stage도 여기 포함 — 안 넣으면 배경만 흔들리고 패치 경계·
+     내루미가 그대로 있어서 어긋나 보인다 */
+  .bg-still, video.bg, .sky-freeze, .plate, #stage {
+    transform: var(--bg-shake, none);
+  }
 
   /* ── 배경 영상: A/B 두 장을 겹쳐두고 시간대가 바뀌면
      currentTime을 맞춘 뒤 크로스페이드(같은 원본 영상의
@@ -96,6 +100,54 @@
   .sky-freeze.on { opacity: 1; }
   #freezeA { background-image: var(--freeze-a); }
   #freezeB { background-image: var(--freeze-b); }
+
+  /* ── 플레이트 패치: 영상에 구워진 내루미를 지우는 정지 조각.
+     .sky-freeze와 같은 이유로 A/B 두 장을 겹쳐 크로스페이드한다.
+     배경과 똑같이 cover/center라서 화면비가 뭐든 픽셀이 맞는다 ── */
+  .plate {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-size: cover;
+    background-position: center;
+    opacity: 0;
+    transition: opacity 2.5s ease;
+  }
+  .plate.on { opacity: 1; }
+  #plateA { background-image: var(--plate-a); }
+  #plateB { background-image: var(--plate-b); }
+
+  /* ── 내루미: #stage가 프레임 사각형(=배경 영상이 cover로 차지하는 상자)이라
+     자식은 % 좌표만으로 배치된다. JS 기하 계산 없음.
+     z-index를 주지 말 것 — .rain/.vignette와 같은 레벨이라 DOM 순서로
+     결정된다(마크업에서 .rain 앞) ── */
+  #stage { position: fixed; pointer-events: none; }
+
+  /* transform은 속성이 하나뿐이라 두 코드가 같은 요소에 쓰면 서로 덮어쓴다.
+     그래서 역할별로 겹을 나눠 각자 자기 transform만 소유하게 한다:
+     #stage=배경 셰이크 / #naeru-move=폴짝·이동 / #naeru-act=움찔·두리번 /
+     #naeru-face=방향(뒤집기). CROP box(576×496 @ 1744,1328 / 3840×2160)를
+     프레임 비율로 환산한 값 — matte.py의 CROP_ORIGIN/CROP_SIZE와 반드시
+     같이 맞출 것(tools/naeru-split/coords.py가 원본) */
+  #naeru-move {
+    position: absolute;
+    left: 45.4167%; top: 61.4815%; width: 15%; height: 22.9630%;
+  }
+  #naeru-act, #naeru-face { position: absolute; inset: 0; }
+  /* 회전·스쿼시의 기준점은 발끝이다. 크롭 상단이 y1328, 발끝이 y1720이므로
+     세로 (1720-1328)/496 = 79.03%, 가로는 몸 중심 x2020 →
+     (2020-1744)/576 = 47.92%. 틀리면 기울일 때 발이 지면에서 뜬다 */
+  #naeru-act, #naeru-face { transform-origin: 47.9167% 79.0323%; }
+  .naeru, #naeruStill {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; transition: opacity 2.5s ease;
+  }
+  .naeru.on, #naeruStill.on { opacity: 1; }
+  /* 공 IIFE의 headAt()이 겨냥하는, 화면에 안 보이는 기준점. #naeru-face
+     안에 있어서 폴짝·움찔·뒤집기 중에도 getBoundingClientRect()로 실제
+     렌더 위치를 그대로 읽을 수 있다. 프레임 좌표 (1995,1399) → 크롭
+     (1744,1328,576,496) 기준 (43.5764%, 14.3145%) */
+  #naeru-head { position: absolute; left: 43.5764%; top: 14.3145%; width: 1px; height: 1px; }
 
   /* ── 비 레이어: 하늘 프리즈 위에서도 비가 계속 내리도록
      영상이 아닌 DOM에서 렌더. 줄기는 수직 텍스처, 레이어를
@@ -220,8 +272,8 @@
   @media (prefers-reduced-motion: reduce) {
     .clock-inner, .time .colon { animation: none !important; }
     .rain { display: none !important; }
-    video.bg { display: none !important; }
-    .sky-freeze { transition: none !important; }
+    video.bg, .naeru { display: none !important; }
+    .sky-freeze, .plate, #naeruStill { transition: none !important; }
     #frame { display: none !important; }
   }
 </style>
@@ -235,6 +287,21 @@
 
 <div id="freezeA" class="sky-freeze"></div>
 <div id="freezeB" class="sky-freeze"></div>
+
+<div id="plateA" class="plate"></div>
+<div id="plateB" class="plate"></div>
+
+<!-- 배경 영상에서 내루미를 지운 자리에 다시 얹는 DOM 내루미.
+     plate 위, .rain/.vignette 아래 — 구워져 있던 내루미 위로 비·비네트가
+     얹혀 있었으므로 그래야 지금과 톤이 같다 -->
+<div id="stage">
+  <div id="naeru-move"><div id="naeru-act"><div id="naeru-face">
+    <video id="naeruA" class="naeru" muted loop playsinline preload="auto"></video>
+    <video id="naeruB" class="naeru" muted loop playsinline preload="none"></video>
+    <img id="naeruStill" alt="">
+    <div id="naeru-head"></div>
+  </div></div></div>
+</div>
 
 <div class="rain rain-far"></div>
 <div class="rain rain-near"></div>
@@ -264,6 +331,22 @@
     <div class="date" id="date"></div>
   </div>
 </div>
+
+<script>
+/* ── 프레임 사각형 계산: 배경 영상이 cover로 차지하는 16:9 상자.
+   #frame(공)과 #stage(내루미) 둘 다 이 식 하나에 맞춘다 — 공 IIFE가 이미
+   6개 화면비에서 검증한 수식 그대로, 개체마다 따로 계산하지 않는 게 요점.
+   독립 IIFE들이 각자 자기 요소에 대고 부르므로 이 함수 자체는 상태가 없다 ── */
+function layoutFrameBox(el) {
+  var AR = 16 / 9, vw = innerWidth, vh = innerHeight, W, H;
+  if (vw / vh >= AR) { W = vw; H = vw / AR; } else { H = vh; W = vh * AR; }
+  el.style.width  = W + "px";
+  el.style.height = H + "px";
+  el.style.left   = ((vw - W) / 2) + "px";
+  el.style.top    = ((vh - H) / 2) + "px";
+  return { W: W, H: H };
+}
+</script>
 
 <script>
 (function () {
@@ -374,10 +457,11 @@
   /* ── A/B 비디오 + 하늘 프리즈 크로스페이드 ────── */
   var vids    = [document.getElementById("bgA"), document.getElementById("bgB")];
   var freezes = [document.getElementById("freezeA"), document.getElementById("freezeB")];
-  var slot    = 0;          // 현재 활성 슬롯 (0=A, 1=B)
+  var slot    = 0;          // 현재 활성 슬롯 (0=A, 1=B) — plate·naeru도 같이 씀
   var active  = null;       // 현재 변형 이름
   var root    = document.documentElement;
   var noMotion =
+    params.get("still") === "1" ||    // ?still=1 — 브라우저 픽셀 diff용 강제
     matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /* HEVC 10-bit(같은 화질, 용량↓)를 지원하면 우선 사용,
@@ -399,6 +483,91 @@
     });
   });
 
+  /* ── 플레이트 + 내루미 ───────────────────────────
+     plate는 .sky-freeze와 똑같이 배경 cover 그대로라 좌표 계산이 없다.
+     내루미는 #stage(아래 layoutStage) 안에서 % 좌표만 쓴다 ── */
+  var plates      = [document.getElementById("plateA"), document.getElementById("plateB")];
+  var naeruVideos = [document.getElementById("naeruA"), document.getElementById("naeruB")];
+  var naeruStill  = document.getElementById("naeruStill");
+  var stage       = document.getElementById("stage");
+  function layoutStage() { layoutFrameBox(stage); }
+  addEventListener("resize", layoutStage);
+  layoutStage();
+
+  function plateOf(v) { return 'url("img/plate-' + v + '.png")'; }
+  function naeruStillOf(v) { return "img/naeru-" + v + ".png"; }
+  function naeruSrcOf(v, fmt) { return "img/naeru-" + v + "." + fmt; }
+
+  /* Safari는 VP9 webm을 재생은 하되 알파를 무시해 검은 사각형으로 그린다.
+     canPlayType으로는 구분이 안 되므로, 16×16 완전 투명 프로브를 캔버스에
+     그려 실제 알파를 읽는다. 본편을 받기 전에 판정해야 검은 사각형이 안 뜬다.
+     noMotion이면 영상 자체를 안 쓰므로 프로브도 건너뛴다 */
+  var naeruFormat = null;             // "webm" | "mp4" — 판정 후 확정
+  var naeruStillFallback = false;     // mp4마저 실패하면 영구히 정지본으로
+  var naeruFormatReady = noMotion ? Promise.resolve("still") : new Promise(function (resolve) {
+    var probe = document.createElement("video");
+    probe.muted = true; probe.playsInline = true;
+    var done = false;
+    function finish(fmt) {
+      if (done) return;
+      done = true;
+      naeruFormat = fmt;
+      resolve(fmt);
+    }
+    probe.addEventListener("loadeddata", function () {
+      try {
+        var c = document.createElement("canvas");
+        c.width = c.height = 2;
+        var ctx = c.getContext("2d");
+        ctx.drawImage(probe, 0, 0, 2, 2);
+        finish(ctx.getImageData(0, 0, 1, 1).data[3] === 0 ? "webm" : "mp4");
+      } catch (e) { finish("mp4"); }
+    });
+    probe.addEventListener("error", function () { finish("mp4"); });
+    probe.src = "img/alpha-probe.webm";
+    probe.load();
+    setTimeout(function () { finish("mp4"); }, 1200);
+  });
+
+  naeruVideos.forEach(function (v) {
+    v.addEventListener("error", function () {
+      if (naeruStillFallback || !v.getAttribute("src")) return;
+      if (naeruFormat === "webm") {          // webm이 깨졌으면 mp4로
+        naeruFormat = "mp4";
+        v.src = naeruSrcOf(active, "mp4");
+        v.play().catch(function () {});
+      } else {                               // mp4마저 실패 → 정지본 후퇴
+        naeruStillFallback = true;
+        naeruVideos.forEach(function (x) { x.classList.remove("on"); });
+        naeruStill.src = naeruStillOf(active);
+        naeruStill.classList.add("on");
+      }
+    });
+  });
+
+  function setNaeru(targetSlot, variant) {
+    naeruStill.src = naeruStillOf(variant);      // reduced-motion·최종 폴백 둘 다 이걸 씀
+    if (noMotion || naeruStillFallback) {
+      naeruStill.classList.add("on");
+      return;
+    }
+    naeruFormatReady.then(function (fmt) {
+      if (naeruStillFallback) return;            // 기다리는 사이 폴백 확정된 경우
+      var vNew = naeruVideos[targetSlot], vOld = naeruVideos[1 - targetSlot];
+      vNew.poster = naeruStillOf(variant);
+      vNew.src = naeruSrcOf(variant, fmt);
+      try { vNew.currentTime = 0; } catch (e) {}
+      vNew.play().catch(function () {});
+      vNew.classList.add("on");
+      vOld.classList.remove("on");
+      setTimeout(function () {
+        vOld.pause();
+        vOld.removeAttribute("src");
+        vOld.load();
+      }, 3000);
+    });
+  }
+
   function show(variant) {           // 최초 로드: 즉시 표시
     active = variant;
     document.body.dataset.variant = variant;
@@ -406,7 +575,10 @@
     root.style.setProperty("--still", freezeOf(variant));
     root.style.setProperty("--freeze-a", freezeOf(variant));
     freezes[slot].classList.add("on");
-    if (noMotion) return;            // 움직임 최소화: 영상 로드 생략
+    root.style.setProperty("--plate-a", plateOf(variant));
+    plates[slot].classList.add("on");
+    setNaeru(slot, variant);
+    if (noMotion) return;            // 움직임 최소화: 배경 영상 로드 생략
     var v = vids[slot];
     v.poster = "img/sky-" + variant + ".jpg";
     v.src = srcOf(variant);
@@ -422,6 +594,11 @@
     slot = newSlot;
     root.style.setProperty(newSlot === 0 ? "--freeze-a" : "--freeze-b",
                            freezeOf(variant));
+    root.style.setProperty(newSlot === 0 ? "--plate-a" : "--plate-b",
+                           plateOf(variant));
+    plates[newSlot].classList.add("on");
+    plates[oldSlot].classList.remove("on");
+    setNaeru(newSlot, variant);
     if (noMotion) {                  // 정지 프레임끼리 즉시 교체
       freezes[newSlot].classList.add("on");
       freezes[oldSlot].classList.remove("on");
@@ -539,9 +716,10 @@
    #frame 하나만 cover 사각형으로 맞춰두고 공은 그 안에서 프레임
    비율로 움직이므로, 화면비가 뭐든 머리 위치와 크기가 같이 따라간다.
 
-   내루미는 영상에 구워져 있어 움찔할 수 없다. 그래서 연기는 공이 다
-   한다(찌그러짐 + 임팩트 링) + 배경을 190ms 흔든다. 맞고도 표정이
-   그대로인 게 이 장면의 의도다.
+   맞는 연기는 공 쪽(찌그러짐 + 임팩트 링) + 배경 190ms 흔들림에 더해,
+   내루미 쪽도 hit()가 window.naeru.flinch(dir)를 불러 함께 움찔한다
+   (naeru-split/PLAN §4.4 — 내루미가 DOM으로 분리되기 전엔 구워진
+   캐릭터라 움찔이 불가능했던 시절의 흔적이 이 함수였다).
 
    ?ball=0 끄기 / ?ball=1 즉시·반복(빈도 튜닝용) ─────────────────── */
 (function () {
@@ -550,8 +728,9 @@
   if (flag === "0") return;
   var DEBUG = flag === "1";
 
-  var AR     = 16 / 9;
-  var HEAD_U = 0.523, HEAD_V = 0.634;   // 공 중심이 머리에 닿는 지점
+  // window.naeru가 없을 때(행동 IIFE가 꺼졌거나 터졌을 때)의 폴백 조준점.
+  // 있으면 naeru.headAt()이 폴짝·움찔 중의 실제 위치를 대신 준다
+  var HEAD_U = 0.523, HEAD_V = 0.634;
   var BALL_W = 0.024;                   // 프레임 폭 대비 공 지름
   var IN_MS  = 640, HIT_MS = 110, OUT_MS = 820;
   var FIRST  = [20000, 45000];          // 첫 등장까지
@@ -564,13 +743,8 @@
   var W = 0, H = 0;                     // 프레임 박스 크기(px)
 
   function layout() {
-    var vw = innerWidth, vh = innerHeight;
-    if (vw / vh >= AR) { W = vw; H = vw / AR; }
-    else               { H = vh; W = vh * AR; }
-    frame.style.width  = W + "px";
-    frame.style.height = H + "px";
-    frame.style.left   = ((vw - W) / 2) + "px";
-    frame.style.top    = ((vh - H) / 2) + "px";
+    var box = layoutFrameBox(frame);      // #stage와 같은 공용 식(전역 함수)
+    W = box.W; H = box.H;
     // 좌우 마진을 반지름만큼 당겨두면 transform 좌표 = 공의 중심
     var d = BALL_W * W;
     ball.style.width = ball.style.height = d + "px";
@@ -608,10 +782,10 @@
     })(t0);
   }
 
-  function ring() {                     // 임팩트 순간 퍼지는 원
+  function ring(head) {                 // 임팩트 순간 퍼지는 원
     var d = BALL_W * W * 2.0;
-    var at = "translate(" + (HEAD_U * W).toFixed(1) + "px," +
-             (HEAD_V * H).toFixed(1) + "px)";
+    var at = "translate(" + (head.x * W).toFixed(1) + "px," +
+             (head.y * H).toFixed(1) + "px)";
     bonk.style.transition = "none";
     bonk.style.width = bonk.style.height = d + "px";
     bonk.style.margin = (-d / 2) + "px 0 0 " + (-d / 2) + "px";
@@ -626,14 +800,19 @@
     });
   }
 
-  function bounce(dir, spin) {          // 머리에서 튕겨 날아가며 사라짐
-    var p0 = [HEAD_U, HEAD_V];
-    var c  = [HEAD_U + dir * 0.26, HEAD_V - 0.24];
-    var p1 = [HEAD_U + dir * 0.72, HEAD_V + 0.12];
+  function bounce(dir, spin, head) {    // 머리에서 튕겨 날아가며 사라짐
+    var p0 = [head.x, head.y];
+    var c  = [head.x + dir * 0.26, head.y - 0.24];
+    var p1 = [head.x + dir * 0.72, head.y + 0.12];
     var t0 = performance.now();
     (function step(now) {
       var t = (now - t0) / OUT_MS;
-      if (t >= 1) { ball.style.opacity = "0"; schedule(); return; }
+      if (t >= 1) {
+        ball.style.opacity = "0";
+        if (window.naeru) window.naeru.busy = false;
+        schedule();
+        return;
+      }
       var p = qbez(p0, c, p1, t);
       place(p[0], p[1], spin * (1 + t * 1.4), 1, 1);
       ball.style.opacity = String(Math.max(0, 1 - Math.max(0, (t - .55) / .45)));
@@ -641,24 +820,29 @@
     })(t0);
   }
 
-  function hit(dir, spin) {             // 찌그러졌다 돌아오는 한 박자
-    ring();
+  function hit(dir, spin, head) {       // 찌그러졌다 돌아오는 한 박자
+    ring(head);
     shake();
+    if (window.naeru) window.naeru.flinch(dir);   // 맞은 놈이 더 흔들리는 게 맞다
     var t0 = performance.now();
     (function step(now) {
       var t = (now - t0) / HIT_MS;
-      if (t >= 1) { bounce(dir, spin); return; }
+      if (t >= 1) { bounce(dir, spin, head); return; }
       var k = Math.sin(t * Math.PI);
-      place(HEAD_U, HEAD_V, spin, 1 + .30 * k, 1 - .28 * k);
+      place(head.x, head.y, spin, 1 + .30 * k, 1 - .28 * k);
       requestAnimationFrame(step);
     })(t0);
   }
 
   function toss() {
     var dir = Math.random() < 0.5 ? 1 : -1;        // 1 = 왼쪽에서 날아옴
+    // 목표점은 이 던지기 하나에 고정 — 도중에 폴짝이 끼어들어도 흔들리지
+    // 않게. window.naeru 없으면(행동 IIFE 꺼짐/에러) 상수로 폴백
+    var head = window.naeru ? window.naeru.headAt() : { x: HEAD_U, y: HEAD_V };
+    if (window.naeru) window.naeru.busy = true;    // 날아오는 동안 새 행동 금지
     // 프레임은 항상 뷰포트보다 넓으므로, 프레임 밖 = 화면 밖이 보장된다
     var p0 = [dir > 0 ? -0.14 : 1.14, rand(0.20, 0.32)];
-    var p1 = [HEAD_U, HEAD_V];
+    var p1 = [head.x, head.y];
     // 조절점을 출발 높이에 두고 가로로 절반쯤 밀면 포물선 낙하가 된다
     var c  = [p0[0] + (p1[0] - p0[0]) * 0.55, p0[1] - 0.04];
     var spin = rand(140, 300) * dir;
@@ -666,7 +850,7 @@
     ball.style.opacity = "1";
     (function step(now) {
       var t = (now - t0) / IN_MS;
-      if (t >= 1) { hit(dir, spin); return; }
+      if (t >= 1) { hit(dir, spin, head); return; }
       var e = t * t * .35 + t * .65;               // 끝에서 살짝 가속
       var p = qbez(p0, c, p1, e);
       place(p[0], p[1], spin * e, 1, 1);
@@ -679,10 +863,218 @@
                    : rand.apply(null, first ? FIRST : GAP);
     setTimeout(function () {
       if (document.hidden) { schedule(); return; }  // 숨은 탭에선 건너뜀
+      // 폴짝·두리번 중이면 미룬다. 조준점은 던지는 순간 한 번만 읽으므로
+      // 그때 내루미가 공중이면 640ms 뒤엔 이미 내려와 있어 빗나간다
+      if (window.naeru && window.naeru.busy) { schedule(); return; }
       toss();
     }, ms);
   }
   schedule(true);
+})();
+</script>
+
+<script>
+/* ── 내루미 행동: 제자리 반응 — 폴짝 · 두리번 · 좌우 뒤집기.
+   (움찔은 공 IIFE의 hit()가 window.naeru.flinch()로 직접 부른다.)
+   공 IIFE와 같은 패턴의 독립 IIFE — 여기가 터져도 시계·배경·공은 살아야
+   한다. window.naeru를 공개해서 공 IIFE와 최소한의 계약만 주고받는다.
+
+   진폭 상한은 구워진 접지 그림자가 정한다(그림자가 몸을 안 따라오므로):
+   수직(폴짝)은 자기 키의 15% — 자유. 수평(움찔·두리번)은 ±20px@4K(폭의
+   6%)까지만. 회전은 2.5deg까지만 — 넘으면 발이 미끄러진 것처럼 보인다.
+
+   transform은 요소 하나에 하나씩: #naeru-move=폴짝(translateY) /
+   #naeru-act=움찔·두리번(rotate·translateX·scale) / #naeru-face=방향
+   (scaleX). 겹을 안 지키면 서로 덮어쓴다.
+
+   ?act=0 전체 끄기 / ?act=hop|look|flip 해당 동작만 5초 간격 반복 ───── */
+(function () {
+  var params = new URLSearchParams(location.search);
+  // ?still=1(정지 프레임 강제)일 땐 동작도 멈춰야 스크린샷이 결정적이 된다 —
+  // 브라우저 픽셀 diff가 이걸 쓴다
+  if (params.get("still") === "1") return;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var actFlag = params.get("act");
+  if (actFlag === "0") return;
+  var DEBUG = ["hop", "look", "flip"].indexOf(actFlag) >= 0 ? actFlag : null;
+
+  var move = document.getElementById("naeru-move");
+  var act  = document.getElementById("naeru-act");
+  var face = document.getElementById("naeru-face");
+  var head = document.getElementById("naeru-head");
+  var stage = document.getElementById("stage");
+  if (!move || !act || !face || !head || !stage) return;
+
+  var facing = 1;              // 1 = 원래 방향, -1 = 좌우 뒤집힘
+  var HOP_GAP  = [25000, 90000];
+  var LOOK_GAP = [40000, 120000];
+
+  window.naeru = {
+    busy:   false,      // 공이 날아오는 동안(또는 자체 행동 중) 새 행동 금지
+    flinch: flinch,
+    headAt: headAt
+  };
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+  function headAt() {                   // 머리 꼭대기의 현재 화면 좌표(프레임 비율)
+    var r = head.getBoundingClientRect();
+    var s = stage.getBoundingClientRect();
+    // #stage가 아직 크기를 못 받은 순간의 폴백. 프레임 비율이어야 한다 —
+    // 크롭 기준 비율(0.436, 0.143)을 넣으면 공이 엉뚱한 데로 날아간다
+    if (!s.width || !s.height) return { x: 1995 / 3840, y: 1399 / 2160 };
+    return { x: (r.left - s.left) / s.width, y: (r.top - s.top) / s.height };
+  }
+
+  function setMove(t) { move.style.transform = t; }
+  function setAct(t)  { act.style.transform  = t; }
+
+  // 공용 타이밍 헬퍼: dur(ms)짜리 구간을 진행률 0→1로 fn에 넘겨 반복 호출.
+  // sequence()가 여러 구간을 이어붙여 폴짝·두리번의 여러 박자를 만든다
+  function tick(dur, fn, done) {
+    var t0 = performance.now();
+    (function step(now) {
+      var t = Math.min(1, (now - t0) / dur);
+      fn(t);
+      if (t < 1) requestAnimationFrame(step);
+      else if (done) done();
+    })(t0);
+  }
+  function sequence(steps, onDone) {
+    var i = 0;
+    function next() {
+      if (i >= steps.length) { if (onDone) onDone(); return; }
+      var s = steps[i++];
+      tick(s.dur, s.fn, next);
+    }
+    next();
+  }
+
+  function hop(forceFlip) {
+    window.naeru.busy = true;
+    var doDouble = Math.random() < 0.2;             // 가끔(20%) 2연속
+    // 방향 전환은 공중에서만 한다(§4.5) — 구워진 그림자는 안 뒤집히므로 땅에
+    // 붙은 채로 홱 뒤집히면 티가 난다. 뒤집힌 상태면 되돌릴 확률을 높게 둬서
+    // 오래 거울상으로 남지 않게 한다(그래도 전환은 늘 공중에서 일어난다)
+    var willFlip = forceFlip || Math.random() < (facing < 0 ? 0.7 : 0.2);
+    var didFlip  = false;
+
+    sequence([
+      { dur: 110, fn: function (t) {                 // 웅크림
+          setAct("scale(" + (1 + 0.06 * t) + "," + (1 - 0.08 * t) + ")");
+      } },
+      { dur: 260, fn: function (t) {                 // 상승 ease-out
+          var e = 1 - Math.pow(1 - t, 2);
+          setMove("translateY(" + (-13 * e) + "%)");
+          setAct("scale(" + (1.06 - 0.09 * t) + "," + (0.92 + 0.13 * t) + ")");
+          if (willFlip && !didFlip && t > 0.4) {   // 정점 부근에서 전환
+            didFlip = true;
+            facing = -facing;
+            face.style.transform = facing < 0 ? "scaleX(-1)" : "";
+          }
+      } },
+      { dur: 220, fn: function (t) {                 // 하강 ease-in — 착지 직전 스케일은 중립
+          var e = t * t;
+          setMove("translateY(" + (-13 * (1 - e)) + "%)");
+          setAct("scale(" + (0.97 + 0.03 * e) + "," + (1.05 - 0.05 * e) + ")");
+      } },
+      { dur: 90, fn: function (t) {                  // 착지
+          setAct("scale(" + (1 + 0.05 * t) + "," + (1 - 0.06 * t) + ")");
+      } },
+      { dur: 120, fn: function (t) {                 // 착지 복귀
+          setAct("scale(" + (1.05 - 0.05 * t) + "," + (0.94 + 0.06 * t) + ")");
+      } }
+    ], function () {
+      setMove(""); setAct("");   // 방향(facing)은 유지 — 되돌리기도 다음 폴짝의 공중에서
+      if (doDouble) setTimeout(hopAgain, 60);
+      else { window.naeru.busy = false; schedule("hop"); }
+    });
+  }
+
+  function hopAgain() {                               // 70% 높이로 한 번 더
+    sequence([
+      { dur: 90, fn: function (t) {
+          setAct("scale(" + (1 + 0.05 * t) + "," + (1 - 0.07 * t) + ")");
+      } },
+      { dur: 200, fn: function (t) {
+          var e = 1 - Math.pow(1 - t, 2);
+          setMove("translateY(" + (-9.1 * e) + "%)");
+          setAct("scale(" + (1.05 - 0.08 * t) + "," + (0.93 + 0.12 * t) + ")");
+      } },
+      { dur: 170, fn: function (t) {
+          var e = t * t;
+          setMove("translateY(" + (-9.1 * (1 - e)) + "%)");
+          setAct("scale(" + (0.97 + 0.03 * t) + "," + (1.05 - 0.05 * t) + ")");
+      } }
+    ], function () {
+      setMove(""); setAct("");
+      window.naeru.busy = false;
+      schedule("hop");
+    });
+  }
+
+  function look() {                                   // 몸 전체를 갸웃 = 두리번
+    window.naeru.busy = true;
+    var dir = Math.random() < 0.5 ? 1 : -1;
+    sequence([
+      { dur: 380, fn: function (t) {                  // 한쪽으로
+          var e = 1 - Math.pow(1 - t, 2);
+          setAct("rotate(" + (dir * 2 * e) + "deg) translateX(" + (dir * 0.8 * e) + "%)");
+      } },
+      { dur: 700, fn: function () {} },                // 정지
+      { dur: 420, fn: function (t) {                  // 반대쪽으로
+          var k = dir * 2 * (1 - 2 * t), kx = dir * 0.8 * (1 - 2 * t);
+          setAct("rotate(" + k + "deg) translateX(" + kx + "%)");
+      } },
+      { dur: 450, fn: function (t) {                  // 복귀
+          var e = 1 - Math.pow(1 - t, 2);
+          setAct("rotate(" + (-dir * 2 * (1 - e)) + "deg) translateX(" +
+                 (-dir * 0.8 * (1 - e)) + "%)");
+      } }
+    ], function () {
+      setAct("");
+      window.naeru.busy = false;
+      schedule("look");
+    });
+  }
+
+  function flinch(dir) {                               // 공에 맞을 때 — 공 IIFE가 호출
+    dir = dir || (Math.random() < 0.5 ? 1 : -1);
+    sequence([
+      { dur: 90, fn: function (t) {                    // 90ms에 최대
+          setAct("translateX(" + (dir * 0.9 * t) + "%) rotate(" + (dir * 2 * t) +
+                 "deg) scale(" + (1 + 0.04 * t) + "," + (1 - 0.06 * t) + ")");
+      } },
+      { dur: 320, fn: function (t) {                   // 스프링 복귀
+          var damp = (1 - t) * (1 - t);
+          var k = Math.cos(t * Math.PI * 2.4) * damp;
+          setAct("translateX(" + (dir * 0.9 * k) + "%) rotate(" + (dir * 2 * k) +
+                 "deg) scale(" + (1 + 0.04 * k) + "," + (1 - 0.06 * k) + ")");
+      } }
+    ], function () { setAct(""); });
+    // #stage가 --bg-shake 그룹이라 배경 셰이크 + 이 움찔이 합성된다.
+    // 셰이크는 #stage, 움찔은 #naeru-act로 겹이 나뉘어 서로 안 덮어쓴다.
+  }
+
+  function schedule(kind) {
+    var gap = kind === "hop" ? HOP_GAP : LOOK_GAP;
+    var ms = DEBUG ? 5000 : rand(gap[0], gap[1]);
+    setTimeout(function () {
+      if (document.hidden) { schedule(kind); return; }   // 숨은 탭에선 건너뜀
+      if (window.naeru.busy) { schedule(kind); return; }  // 공 날아오는 중 등
+      // 무엇을 할지는 kind가 정한다. DEBUG는 빈도만 바꾼다 —
+      // 여기서 DEBUG로 분기하면 상시 모드에서 look이 영영 안 돈다
+      if (kind === "look") look();
+      else hop(DEBUG === "flip");
+    }, ms);
+  }
+
+  if (DEBUG) {
+    schedule(DEBUG === "look" ? "look" : "hop");
+  } else {
+    schedule("hop");
+    schedule("look");
+  }
 })();
 </script>
 
