@@ -177,6 +177,11 @@ def inpaint_core(filled, min_alpha, wide):
     corr = Image.merge("RGB", [
         ImageMath.lambda_eval(lambda a: a["convert"](a["F"] - a["D"] + 128, "L"), F=f, D=d)
         for f, d in zip(filled.split(), donor.split())])
+    # 구멍 안의 corr은 **캐릭터 색으로 계산된 값**이다. 그대로 두고 확산시키면
+    # 그 값이 섞여 들어가 캐릭터 모양으로 살짝 밝은 얼룩이 남는다 — 제자리에선
+    # 몸이 덮어 안 보이고 점프하면 물감 지운 자국처럼 드러난다(2026-09-01 제보).
+    # 중립 128로 비우고 시작해서 경계값만 안으로 번지게 한다.
+    corr = Image.composite(corr, Image.new("RGB", (W, H), (128, 128, 128)), known)
     # 반경을 구멍 폭(~300px)에 맞게 크게 시작해야 보정이 한가운데까지 닿는다.
     # 28에서 시작했더니 dusk 언덕 한복판에 도너의 따뜻한 색이 그대로 남았다
     # (게이트 A: 코어 분홍기 33.8 vs 링 22.4 → 96부터 시작하면 20.1 vs 22.2)
