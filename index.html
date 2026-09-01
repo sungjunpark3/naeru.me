@@ -812,8 +812,8 @@ function layoutFrameBox(el) {
   var HEAD_U = 0.523, HEAD_V = 0.634;
   var BALL_W = 0.024;                   // 프레임 폭 대비 공 지름
   var IN_MS  = 640, HIT_MS = 110, OUT_MS = 820;
-  var FIRST  = [20000, 45000];          // 첫 등장까지
-  var GAP    = [120000, 360000];        // 그 뒤 간격 — 여기만 만지면 됨
+  var FIRST  = [7000, 15000];           // 첫 등장까지
+  var GAP    = [40000, 120000];         // 그 뒤 간격 — 여기만 만지면 됨
 
   var frame = document.getElementById("frame");
   var ball  = document.getElementById("ball");
@@ -985,8 +985,8 @@ function layoutFrameBox(el) {
   if (!move || !act || !face || !head || !stage) return;
 
   var facing = 1;              // 1 = 원래 방향, -1 = 좌우 뒤집힘
-  var HOP_GAP  = [25000, 90000];
-  var LOOK_GAP = [40000, 120000];
+  var HOP_GAP  = [8000, 30000];
+  var LOOK_GAP = [13000, 40000];
 
   window.naeru = {
     busy:   false,      // 공이 날아오는 동안(또는 자체 행동 중) 새 행동 금지
