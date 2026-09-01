@@ -19,7 +19,7 @@
 # 부분만 inpaint_core()가 공간에서 따로 채운다.
 import sys
 from pathlib import Path
-from PIL import Image, ImageChops, ImageFilter, ImageMath
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageMath
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
@@ -40,6 +40,9 @@ DILATE_PX       = 24
 DONOR_DX        = 1024   # WIDE 밴드에서 구조를 빌려올 x (CROP은 494~1070)
 HOLE_DILATE     = 20     # 구멍을 넓혀 이음매를 깨끗한 초원 쪽으로 밀어낸다
 HOLE_FEATHER    = 12
+# 접지 밴드 위쪽 경계(global y). 이 아래는 도너(밝은 잔디)로 채우면 접지 그림자가
+# 날아가 캐릭터가 떠 보인다 — 주변에서 확산시켜 그림자 어둠을 물려받게 한다.
+GROUND_BAND_TOP = 1680
 
 
 def pink_score(rgb_img):
@@ -145,6 +148,20 @@ def inpaint_core(filled, min_alpha, wide):
 
     # 색 보정장: 성한 자리의 (filled - donor)를 128 기준 오프셋으로 담고,
     # 그 값을 고정한 채 반복 블러해서 구멍 안쪽으로 번지게 한다
+    # 접지 밴드는 도너를 쓰지 않는다. 그 자리엔 접지 그림자가 있고 도너는 볕
+    # 드는 잔디라, 그대로 갖다 붙이면 그림자가 지워져 발밑이 밝아진다(=캐릭터가
+    # 떠 보인다). 밴드 안은 주변 화소에서 확산시켜 그림자 어둠을 물려받게 한다.
+    band = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(band).rectangle(
+        [0, GROUND_BAND_TOP - CROP_ORIGIN[1], W, H], fill=255)
+    # 확산 소스는 **구멍 전체 바깥**이어야 한다. 밴드만 구멍으로 치면 구멍 위쪽
+    # (아직 캐릭터 색인 몸통)에서 색을 끌어와 발밑이 분홍으로 번진다
+    diffused = filled.copy()
+    for radius in (24, 16, 10, 6, 4):
+        for _ in range(5):
+            diffused = Image.composite(filled, diffused.filter(
+                ImageFilter.GaussianBlur(radius)), known)
+
     corr = Image.merge("RGB", [
         ImageMath.lambda_eval(lambda a: a["convert"](a["F"] - a["D"] + 128, "L"), F=f, D=d)
         for f, d in zip(filled.split(), donor.split())])
@@ -160,6 +177,8 @@ def inpaint_core(filled, min_alpha, wide):
         ImageMath.lambda_eval(lambda a: a["convert"](a["D"] + a["C"] - 128, "L"), D=d, C=c)
         for d, c in zip(donor.split(), spread.split())])
 
+    # 밴드 아래는 확산 결과로 갈아끼운다
+    patched = Image.composite(diffused, patched, band.filter(ImageFilter.GaussianBlur(8)))
     return Image.composite(patched, filled, hole.filter(ImageFilter.GaussianBlur(HOLE_FEATHER)))
 
 

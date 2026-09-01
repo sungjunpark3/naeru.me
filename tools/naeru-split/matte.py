@@ -33,6 +33,14 @@ SMOOTH_R         = 3.5      # 윤곽 평활 반경 — 이진 임계가 만드�
 # 색거리가 잘 듣는다(p90=62) — 흰 발 vs 초록 잔디라서.
 FEET_TOP_GLOBAL  = 1680
 FEET_LO, FEET_HI = 25, 70
+# 경계 링 복원: 실루엣 바로 바깥 몇 px에서 plate는 **진짜 배경**이다(시간축
+# 채우기가 그 자리 원본 화소를 그대로 쓴다 — 링 0~4px와 14~22px 평균밝기가
+# 126.7/126.6으로 평탄한 걸로 확인). 그러니 그 좁은 링에서는 |O-P|가 곧
+# "전경이 얼마나 섞였나"다. 이진 키는 어두운 외곽선을 조금 잘라내는데(브라우저
+# 실측: 실루엣 밖 0~2px가 원본보다 +2.9 밝음 = 옅은 후광), 링에서만 알파를
+# **보태면**(max) 배경은 |O-P|≈0이라 안 딸려온다.
+RING_OUT, RING_IN = 6, 2
+RING_LO, RING_HI  = 8, 40
 
 
 def silhouette(rgb_img, canvas_size):
@@ -142,6 +150,8 @@ def refine_alpha_sequence():
     # 두면 지운 자리만 되살리게 되고, 그 아래 그림자는 건드리지 않는다
     scale = 255.0 / (FEET_HI - FEET_LO)
     ramp = [max(0, min(255, round((v - FEET_LO) * scale))) for v in range(256)]
+    rscale = 255.0 / (RING_HI - RING_LO)
+    ring_ramp = [max(0, min(255, round((v - RING_LO) * rscale))) for v in range(256)]
     band = Image.new("L", CROP_SIZE, 0)
     ImageDraw.Draw(band).rectangle(
         [0, FEET_TOP_GLOBAL - CROP_ORIGIN[1], CROP_SIZE[0], CROP_SIZE[1]], fill=255)
@@ -152,9 +162,23 @@ def refine_alpha_sequence():
         o = Image.open(o_fp).convert("RGBA")
         bg = Image.alpha_composite(o, plate).convert("RGB")   # plate가 지운 뒤의 배경
         d = ImageChops.difference(o.convert("RGB"), bg).split()
-        d = ImageChops.lighter(ImageChops.lighter(d[0], d[1]), d[2]).point(ramp)
+        dmax = ImageChops.lighter(ImageChops.lighter(d[0], d[1]), d[2])
+        d = dmax.point(ramp)
+        d_ring = dmax.point(ring_ramp)
         feet = ImageChops.multiply(ImageChops.darker(d, p_alpha), band)
-        raw.append(ImageChops.lighter(key, feet))
+
+        # 경계 링에서 잘려나간 외곽선을 되찾는다 (보태기만 — 빼지 않는다)
+        sil = key.point(lambda v: 255 if v > 128 else 0)
+        ring = ImageChops.subtract(sil.filter(ImageFilter.MaxFilter(2 * RING_OUT + 1)),
+                                   sil.filter(ImageFilter.MinFilter(2 * RING_IN + 1)))
+        edge = ImageChops.multiply(ImageChops.darker(d_ring, p_alpha), ring)
+        feet = ImageChops.lighter(feet, edge)
+        # 발을 보탠 뒤 윤곽을 다시 편다 — 색거리 램프는 거칠어서 그대로 두면
+        # 발끝만 너덜너덜하게 남는다(키 쪽은 이미 평활을 거쳤다)
+        a = ImageChops.lighter(key, feet)
+        a = a.filter(ImageFilter.GaussianBlur(SMOOTH_R)).point(
+            lambda v: 255 if v > 128 else 0).filter(ImageFilter.GaussianBlur(BLUR_PX))
+        raw.append(a)
     out_dir = B / "alpha2"
     out_dir.mkdir(exist_ok=True)
     for i, fp in enumerate(a_frames):
