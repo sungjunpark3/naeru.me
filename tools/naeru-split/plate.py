@@ -30,7 +30,11 @@ from coords import (WORK_ORIGIN, WORK_SIZE, CROP_ORIGIN, CROP_SIZE,
 from matte import build_alpha_sequence, keep_main_component, BODY_SEED
 
 THRESH          = 32     # 분홍기 R-max(G,B) 임계, punch.py와 동일
-GROUND_Y_GLOBAL = 1720    # 발끝 — 이 아래는 그림자 보존을 위해 페이드아웃
+# 접지 페이드 시작선. 발끝은 y1720인데 여기를 1720으로 두면 페이드가 y1694에서
+# 시작해 **발을 반쯤만 지운다** — 하얀 발끝이 잔디에 얼룩으로 남고, 폴짝하면
+# 몸은 떠 있는데 발자국만 땅에 남는다(2026-09-01 관측). 1745면 발을 완전히
+# 지우면서 그 아래 그림자 띠는 그대로 남는다.
+GROUND_Y_GLOBAL = 1745
 FADE            = 26
 DILATE_PX       = 24
 DONOR_DX        = 1024   # WIDE 밴드에서 구조를 빌려올 x (CROP은 494~1070)

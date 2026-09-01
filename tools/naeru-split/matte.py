@@ -22,11 +22,17 @@ from coords import (WORK_ORIGIN, CROP_ORIGIN, CROP_SIZE, N_FRAMES,
 
 KEY_THRESH       = 30       # 분홍기 이진 임계 — 아래 주석의 실측값에서 나온 것
 HOLE_THRESH      = 180      # 이 미만은 flood-fill 후보(배 크림 줄무늬까지 걸리게 넉넉히)
-BLUR_PX          = 1.2
+BLUR_PX          = 1.4
 ALPHA_FLOOR      = 38       # ≈0.15*255 — 언프리멀티플라이 나눗셈 클램프 하한
 # 316프레임 실루엣 교집합의 무게중심(WORK-local). 모든 프레임에서 몸 안이라는
 # 걸 확인했다 — keep_main_component의 flood fill 시드. global (2025,1563)
 BODY_SEED        = (375, 313)
+SMOOTH_R         = 3.5      # 윤곽 평활 반경 — 이진 임계가 만드는 톱니를 편다
+# 발 되살리기: 발은 희어서 분홍기가 0에 가깝고(실측 알파 0이 7525/10500 화소),
+# plate가 발을 지우면 스프라이트가 다시 그리질 못한다. 이 구간에서만은 배경과의
+# 색거리가 잘 듣는다(p90=62) — 흰 발 vs 초록 잔디라서.
+FEET_TOP_GLOBAL  = 1680
+FEET_LO, FEET_HI = 25, 70
 
 
 def silhouette(rgb_img, canvas_size):
@@ -94,12 +100,67 @@ def build_alpha_sequence():
         a = silhouette(im, canvas_size)
         a = fill_holes(a)
         a = keep_main_component(a, BODY_SEED)
+        # 윤곽 평활: 블러 → 재이진화. 분홍기 임계가 노이즈 위에서 갈리며 만든
+        # ±2px 톱니를 펴준다. 닫기(9px)는 그 톱니를 4px 블록으로 뭉치게 할 뿐이라
+        # 이게 필요하다 — 확대해보면 머리 위 계단이 사라진다
+        a = a.filter(ImageFilter.GaussianBlur(SMOOTH_R)).point(
+            lambda v: 255 if v > 128 else 0)
         a = a.filter(ImageFilter.GaussianBlur(BLUR_PX))
         a_crop = a.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1]))
         a_crop.save(out_dir / fp.name)
         if (i + 1) % 79 == 0:
             print(f"  alpha {i + 1}/{N_FRAMES}")
     print(f"alpha: {N_FRAMES}프레임 -> {out_dir}")
+
+
+def median3(a, b, c):
+    """세 장의 화소별 중앙값 = max(min(a,b), min(max(a,b), c))."""
+    return ImageChops.lighter(ImageChops.darker(a, b),
+                              ImageChops.darker(ImageChops.lighter(a, b), c))
+
+
+def refine_alpha_sequence():
+    """build/alpha → build/alpha2: 시간축 3프레임 중앙값으로 안정화.
+
+    프레임마다 독립으로 키를 뜨면 경계가 지글거린다(boiling). 제자리에 서 있을
+    땐 plate가 그 오차를 상쇄해 안 보이지만, 움직이면 테두리가 들끓는 것처럼
+    보인다 — 누끼가 더러워졌다는 제보의 절반이 이것이다. 캐릭터 움직임이 느려서
+    3프레임 중앙값으로도 모션은 안 뭉개진다(실측: 프레임간 평균차 3.8 유지).
+
+    (배경과의 색거리로 알파를 뽑는 difference matting도 해봤는데, 어두운 외곽선이
+     어두운 언덕과 색이 비슷해 거기서 알파가 무너졌다 — 머리 위쪽이 반투명해진다.
+     전경 거리 p50=61이라 몸통 절반도 램프 안에 들어간다. 그래서 폐기.)"""
+    a_frames = sorted((B / "alpha").glob("*.png"))
+    o_frames = sorted((B / "O" / "dusk").glob("*.png"))
+    assert len(a_frames) == len(o_frames) == N_FRAMES
+    plate = Image.open(REPO / "img" / "plate-dusk.png").convert("RGBA").crop(
+        (CROP_ORIGIN[0], CROP_ORIGIN[1],
+         CROP_ORIGIN[0] + CROP_SIZE[0], CROP_ORIGIN[1] + CROP_SIZE[1]))
+    p_alpha = plate.getchannel("A")
+
+    # 발 구간에서만 색거리로 알파를 보탠다. "plate가 지운 만큼"(p_alpha)을 상한으로
+    # 두면 지운 자리만 되살리게 되고, 그 아래 그림자는 건드리지 않는다
+    scale = 255.0 / (FEET_HI - FEET_LO)
+    ramp = [max(0, min(255, round((v - FEET_LO) * scale))) for v in range(256)]
+    band = Image.new("L", CROP_SIZE, 0)
+    ImageDraw.Draw(band).rectangle(
+        [0, FEET_TOP_GLOBAL - CROP_ORIGIN[1], CROP_SIZE[0], CROP_SIZE[1]], fill=255)
+
+    raw = []
+    for a_fp, o_fp in zip(a_frames, o_frames):
+        key = Image.open(a_fp).convert("L")
+        o = Image.open(o_fp).convert("RGBA")
+        bg = Image.alpha_composite(o, plate).convert("RGB")   # plate가 지운 뒤의 배경
+        d = ImageChops.difference(o.convert("RGB"), bg).split()
+        d = ImageChops.lighter(ImageChops.lighter(d[0], d[1]), d[2]).point(ramp)
+        feet = ImageChops.multiply(ImageChops.darker(d, p_alpha), band)
+        raw.append(ImageChops.lighter(key, feet))
+    out_dir = B / "alpha2"
+    out_dir.mkdir(exist_ok=True)
+    for i, fp in enumerate(a_frames):
+        median3(raw[max(0, i - 1)], raw[i], raw[min(N_FRAMES - 1, i + 1)]) \
+            .save(out_dir / fp.name)
+    print(f"alpha2: {N_FRAMES}프레임 -> {out_dir}")
 
 
 def unpremultiply(o_band, p_band, a_band):
@@ -138,7 +199,16 @@ def bleed_transparent(rgb, a):
         for ch in rgb.split())
     far = Image.composite(bleed, Image.new("RGB", rgb.size, mean),
                           den.point(lambda v: 255 if v > 8 else 0))
-    return Image.composite(rgb, far, a.point(lambda v: 255 if v >= 16 else 0))
+
+    # 알파가 낮을수록 bleed 쪽으로 섞는다. 언프리멀티플라이는 알파가 작을수록
+    # 크게 나눠서 색이 요동치는데, 그 화소가 바로 움직일 때 눈에 띄는 경계다.
+    # a>=96이면 계산값을 그대로 쓰고(디테일 보존), 그 아래에서만 안정화한다.
+    w = a.point([min(255, round(v * 255 / 96)) for v in range(256)])
+    return Image.merge("RGB", [
+        ImageMath.lambda_eval(
+            lambda x: x["convert"]((x["F"] * x["W"] + x["G"] * (255 - x["W"])) / 255, "L"),
+            F=f, G=g, W=w)
+        for f, g in zip(rgb.split(), far.split())])
 
 
 def build_variant(variant):
@@ -148,9 +218,9 @@ def build_variant(variant):
     pr, pg, pb = p_crop.split()
 
     o_frames = sorted((B / "O" / variant).glob("*.png"))
-    a_frames = sorted((B / "alpha").glob("*.png"))
+    a_frames = sorted((B / "alpha2").glob("*.png"))
     assert len(o_frames) == N_FRAMES, f"O/{variant}에 {len(o_frames)}프레임"
-    assert len(a_frames) == N_FRAMES, f"alpha에 {len(a_frames)}프레임"
+    assert len(a_frames) == N_FRAMES, f"alpha2에 {len(a_frames)}프레임 — matte.py를 통째로 돌릴 것"
 
     out_dir = B / f"naeru-{variant}"
     out_dir.mkdir(exist_ok=True)
@@ -168,7 +238,8 @@ def build_variant(variant):
 
 
 def main():
-    build_alpha_sequence()
+    build_alpha_sequence()      # 1단계: 이진 키 (plate.py도 이걸 쓴다)
+    refine_alpha_sequence()     # 2단계: plate와의 색거리로 경계를 다듬는다
     for v in VARIANTS:
         build_variant(v)
 
