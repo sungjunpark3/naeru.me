@@ -43,6 +43,14 @@ HOLE_FEATHER    = 12
 # 접지 밴드 위쪽 경계(global y). 이 아래는 도너(밝은 잔디)로 채우면 접지 그림자가
 # 날아가 캐릭터가 떠 보인다 — 주변에서 확산시켜 그림자 어둠을 물려받게 한다.
 GROUND_BAND_TOP = 1680
+# 머리 위 구간(global y1400 위)은 무조건 합성으로 채운다.
+# 키잉창 상단이 1394라 머리 꼭대기(1392부터 시작)가 2~3px 잘리는데, 잘린 그
+# 조각은 min_alpha가 0이라 구멍으로 안 잡히고 **프레임 1의 픽셀 그대로** 남는다.
+# 제자리에선 스프라이트 머리가 덮어 안 보이지만, 점프하면 머리가 있던 자리에
+# 분홍 조각이 남는다(2026-09-01 제보: "점프할 때 머리쪽 누끼가 깨진다").
+# 이 구간을 통째로 합성해두면 조각이 사라지고, 스프라이트 쪽 머리 꼭대기는
+# matte.py의 링 복원이 되찾아온다(그 자리 plate가 깨끗해야 링이 작동한다).
+HEAD_BAND_BOT   = 1400
 
 
 def pink_score(rgb_img):
@@ -143,6 +151,10 @@ def inpaint_core(filled, min_alpha, wide):
     # 모양 테두리가 남는다. 20px 넓혀 이음매를 확실히 깨끗한 자리로 옮긴다
     hole  = min_alpha.point(lambda v: 255 if v > 24 else 0)  # 한 번이라도 가려진 적 있으면 불신
     hole  = hole.filter(ImageFilter.MaxFilter(2 * HOLE_DILATE + 1))
+    head = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(head).rectangle(
+        [0, 0, W, HEAD_BAND_BOT - CROP_ORIGIN[1]], fill=255)
+    hole  = ImageChops.lighter(hole, head)
     known = ImageChops.invert(hole)
     donor = wide.crop((DONOR_DX, 0, DONOR_DX + W, H))
 
