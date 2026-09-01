@@ -494,9 +494,19 @@ function layoutFrameBox(el) {
   addEventListener("resize", layoutStage);
   layoutStage();
 
-  function plateOf(v) { return 'url("img/plate-' + v + '.png")'; }
-  function naeruStillOf(v) { return "img/naeru-" + v + ".png"; }
-  function naeruSrcOf(v, fmt) { return "img/naeru-" + v + "." + fmt; }
+  /* 분리 자산(plate·내루미)은 **한 벌로 맞아야** 한다. 서로 다른 배포본이
+     섞이면 실루엣을 두르는 테두리가 생긴다. _headers가 /img/*에
+     stale-while-revalidate=604800을 주므로 브라우저는 max-age가 지나도 이번
+     방문엔 옛 파일을 그대로 쓴다 — 하루에 여러 번 배포하면 세대가 섞인다.
+     그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
+     **plate-*.png / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
+     (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
+  var ASSET_V = "20260901c";
+  function av(u) { return u + "?v=" + ASSET_V; }
+
+  function plateOf(v) { return 'url("' + av("img/plate-" + v + ".png") + '")'; }
+  function naeruStillOf(v) { return av("img/naeru-" + v + ".png"); }
+  function naeruSrcOf(v, fmt) { return av("img/naeru-" + v + "." + fmt); }
 
   /* Safari는 VP9 webm을 재생은 하되 알파를 무시해 검은 사각형으로 그린다.
      canPlayType으로는 구분이 안 되므로, 16×16 완전 투명 프로브를 캔버스에
@@ -524,7 +534,7 @@ function layoutFrameBox(el) {
       } catch (e) { finish("mp4"); }
     });
     probe.addEventListener("error", function () { finish("mp4"); });
-    probe.src = "img/alpha-probe.webm";
+    probe.src = av("img/alpha-probe.webm");
     probe.load();
     setTimeout(function () { finish("mp4"); }, 1200);
   });
@@ -616,8 +626,9 @@ function layoutFrameBox(el) {
       vNew.src = naeruSrcOf(variant, fmt);
       try { vNew.currentTime = 0; } catch (e) {}
       vNew.play().catch(function () {});
-      Promise.all([firstFrameReady(vNew), whenDecoded(plateOf(variant)
-        .replace(/^url\("|"\)$/g, ""))]).then(function () {
+      Promise.all([firstFrameReady(vNew),
+                   whenDecoded(plateOf(variant).replace(/^url\("|"\)$/g, ""))
+      ]).then(function () {
         vNew.classList.add("on");
         plates[targetSlot].classList.add("on");  // ← plate는 여기서만 켠다
         plates[1 - targetSlot].classList.remove("on");
