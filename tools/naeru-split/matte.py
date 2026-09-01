@@ -113,6 +113,34 @@ def unpremultiply(o_band, p_band, a_band):
     )
 
 
+def bleed_transparent(rgb, a):
+    """투명한 자리의 RGB를 몸 색으로 번지게 채운다.
+
+    언프리멀티플라이는 알파가 0에 가까우면 `255/max(a,38)` = 최대 6.7배로
+    외삽하므로 투명 영역에 극단색이 남는다(실측: (230,183,149)·(225,168,183)).
+    VP9 알파는 알파가 0인 화소의 색을 안 쓰지만, **HEVC 알파는 4:2:0 크로마라
+    그 색이 경계 화소로 번져** 내루미 둘레에 색이 튄다 — 사파리에서 관측됐다.
+
+    알파로 가중한 블러(∑aC/∑a)로 몸 색을 바깥으로 밀어 채우고, 몸에서 멀어
+    가중치가 없는 자리는 몸 평균색으로 덮는다. 보이는 화소(a>=16)는 그대로 둔다."""
+    num = [ImageChops.multiply(ch, a).filter(ImageFilter.GaussianBlur(16))
+           for ch in rgb.split()]
+    den = a.filter(ImageFilter.GaussianBlur(16))
+    bleed = Image.merge("RGB", [
+        ImageMath.lambda_eval(
+            lambda x: x["convert"](x["N"] * 255 / x["max"](x["D"], 1), "L"), N=n, D=den)
+        for n in num])
+
+    body = a.point(lambda v: 255 if v >= 200 else 0)
+    n_body = body.histogram()[255] or 1
+    mean = tuple(sum(i * c for i, c in enumerate(
+        ImageChops.multiply(ch, body).histogram()[1:], start=1)) // n_body
+        for ch in rgb.split())
+    far = Image.composite(bleed, Image.new("RGB", rgb.size, mean),
+                          den.point(lambda v: 255 if v > 8 else 0))
+    return Image.composite(rgb, far, a.point(lambda v: 255 if v >= 16 else 0))
+
+
 def build_variant(variant):
     plate = Image.open(REPO / "img" / f"plate-{variant}.png").convert("RGB")
     p_crop = plate.crop((CROP_ORIGIN[0], CROP_ORIGIN[1],
@@ -130,10 +158,12 @@ def build_variant(variant):
         o = Image.open(o_fp).convert("RGB")
         a = Image.open(a_fp).convert("L")
         orr, og, ob = o.split()
-        cr = unpremultiply(orr, pr, a)
-        cg = unpremultiply(og, pg, a)
-        cb = unpremultiply(ob, pb, a)
-        Image.merge("RGBA", (cr, cg, cb, a)).save(out_dir / o_fp.name)
+        rgb = Image.merge("RGB", (unpremultiply(orr, pr, a),
+                                  unpremultiply(og, pg, a),
+                                  unpremultiply(ob, pb, a)))
+        rgb = bleed_transparent(rgb, a)
+        rgb.putalpha(a)
+        rgb.save(out_dir / o_fp.name)
     print(f"{variant}: {N_FRAMES}프레임 -> {out_dir}")
 
 

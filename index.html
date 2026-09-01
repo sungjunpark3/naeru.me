@@ -545,10 +545,68 @@ function layoutFrameBox(el) {
     });
   });
 
+  /* plate와 내루미는 **반드시 같은 프레임에** 켠다. 따로 켜지면 둘 중 하나가
+     눈에 보인다: plate만 먼저 = 배경의 구워진 내루미가 지워진 빈 초원,
+     내루미만 먼저 = 구워진 것과 DOM 것이 겹쳐 이중노출. 첫 접속에서 오류처럼
+     보이던 게 이것이다. 둘 다 준비된 뒤 함께 켜면, 켜지기 전 화면은 예전
+     사이트와 똑같은 (내루미가 구워진) 배경이라 아무 일도 안 일어나 보인다.
+     페이드 중에도 안전하다 — plate가 지우는 양과 스프라이트가 그리는 양이
+     같은 불투명도로 상쇄돼서 합이 원본과 같다. */
+  function whenDecoded(url) {                    // 이미지 1장이 그려질 준비가 될 때까지
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = img.onerror = function () { resolve(); };
+      img.src = url;
+    });
+  }
+
+  function firstFrameReady(v) {                  // 영상의 첫 프레임이 디코드될 때까지
+    return new Promise(function (resolve) {
+      if (v.readyState >= 2) { resolve(); return; }
+      var done = false;
+      function go() { if (!done) { done = true; resolve(); } }
+      v.addEventListener("loadeddata", go, { once: true });
+      v.addEventListener("error", go, { once: true });
+      setTimeout(go, 4000);                      // 느린 회선에서 영원히 안 켜지는 것 방지
+    });
+  }
+
+  /* 영상이 실제로 흐르는지 감시한다. poster가 깔려 있어서 재생이 막혀도
+     "정지한 내루미"로 그럴듯하게 보이기 때문에, 안 도는 걸 눈으로는 못 잡는다
+     (숨쉬는 모션이 사라졌다는 제보가 이것이었다). 안 흐르면 다시 play(),
+     그래도 안 되면 다른 코덱으로, 마지막엔 정지본으로 내린다. */
+  function watchPlayback(v, variant, fmt) {
+    var t0 = v.currentTime;
+    setTimeout(function () {
+      if (!v.isConnected || v.currentTime > t0) return;
+      v.play().catch(function () {});
+      setTimeout(function () {
+        if (v.currentTime > t0) return;
+        var alt = fmt === "webm" ? "mp4" : "webm";
+        if (!v.dataset.retried) {                // 코덱 한 번만 바꿔본다
+          v.dataset.retried = "1";
+          naeruFormat = alt;
+          v.src = naeruSrcOf(variant, alt);
+          v.play().catch(function () {});
+          watchPlayback(v, variant, alt);
+          return;
+        }
+        naeruStillFallback = true;               // 둘 다 안 돌면 정지본
+        naeruVideos.forEach(function (x) { x.classList.remove("on"); });
+        naeruStill.src = naeruStillOf(variant);
+        naeruStill.classList.add("on");
+      }, 1800);
+    }, 1800);
+  }
+
   function setNaeru(targetSlot, variant) {
     naeruStill.src = naeruStillOf(variant);      // reduced-motion·최종 폴백 둘 다 이걸 씀
     if (noMotion || naeruStillFallback) {
-      naeruStill.classList.add("on");
+      whenDecoded(naeruStillOf(variant)).then(function () {
+        naeruStill.classList.add("on");
+        plates[targetSlot].classList.add("on");
+        plates[1 - targetSlot].classList.remove("on");
+      });
       return;
     }
     naeruFormatReady.then(function (fmt) {
@@ -558,8 +616,14 @@ function layoutFrameBox(el) {
       vNew.src = naeruSrcOf(variant, fmt);
       try { vNew.currentTime = 0; } catch (e) {}
       vNew.play().catch(function () {});
-      vNew.classList.add("on");
-      vOld.classList.remove("on");
+      Promise.all([firstFrameReady(vNew), whenDecoded(plateOf(variant)
+        .replace(/^url\("|"\)$/g, ""))]).then(function () {
+        vNew.classList.add("on");
+        plates[targetSlot].classList.add("on");  // ← plate는 여기서만 켠다
+        plates[1 - targetSlot].classList.remove("on");
+        vOld.classList.remove("on");
+        watchPlayback(vNew, variant, fmt);
+      });
       setTimeout(function () {
         vOld.pause();
         vOld.removeAttribute("src");
@@ -576,8 +640,7 @@ function layoutFrameBox(el) {
     root.style.setProperty("--freeze-a", freezeOf(variant));
     freezes[slot].classList.add("on");
     root.style.setProperty("--plate-a", plateOf(variant));
-    plates[slot].classList.add("on");
-    setNaeru(slot, variant);
+    setNaeru(slot, variant);                     // plate는 내루미와 같이 켜진다
     if (noMotion) return;            // 움직임 최소화: 배경 영상 로드 생략
     var v = vids[slot];
     v.poster = "img/sky-" + variant + ".jpg";
@@ -596,9 +659,7 @@ function layoutFrameBox(el) {
                            freezeOf(variant));
     root.style.setProperty(newSlot === 0 ? "--plate-a" : "--plate-b",
                            plateOf(variant));
-    plates[newSlot].classList.add("on");
-    plates[oldSlot].classList.remove("on");
-    setNaeru(newSlot, variant);
+    setNaeru(newSlot, variant);                  // plate는 내루미와 같이 켜지고 꺼진다
     if (noMotion) {                  // 정지 프레임끼리 즉시 교체
       freezes[newSlot].classList.add("on");
       freezes[oldSlot].classList.remove("on");
@@ -684,11 +745,18 @@ function layoutFrameBox(el) {
     if (document.hidden) {
       vids[0].pause();
       vids[1].pause();
+      naeruVideos[0].pause();                    // 내루미도 같이 — 안 넣으면 숨은
+      naeruVideos[1].pause();                    // 탭에서 계속 디코딩된다
       return;
     }
     if (!booted) return;
     if (!noMotion && vids[slot].src) {
       vids[slot].play().catch(function () {});
+    }
+    // 내루미 재개가 빠져 있어서, 한 번 멈추면 poster만 남아 "숨쉬는 모션이
+    // 사라진" 것처럼 보였다
+    if (!noMotion && !naeruStillFallback && naeruVideos[slot].src) {
+      naeruVideos[slot].play().catch(function () {});
     }
     render();
     if (Date.now() - lastFetch > 60000) fetchWeather().then(sync);
