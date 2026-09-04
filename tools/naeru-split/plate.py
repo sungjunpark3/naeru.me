@@ -157,35 +157,50 @@ def inpaint_core(filled, min_alpha, lama):
     return Image.composite(lama, filled, hole.filter(ImageFilter.GaussianBlur(HOLE_FEATHER)))
 
 
-def best_frame_masks():
-    """화소마다 "지금까지 중 알파가 가장 낮은(=가장 안 가려진) 프레임"이
-    갱신되는 지점의 마스크 316(-1)장. dusk 알파에서만 계산 — 8변형에 그대로
-    재사용(변형은 색만 바뀌지 프레임별로 가려지는 모양은 같다)."""
-    a_frames = sorted((B / "alpha").glob("*.png"))
-    assert len(a_frames) == N_FRAMES
-    best_alpha = Image.open(a_frames[0]).convert("L")
-    masks = []
-    for fp in a_frames[1:]:
-        a = Image.open(fp).convert("L")
-        better = ImageChops.subtract(best_alpha, a).point(lambda v: 255 if v > 0 else 0)
-        masks.append(better)
-        best_alpha = ImageChops.darker(best_alpha, a)
-    return masks, best_alpha
+def temporal_fill(variant):
+    """그 화소가 **안 가려진 프레임들의 평균**으로 배경을 만든다.
 
+    처음엔 화소마다 "가장 안 가려진 한 프레임"을 골라 썼는데, 이웃 화소가 서로
+    수백 프레임 떨어진 값에서 오다 보니 잡티와 세로 줄무늬가 생겼다 — 제자리에서
+    캐릭터를 두르고 보이는 그 얼룩이 이것이었다(2026-09-04 제보). 평균은 이웃끼리
+    같은 표본 집합을 공유해서 매끈하고, 배경이 루프 내내 거의 안 움직이므로
+    (프레임간 mean 0.28, 반주기 드리프트 1.38) 흐려지지도 않는다.
 
-def temporal_fill(variant, masks):
-    """화소마다 best_frame_masks가 고른 프레임의 그 변형 실제 픽셀을 쓴다."""
+    한 번도 안 드러난 화소는 표본이 0개다 → 그 자리는 inpaint_core가 채운다."""
     o_frames = sorted((B / "O" / variant).glob("*.png"))
-    assert len(o_frames) == N_FRAMES, f"O/{variant}에 {len(o_frames)}프레임"
-    filled = Image.open(o_frames[0]).convert("RGB")
-    for fp, better in zip(o_frames[1:], masks):
-        o = Image.open(fp).convert("RGB")
-        filled = Image.composite(o, filled, better)
-    return filled
+    a_frames = sorted((B / "alpha").glob("*.png"))
+    assert len(o_frames) == len(a_frames) == N_FRAMES, f"O/{variant} 프레임 수"
+
+    W, H = CROP_SIZE
+    acc = [Image.new("I", (W, H), 0) for _ in range(3)]
+    cnt = Image.new("I", (W, H), 0)
+    for o_fp, a_fp in zip(o_frames, a_frames):
+        free = Image.open(a_fp).convert("L").point(lambda v: 0 if v > 24 else 1)
+        bands = Image.open(o_fp).convert("RGB").split()
+        for i in range(3):
+            acc[i] = ImageMath.lambda_eval(
+                lambda a: a["convert"](a["A"] + a["V"] * a["M"], "I"),
+                A=acc[i], V=bands[i], M=free)
+        cnt = ImageMath.lambda_eval(
+            lambda a: a["convert"](a["C"] + a["M"], "I"), C=cnt, M=free)
+
+    return Image.merge("RGB", [
+        ImageMath.lambda_eval(
+            lambda a: a["convert"](a["A"] / a["max"](a["C"], 1), "L"), A=acc[i], C=cnt)
+        for i in range(3)])
 
 
-def save_variant(variant, crop_mask, masks, min_alpha):
-    filled = temporal_fill(variant, masks)
+def min_alpha_map():
+    """화소별 최소 알파 = 그 자리가 316프레임 내내 얼마나 가려졌나."""
+    best = None
+    for fp in sorted((B / "alpha").glob("*.png")):
+        a = Image.open(fp).convert("L")
+        best = a if best is None else ImageChops.darker(best, a)
+    return best
+
+
+def save_variant(variant, crop_mask, min_alpha):
+    filled = temporal_fill(variant)
     lama = Image.open(B / "lama" / f"{variant}.png").convert("RGB").crop(
         (CROP_ORIGIN[0] - CTX_ORIGIN[0], CROP_ORIGIN[1] - CTX_ORIGIN[1],
          CROP_ORIGIN[0] - CTX_ORIGIN[0] + CROP_SIZE[0],
@@ -207,10 +222,10 @@ def main():
     crop_mask = build_crop_mask()
     crop_mask.save(B / "plate-alpha-debug.png")
     run_lama()                  # 덮개 마스크를 읽어 build/lama/를 채운다
-    masks, min_alpha = best_frame_masks()
+    min_alpha = min_alpha_map()
     min_alpha.save(B / "plate-minalpha-debug.png")
     for v in VARIANTS:
-        save_variant(v, crop_mask, masks, min_alpha)
+        save_variant(v, crop_mask, min_alpha)
 
 
 if __name__ == "__main__":

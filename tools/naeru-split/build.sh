@@ -63,7 +63,13 @@ for V in $VARIANTS; do
     img/naeru-$V.webm
 
   echo "=== $V mp4(hevc) $(date +%T)"
+  #' 사파리는 HEVC 알파를 **프리멀티플라이로 합성한다**(dst = src + (1-a)*bg).
+  #' 스트레이트로 넣으면 경계에서 스프라이트 색과 배경이 더해져 실루엣을 두르는
+  #' 밝은 크림색 테두리가 생긴다(2026-09-01 사파리 18.6에서 나란히 찍어 확인).
+  #' webm(VP9)은 스트레이트가 맞으므로 여기서만 건다.
+  #' 확인법: 인코딩 뒤 투명 영역 RGB가 (0,0,0)이어야 한다.
   ffmpeg -v error -y -framerate 24 -i $B/naeru-$V/%04d.png \
+    -vf "premultiply=inplace=1" \
     -c:v hevc_videotoolbox -pix_fmt bgra -alpha_quality 0.85 -q:v 40 \
     -tag:v hvc1 -movflags +faststart \
     img/naeru-$V.mp4
