@@ -32,9 +32,10 @@
                  -apple-system, sans-serif;
   }
 
-  /* 시간대별 정지 프레임(각 영상의 첫 프레임)은 JS가
-     --still(전체 배경)·--freeze-a/--freeze-b(하늘 프리즈)
-     변수로 주입한다 */
+  /* 배경은 **정지 이미지**다(2026-09-04 — 바람·구름이 도는 4K 영상은 임시로
+     포기). img/bg-<변형>.jpg는 그 변형의 첫 프레임에 내루미를 **구워서 지운**
+     것이라, 예전처럼 런타임에 patch를 덧대는 레이어가 아예 없다. 움직이는 건
+     DOM 내루미·비·공뿐이다. 영상 복귀는 meadow-*.mp4가 그대로 있으니 가능. */
 
   /* 루프 순간 브라우저가 비디오를 한 프레임 놓쳐도
      어두운 배경 대신 동일한 정지 프레임이 보이도록,
@@ -50,61 +51,14 @@
   /* 공에 맞는 순간 배경 전체를 아주 잠깐 흔든다. 겹들을 같은 값으로
      움직여야 정렬이 유지되고, 살짝 확대해서 흔들린 만큼 가장자리에
      빈 틈이 생기지 않게 한다 (기본값 none이면 아무 영향 없음).
-     plate·#stage도 여기 포함 — 안 넣으면 배경만 흔들리고 패치 경계·
-     내루미가 그대로 있어서 어긋나 보인다 */
-  .bg-still, video.bg, .sky-freeze, .plate, #stage {
+     배경·#stage를 같이 넣어야 흔들릴 때 내루미가 배경에서 떨어져 보이지 않는다 */
+  .bg-still, .bg-layer, #stage {
     transform: var(--bg-shake, none);
   }
 
-  /* ── 배경 영상: A/B 두 장을 겹쳐두고 시간대가 바뀌면
-     currentTime을 맞춘 뒤 크로스페이드(같은 원본 영상의
-     색보정 변형들이라 픽셀이 정렬됨 → 순수 색상 디졸브) ── */
-  video.bg {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0;
-    transition: opacity 2.5s ease;
-  }
-  video.bg.on { opacity: 1; }
-
-  /* ── 구름 고정: 첫 프레임을 하늘 영역에만 덮어서
-     구름 움직임을 정지. 영상과 같은 16:9 + cover라서
-     창 크기와 무관하게 픽셀이 정확히 정렬됨.
-     마스크는 세로(하늘~지평선 위) × 가로(양옆 나무 회피)
-     교집합, 경계는 그라디언트로 부드럽게 블렌드.
-     비디오와 같은 이유로 A/B 두 장을 겹쳐 크로스페이드 ── */
-  .sky-freeze {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background-size: cover;
-    background-position: center;
-    opacity: 0;
-    transition: opacity 2.5s ease;
-    -webkit-mask-image:
-      linear-gradient(to bottom,
-        black 0%, black 42%, transparent 58%),
-      linear-gradient(to right,
-        transparent 16%, black 28%, black 68%, transparent 80%);
-    -webkit-mask-composite: source-in;
-    mask-image:
-      linear-gradient(to bottom,
-        black 0%, black 42%, transparent 58%),
-      linear-gradient(to right,
-        transparent 16%, black 28%, black 68%, transparent 80%);
-    mask-composite: intersect;
-  }
-  .sky-freeze.on { opacity: 1; }
-  #freezeA { background-image: var(--freeze-a); }
-  #freezeB { background-image: var(--freeze-b); }
-
-  /* ── 플레이트 패치: 영상에 구워진 내루미를 지우는 정지 조각.
-     .sky-freeze와 같은 이유로 A/B 두 장을 겹쳐 크로스페이드한다.
-     배경과 똑같이 cover/center라서 화면비가 뭐든 픽셀이 맞는다 ── */
-  .plate {
+  /* ── 배경 정지 이미지 A/B. 시간대·날씨가 바뀌면 2.5초 크로스페이드.
+     cover/center라 화면비가 뭐든 #stage와 픽셀이 맞는다 ── */
+  .bg-layer {
     position: fixed;
     inset: 0;
     pointer-events: none;
@@ -113,9 +67,9 @@
     opacity: 0;
     transition: opacity 2.5s ease;
   }
-  .plate.on { opacity: 1; }
-  #plateA { background-image: var(--plate-a); }
-  #plateB { background-image: var(--plate-b); }
+  .bg-layer.on { opacity: 1; }
+  #bgA { background-image: var(--bg-a); }
+  #bgB { background-image: var(--bg-b); }
 
   /* ── 내루미: #stage가 프레임 사각형(=배경 영상이 cover로 차지하는 상자)이라
      자식은 % 좌표만으로 배치된다. JS 기하 계산 없음.
@@ -286,8 +240,8 @@
   @media (prefers-reduced-motion: reduce) {
     .clock-inner, .time .colon { animation: none !important; }
     .rain { display: none !important; }
-    video.bg, .naeru { display: none !important; }
-    .sky-freeze, .plate, #naeruStill { transition: none !important; }
+    .naeru { display: none !important; }
+    .bg-layer, #naeruStill { transition: none !important; }
     #frame { display: none !important; }
   }
 </style>
@@ -296,17 +250,11 @@
 
 <div class="bg-still"></div>
 
-<video id="bgA" class="bg" muted loop playsinline preload="auto"></video>
-<video id="bgB" class="bg" muted loop playsinline preload="none"></video>
-
-<div id="freezeA" class="sky-freeze"></div>
-<div id="freezeB" class="sky-freeze"></div>
-
-<div id="plateA" class="plate"></div>
-<div id="plateB" class="plate"></div>
+<div id="bgA" class="bg-layer"></div>
+<div id="bgB" class="bg-layer"></div>
 
 <!-- 배경 영상에서 내루미를 지운 자리에 다시 얹는 DOM 내루미.
-     plate 위, .rain/.vignette 아래 — 구워져 있던 내루미 위로 비·비네트가
+     배경 위, .rain/.vignette 아래 — 구워져 있던 내루미 위로 비·비네트가
      얹혀 있었으므로 그래야 지금과 톤이 같다 -->
 <div id="stage">
   <div id="naeru-move"><div id="naeru-act"><div id="naeru-face">
@@ -471,38 +419,17 @@ function layoutFrameBox(el) {
   }
 
   /* ── A/B 비디오 + 하늘 프리즈 크로스페이드 ────── */
-  var vids    = [document.getElementById("bgA"), document.getElementById("bgB")];
-  var freezes = [document.getElementById("freezeA"), document.getElementById("freezeB")];
-  var slot    = 0;          // 현재 활성 슬롯 (0=A, 1=B) — plate·naeru도 같이 씀
+  var slot    = 0;          // 현재 활성 슬롯 (0=A, 1=B) — 배경·naeru가 같이 씀
   var active  = null;       // 현재 변형 이름
   var root    = document.documentElement;
   var noMotion =
     params.get("still") === "1" ||    // ?still=1 — 브라우저 픽셀 diff용 강제
     matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  /* HEVC 10-bit(같은 화질, 용량↓)를 지원하면 우선 사용,
-     아니면 H.264. 재생 에러 시에도 H.264로 폴백 */
-  var HEVC = document.createElement("video")
-    .canPlayType('video/mp4; codecs="hvc1.2.4.L153.B0"') !== "";
-
-  function srcOf(v) {
-    return "img/meadow-" + v + (HEVC ? ".hevc" : "") + ".mp4";
-  }
-  function freezeOf(v) { return 'url("img/sky-' + v + '.jpg")'; }
-
-  vids.forEach(function (v) {
-    v.addEventListener("error", function () {
-      if (!HEVC || !v.getAttribute("src")) return;
-      HEVC = false;
-      v.src = srcOf(active);
-      v.play().catch(function () {});
-    });
-  });
-
-  /* ── 플레이트 + 내루미 ───────────────────────────
-     plate는 .sky-freeze와 똑같이 배경 cover 그대로라 좌표 계산이 없다.
+  /* ── 배경 + 내루미 ─────────────────────────────
+     배경은 cover 그대로라 좌표 계산이 없다.
      내루미는 #stage(아래 layoutStage) 안에서 % 좌표만 쓴다 ── */
-  var plates      = [document.getElementById("plateA"), document.getElementById("plateB")];
+  var bgs         = [document.getElementById("bgA"), document.getElementById("bgB")];
   var naeruVideos = [document.getElementById("naeruA"), document.getElementById("naeruB")];
   var naeruStill  = document.getElementById("naeruStill");
   var stage       = document.getElementById("stage");
@@ -510,17 +437,17 @@ function layoutFrameBox(el) {
   addEventListener("resize", layoutStage);
   layoutStage();
 
-  /* 분리 자산(plate·내루미)은 **한 벌로 맞아야** 한다. 서로 다른 배포본이
+  /* 분리 자산(배경·내루미)은 **한 벌로 맞아야** 한다. 서로 다른 배포본이
      섞이면 실루엣을 두르는 테두리가 생긴다. _headers가 /img/*에
      stale-while-revalidate=604800을 주므로 브라우저는 max-age가 지나도 이번
      방문엔 옛 파일을 그대로 쓴다 — 하루에 여러 번 배포하면 세대가 섞인다.
      그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
-     **plate-*.png / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
+     **bg-*.jpg / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
      (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
-  var ASSET_V = "20260904b";
+  var ASSET_V = "20260904c";
   function av(u) { return u + "?v=" + ASSET_V; }
 
-  function plateOf(v) { return 'url("' + av("img/plate-" + v + ".png") + '")'; }
+  function bgOf(v) { return 'url("' + av("img/bg-" + v + ".jpg") + '")'; }
   function naeruStillOf(v) { return av("img/naeru-" + v + ".png"); }
   function naeruSrcOf(v, fmt) { return av("img/naeru-" + v + "." + fmt); }
 
@@ -571,12 +498,12 @@ function layoutFrameBox(el) {
     });
   });
 
-  /* plate와 내루미는 **반드시 같은 프레임에** 켠다. 따로 켜지면 둘 중 하나가
-     눈에 보인다: plate만 먼저 = 배경의 구워진 내루미가 지워진 빈 초원,
+  /* 배경과 내루미는 **반드시 같은 프레임에** 켠다. 따로 켜지면 둘 중 하나가
+     눈에 보인다: 배경만 먼저 = 내루미가 지워진 빈 초원,
      내루미만 먼저 = 구워진 것과 DOM 것이 겹쳐 이중노출. 첫 접속에서 오류처럼
      보이던 게 이것이다. 둘 다 준비된 뒤 함께 켜면, 켜지기 전 화면은 예전
      사이트와 똑같은 (내루미가 구워진) 배경이라 아무 일도 안 일어나 보인다.
-     페이드 중에도 안전하다 — plate가 지우는 양과 스프라이트가 그리는 양이
+     페이드 중에도 안전하다 — 배경이 지운 양과 스프라이트가 그리는 양이
      같은 불투명도로 상쇄돼서 합이 원본과 같다. */
   function whenDecoded(url) {                    // 이미지 1장이 그려질 준비가 될 때까지
     return new Promise(function (resolve) {
@@ -630,8 +557,8 @@ function layoutFrameBox(el) {
     if (noMotion || naeruStillFallback) {
       whenDecoded(naeruStillOf(variant)).then(function () {
         naeruStill.classList.add("on");
-        plates[targetSlot].classList.add("on");
-        plates[1 - targetSlot].classList.remove("on");
+        bgs[targetSlot].classList.add("on");
+        bgs[1 - targetSlot].classList.remove("on");
       });
       return;
     }
@@ -643,11 +570,11 @@ function layoutFrameBox(el) {
       try { vNew.currentTime = 0; } catch (e) {}
       vNew.play().catch(function () {});
       Promise.all([firstFrameReady(vNew),
-                   whenDecoded(plateOf(variant).replace(/^url\("|"\)$/g, ""))
+                   whenDecoded(bgOf(variant).replace(/^url\("|"\)$/g, ""))
       ]).then(function () {
         vNew.classList.add("on");
-        plates[targetSlot].classList.add("on");  // ← plate는 여기서만 켠다
-        plates[1 - targetSlot].classList.remove("on");
+        bgs[targetSlot].classList.add("on");  // ← 배경은 여기서만 켠다
+        bgs[1 - targetSlot].classList.remove("on");
         vOld.classList.remove("on");
         watchPlayback(vNew, variant, fmt);
       });
@@ -663,58 +590,22 @@ function layoutFrameBox(el) {
     active = variant;
     document.body.dataset.variant = variant;
     document.body.dataset.weather = weather;
-    root.style.setProperty("--still", freezeOf(variant));
-    root.style.setProperty("--freeze-a", freezeOf(variant));
-    freezes[slot].classList.add("on");
-    root.style.setProperty("--plate-a", plateOf(variant));
-    setNaeru(slot, variant);                     // plate는 내루미와 같이 켜진다
-    if (noMotion) return;            // 움직임 최소화: 배경 영상 로드 생략
-    var v = vids[slot];
-    v.poster = "img/sky-" + variant + ".jpg";
-    v.src = srcOf(variant);
-    v.classList.add("on");
-    v.play().catch(function () {});
+    root.style.setProperty("--still", bgOf(variant));   // 즉시 칠할 바닥
+    root.style.setProperty("--bg-a", bgOf(variant));
+    setNaeru(slot, variant);           // 배경은 내루미와 같이 켜진다
   }
 
   function crossfadeTo(variant) {    // 시간대·날씨 변경: 부드럽게 전환
     active = variant;
     document.body.dataset.variant = variant;
     document.body.dataset.weather = weather;
-    var oldSlot = slot, newSlot = 1 - slot;
+    var newSlot = 1 - slot;
     slot = newSlot;
-    root.style.setProperty(newSlot === 0 ? "--freeze-a" : "--freeze-b",
-                           freezeOf(variant));
-    root.style.setProperty(newSlot === 0 ? "--plate-a" : "--plate-b",
-                           plateOf(variant));
-    setNaeru(newSlot, variant);                  // plate는 내루미와 같이 켜지고 꺼진다
-    if (noMotion) {                  // 정지 프레임끼리 즉시 교체
-      freezes[newSlot].classList.add("on");
-      freezes[oldSlot].classList.remove("on");
-      root.style.setProperty("--still", freezeOf(variant));
-      return;
-    }
-    var vNew = vids[newSlot], vOld = vids[oldSlot];
-    vNew.src = srcOf(variant);
-    vNew.load();
-    vNew.addEventListener("canplay", function onReady() {
-      vNew.removeEventListener("canplay", onReady);
-      // 같은 푸티지이므로 재생 위치를 맞추면 완전한 색상 디졸브가 됨
-      try { vNew.currentTime = vOld.currentTime; } catch (e) {}
-      vNew.play().catch(function () {});
-      requestAnimationFrame(function () {
-        vNew.classList.add("on");
-        freezes[newSlot].classList.add("on");
-        vOld.classList.remove("on");
-        freezes[oldSlot].classList.remove("on");
-      });
-      setTimeout(function () {       // 페이드 종료 후 이전 영상 해제
-        vOld.pause();
-        vOld.removeAttribute("src");
-        vOld.load();
-        // 프레임 드랍 대비 정지 프레임도 현재 변형으로 교체
-        root.style.setProperty("--still", freezeOf(variant));
-      }, 3000);
-    });
+    root.style.setProperty(newSlot === 0 ? "--bg-a" : "--bg-b", bgOf(variant));
+    setNaeru(newSlot, variant);        // 배경·내루미가 같은 프레임에 교체된다
+    setTimeout(function () {           // 페이드가 끝나면 바닥도 현재 변형으로
+      root.style.setProperty("--still", bgOf(variant));
+    }, 2600);
   }
 
   /* ── 시계 ──────────────────────────────────────── */
@@ -770,16 +661,11 @@ function layoutFrameBox(el) {
   // (백그라운드에선 타이머가 제한돼 실황이 밀릴 수 있음)
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) {
-      vids[0].pause();
-      vids[1].pause();
-      naeruVideos[0].pause();                    // 내루미도 같이 — 안 넣으면 숨은
-      naeruVideos[1].pause();                    // 탭에서 계속 디코딩된다
+      naeruVideos[0].pause();                    // 숨은 탭에서 디코딩 낭비 방지
+      naeruVideos[1].pause();
       return;
     }
     if (!booted) return;
-    if (!noMotion && vids[slot].src) {
-      vids[slot].play().catch(function () {});
-    }
     // 내루미 재개가 빠져 있어서, 한 번 멈추면 poster만 남아 "숨쉬는 모션이
     // 사라진" 것처럼 보였다
     if (!noMotion && !naeruStillFallback && naeruVideos[slot].src) {
