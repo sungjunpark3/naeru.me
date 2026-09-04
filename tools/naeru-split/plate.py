@@ -17,6 +17,7 @@
 # 제자리에 서 있을 때만 참이고, 폴짝하면(PLAN §4.2) 그 아래에서 내루미 모양
 # 얼룩이 그대로 드러난다 — 실제로 그렇게 됐다(2026-09-01 검증). 그래서 그
 # 부분만 inpaint_core()가 공간에서 따로 채운다.
+import subprocess
 import sys
 from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageMath
@@ -25,7 +26,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 B = HERE / "build"
 sys.path.insert(0, str(HERE))
-from coords import (WORK_ORIGIN, WORK_SIZE, CROP_ORIGIN, CROP_SIZE,
+from coords import (WORK_ORIGIN, WORK_SIZE, CROP_ORIGIN, CROP_SIZE, CTX_ORIGIN,
                      FRAME_SIZE, N_FRAMES, VARIANTS, KEY_RECT_GLOBAL)
 from matte import build_alpha_sequence, keep_main_component, BODY_SEED
 
@@ -37,12 +38,8 @@ THRESH          = 32     # 분홍기 R-max(G,B) 임계, punch.py와 동일
 GROUND_Y_GLOBAL = 1745
 FADE            = 26
 DILATE_PX       = 24
-DONOR_DX        = 1024   # WIDE 밴드에서 구조를 빌려올 x (CROP은 494~1070)
 HOLE_DILATE     = 20     # 구멍을 넓혀 이음매를 깨끗한 초원 쪽으로 밀어낸다
 HOLE_FEATHER    = 12
-# 접지 밴드 위쪽 경계(global y). 이 아래는 도너(밝은 잔디)로 채우면 접지 그림자가
-# 날아가 캐릭터가 떠 보인다 — 주변에서 확산시켜 그림자 어둠을 물려받게 한다.
-GROUND_BAND_TOP = 1680
 # 머리 위 구간(global y1400 위)은 무조건 합성으로 채운다.
 # 키잉창 상단이 1394라 머리 꼭대기(1392부터 시작)가 2~3px 잘리는데, 잘린 그
 # 조각은 min_alpha가 0이라 구멍으로 안 잡히고 **프레임 1의 픽셀 그대로** 남는다.
@@ -128,75 +125,36 @@ def build_crop_mask():
     return final_mask.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1]))
 
 
-def inpaint_core(filled, min_alpha, wide):
-    """시간축 채우기로도 못 메우는 자리를 공간에서 채운다.
+def run_lama():
+    """LaMa 인페인팅을 전용 venv에서 돌린다(torch가 필요해 시스템 파이썬엔 없다).
+    build/plate-alpha-debug.png(덮개 마스크)를 읽어 build/lama/<변형>.png를 만든다."""
+    py = HERE / ".venv" / "bin" / "python"
+    assert py.exists(), (
+        f"LaMa용 venv가 없다: {py}\n"
+        "  python3 -m venv tools/naeru-split/.venv\n"
+        "  tools/naeru-split/.venv/bin/pip install torch pillow numpy opencv-python-headless\n"
+        "  tools/naeru-split/.venv/bin/pip install --no-deps simple-lama-inpainting")
+    subprocess.run([str(py), str(HERE / "lama_fill.py")], check=True)
 
-    화소마다 '가장 안 가려진 프레임'을 골라도, 316프레임 내내 한 번도 안
-    드러나는 몸통 핵심부는 캐릭터 색이 그대로 남는다. 제자리에 서 있는 동안은
-    naeru 레이어가 늘 그 위를 덮으므로 안 보이지만, 폴짝하면(PLAN §4.2 —
-    자기 키의 13%, 4K로 64px) 그 아래에서 내루미 모양 얼룩이 그대로 드러난다.
-    실제로 그렇게 됐다(2026-09-01 검증).
 
-    채우는 방식: **같은 행**의 깨끗한 초원(WIDE 밴드 오른쪽)을 통째로 가져다
-    쓰고, 두 자리의 색 차이만 구멍 안으로 확산시켜 보정한다.
+def inpaint_core(filled, min_alpha, lama):
+    """한 번도 안 드러난 자리를 LaMa 결과로 갈아끼운다.
 
-    왜 도너를 통째로 쓰나 — 구멍 한가운데를 언덕–초원 경계선이 가로지른다.
-    주변 색만 확산시키는 조화 보간(처음 시도)은 그 경계를 뭉개서 내루미 모양
-    얼룩으로 남았고, 행별 가로 보간(그 전 시도)은 가로 줄무늬가 됐다. 도너는
-    y가 같으므로 언덕·경계선·풀의 높이가 원래 맞는다 — 구조를 그대로 얻고
-    색만 맞추면 된다. 색 보정량(filled-donor)은 성한 화소에서만 알 수 있으므로
-    그 값을 구멍 안으로 확산시켜 매끄럽게 잇는다."""
-    W, H = filled.size
-    # 구멍을 그대로 쓰면 경계가 시간축 채우기의 오염된 띠와 맞닿아 내루미
-    # 모양 테두리가 남는다. 20px 넓혀 이음매를 확실히 깨끗한 자리로 옮긴다
-    hole  = min_alpha.point(lambda v: 255 if v > 24 else 0)  # 한 번이라도 가려진 적 있으면 불신
-    hole  = hole.filter(ImageFilter.MaxFilter(2 * HOLE_DILATE + 1))
-    head = Image.new("L", (W, H), 0)
+    링(316프레임 중 한 번이라도 드러난 자리)은 시간축 채우기가 **진짜 배경
+    화소**를 갖고 있으므로 그쪽이 낫다. 몸통 핵심부만 모델에 맡긴다.
+
+    이전에는 옆에서 떠온 조각(도너)을 색 맞춰 붙였는데, 구조는 맞아도 뿌옇고
+    도너에 있던 나무·풀숲이 딸려와 "물감 지운 자국"으로 보였다(2026-09-04).
+    LaMa는 언덕 능선과 풀선을 이어 그려준다 — 같은 자리 비교로 확인."""
+    hole = min_alpha.point(lambda v: 255 if v > 24 else 0)   # 한 번이라도 가려졌으면 불신
+    hole = hole.filter(ImageFilter.MaxFilter(2 * HOLE_DILATE + 1))
+    # 머리 위(y1400 위)는 키잉창에 잘려 min_alpha가 0이라 구멍으로 안 잡힌다.
+    # 그대로 두면 프레임 1의 머리 조각이 남아 점프할 때 드러난다
+    head = Image.new("L", filled.size, 0)
     ImageDraw.Draw(head).rectangle(
-        [0, 0, W, HEAD_BAND_BOT - CROP_ORIGIN[1]], fill=255)
-    hole  = ImageChops.lighter(hole, head)
-    known = ImageChops.invert(hole)
-    donor = wide.crop((DONOR_DX, 0, DONOR_DX + W, H))
-
-    # 색 보정장: 성한 자리의 (filled - donor)를 128 기준 오프셋으로 담고,
-    # 그 값을 고정한 채 반복 블러해서 구멍 안쪽으로 번지게 한다
-    # 접지 밴드는 도너를 쓰지 않는다. 그 자리엔 접지 그림자가 있고 도너는 볕
-    # 드는 잔디라, 그대로 갖다 붙이면 그림자가 지워져 발밑이 밝아진다(=캐릭터가
-    # 떠 보인다). 밴드 안은 주변 화소에서 확산시켜 그림자 어둠을 물려받게 한다.
-    band = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(band).rectangle(
-        [0, GROUND_BAND_TOP - CROP_ORIGIN[1], W, H], fill=255)
-    # 확산 소스는 **구멍 전체 바깥**이어야 한다. 밴드만 구멍으로 치면 구멍 위쪽
-    # (아직 캐릭터 색인 몸통)에서 색을 끌어와 발밑이 분홍으로 번진다
-    diffused = filled.copy()
-    for radius in (24, 16, 10, 6, 4):
-        for _ in range(5):
-            diffused = Image.composite(filled, diffused.filter(
-                ImageFilter.GaussianBlur(radius)), known)
-
-    corr = Image.merge("RGB", [
-        ImageMath.lambda_eval(lambda a: a["convert"](a["F"] - a["D"] + 128, "L"), F=f, D=d)
-        for f, d in zip(filled.split(), donor.split())])
-    # 구멍 안의 corr은 **캐릭터 색으로 계산된 값**이다. 그대로 두고 확산시키면
-    # 그 값이 섞여 들어가 캐릭터 모양으로 살짝 밝은 얼룩이 남는다 — 제자리에선
-    # 몸이 덮어 안 보이고 점프하면 물감 지운 자국처럼 드러난다(2026-09-01 제보).
-    # 중립 128로 비우고 시작해서 경계값만 안으로 번지게 한다.
-    corr = Image.composite(corr, Image.new("RGB", (W, H), (128, 128, 128)), known)
-    # 반경을 구멍 폭(~300px)에 맞게 크게 시작해야 보정이 한가운데까지 닿는다.
-    # 28에서 시작했더니 dusk 언덕 한복판에 도너의 따뜻한 색이 그대로 남았다
-    # (게이트 A: 코어 분홍기 33.8 vs 링 22.4 → 96부터 시작하면 20.1 vs 22.2)
-    spread = corr.copy()
-    for radius in (96, 64, 40, 24, 14, 8):
-        for _ in range(4):
-            spread = Image.composite(corr, spread.filter(ImageFilter.GaussianBlur(radius)),
-                                     known)
-    patched = Image.merge("RGB", [
-        ImageMath.lambda_eval(lambda a: a["convert"](a["D"] + a["C"] - 128, "L"), D=d, C=c)
-        for d, c in zip(donor.split(), spread.split())])
-
-    # 밴드 아래는 확산 결과로 갈아끼운다
-    patched = Image.composite(diffused, patched, band.filter(ImageFilter.GaussianBlur(8)))
-    return Image.composite(patched, filled, hole.filter(ImageFilter.GaussianBlur(HOLE_FEATHER)))
+        [0, 0, filled.size[0], HEAD_BAND_BOT - CROP_ORIGIN[1]], fill=255)
+    hole = ImageChops.lighter(hole, head)
+    return Image.composite(lama, filled, hole.filter(ImageFilter.GaussianBlur(HOLE_FEATHER)))
 
 
 def best_frame_masks():
@@ -228,8 +186,11 @@ def temporal_fill(variant, masks):
 
 def save_variant(variant, crop_mask, masks, min_alpha):
     filled = temporal_fill(variant, masks)
-    wide = Image.open(B / "first-wide" / f"{variant}.png").convert("RGB")
-    filled = inpaint_core(filled, min_alpha, wide)
+    lama = Image.open(B / "lama" / f"{variant}.png").convert("RGB").crop(
+        (CROP_ORIGIN[0] - CTX_ORIGIN[0], CROP_ORIGIN[1] - CTX_ORIGIN[1],
+         CROP_ORIGIN[0] - CTX_ORIGIN[0] + CROP_SIZE[0],
+         CROP_ORIGIN[1] - CTX_ORIGIN[1] + CROP_SIZE[1]))
+    filled = inpaint_core(filled, min_alpha, lama)
 
     patch = Image.new("RGBA", FRAME_SIZE, (0, 0, 0, 0))
     piece = filled.convert("RGBA")
@@ -245,6 +206,7 @@ def main():
     build_alpha_sequence()   # build/alpha/ 채움 — matte.py와 공유하는 계산
     crop_mask = build_crop_mask()
     crop_mask.save(B / "plate-alpha-debug.png")
+    run_lama()                  # 덮개 마스크를 읽어 build/lama/를 채운다
     masks, min_alpha = best_frame_masks()
     min_alpha.save(B / "plate-minalpha-debug.png")
     for v in VARIANTS:

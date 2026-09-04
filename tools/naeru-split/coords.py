@@ -14,6 +14,10 @@ CROP_ORIGIN = (1744, 1328)          # = matte.py 크롭 = index.html #naeru-move
 CROP_SIZE   = (576, 496)
 WIDE_ORIGIN = (1250, 1328)          # plate.py 클론 소스용 여유 영역 원점
 WIDE_SIZE   = (1600, 496)
+# LaMa 인페인팅에 넘길 맥락 영역. 마스크보다 넉넉해야 모델이 언덕 능선과
+# 풀선을 이어 그린다 — 좁게 주면 주변을 못 보고 뭉갠다.
+CTX_ORIGIN  = (1450, 1150)
+CTX_SIZE    = (1200, 700)
 FRAME_SIZE  = (3840, 2160)
 N_FRAMES    = 316
 

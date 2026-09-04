@@ -3,3 +3,4 @@
 __pycache__/
 tools/camp-overlay/build/
 tools/naeru-split/build/
+tools/naeru-split/.venv/
