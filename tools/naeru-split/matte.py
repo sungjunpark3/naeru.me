@@ -156,7 +156,7 @@ def refine_alpha_sequence():
     ImageDraw.Draw(band).rectangle(
         [0, FEET_TOP_GLOBAL - CROP_ORIGIN[1], CROP_SIZE[0], CROP_SIZE[1]], fill=255)
 
-    raw = []
+    med, raw = [], []
     for a_fp, o_fp in zip(a_frames, o_frames):
         key = Image.open(a_fp).convert("L")
         o = Image.open(o_fp).convert("RGBA")
@@ -181,9 +181,18 @@ def refine_alpha_sequence():
         raw.append(a)
     out_dir = B / "alpha2"
     out_dir.mkdir(exist_ok=True)
+    for i in range(N_FRAMES):
+        med.append(median3(raw[max(0, i - 1)], raw[i], raw[min(N_FRAMES - 1, i + 1)]))
+
+    # 중앙값만으로는 한 프레임짜리 튐만 없어지고, 경계가 매 프레임 ±1px씩
+    # 흔들리는 자글거림은 남는다(시간축 라플라시안 중앙값 8.4 — 눈에 보인다).
+    # 1-2-1 저역통과를 한 번 더 걸어 고주파 성분을 절반으로 깎는다. 캐릭터
+    # 모션은 부드러워서 이 정도 평활에는 안 뭉개진다.
     for i, fp in enumerate(a_frames):
-        median3(raw[max(0, i - 1)], raw[i], raw[min(N_FRAMES - 1, i + 1)]) \
-            .save(out_dir / fp.name)
+        a, b, c = med[max(0, i - 1)], med[i], med[min(N_FRAMES - 1, i + 1)]
+        ImageMath.lambda_eval(
+            lambda x: x["convert"]((x["A"] + 2 * x["B"] + x["C"]) / 4, "L"),
+            A=a, B=b, C=c).save(out_dir / fp.name)
     print(f"alpha2: {N_FRAMES}프레임 -> {out_dir}")
 
 

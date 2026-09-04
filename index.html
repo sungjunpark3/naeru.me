@@ -275,12 +275,12 @@
 <div id="frame">
   <div id="ball">
     <!-- 파스텔 단색. #F0454E(H357 S85 L61)를 채도·명도만 낮춰 파스텔로:
-         H는 그대로 357, S72 L74 → #EC8D92.
+         H는 그대로 357, S78 L70 → #EE777D (2026-09-04에 한 단계 더 빨갛게).
          내루미의 탁한 장밋빛(≈174,122,111)보다 훨씬 밝고 선명해서 몸에 겹쳐도
          묻히지 않는다. 다만 노을 하늘이 같은 계열이라 날아오는 구간에서
          약해질 수 있어 테두리를 조금 진하게 뒀다 -->
     <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="50" cy="50" r="47" fill="#ec8d92"/>
+      <circle cx="50" cy="50" r="47" fill="#ee777d"/>
       <circle cx="50" cy="50" r="47" fill="none"
               stroke="rgba(62,46,36,.22)" stroke-width="3"/>
       <circle cx="35" cy="33" r="12" fill="#ffffff" opacity=".28"/>
@@ -444,7 +444,7 @@ function layoutFrameBox(el) {
      그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
      **bg-*.jpg / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
      (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
-  var ASSET_V = "20260904c";
+  var ASSET_V = "20260904d";
   function av(u) { return u + "?v=" + ASSET_V; }
 
   function bgOf(v) { return 'url("' + av("img/bg-" + v + ".jpg") + '")'; }
