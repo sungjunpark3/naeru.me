@@ -274,13 +274,13 @@
      프레임 박스 안에 비율로 배치되므로 화면비가 뭐든 머리에 맞는다 -->
 <div id="frame">
   <div id="ball">
-    <!-- 파스텔 단색. #F0454E(H357 S85 L61)를 채도·명도만 낮춰 파스텔로:
-         H는 그대로 357, S78 L70 → #EE777D (2026-09-04에 한 단계 더 빨갛게).
-         내루미의 탁한 장밋빛(≈174,122,111)보다 훨씬 밝고 선명해서 몸에 겹쳐도
-         묻히지 않는다. 다만 노을 하늘이 같은 계열이라 날아오는 구간에서
-         약해질 수 있어 테두리를 조금 진하게 뒀다 -->
+    <!-- 애플뮤직 앱아이콘 빨강(2026-09-04 지정). 아이콘의 그러데이션은
+         #FA233B~#FB5C74인데, 붉은 끝값을 그대로 쓰면 이 회화풍 배경 위에서
+         혼자 형광처럼 뜬다. 그 사이의 #FA3B4E로 앉혔다 — 아이콘 빨강으로
+         읽히면서 배경과 같은 화면에 있을 수 있다. 노을 하늘이 같은 계열이라
+         날아오는 구간에서 약해질 수 있어 테두리를 조금 진하게 뒀다 -->
     <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="50" cy="50" r="47" fill="#ee777d"/>
+      <circle cx="50" cy="50" r="47" fill="#fa3b4e"/>
       <circle cx="50" cy="50" r="47" fill="none"
               stroke="rgba(62,46,36,.22)" stroke-width="3"/>
       <circle cx="35" cy="33" r="12" fill="#ffffff" opacity=".28"/>
@@ -444,7 +444,7 @@ function layoutFrameBox(el) {
      그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
      **bg-*.jpg / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
      (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
-  var ASSET_V = "20260904d";
+  var ASSET_V = "20260904e";
   function av(u) { return u + "?v=" + ASSET_V; }
 
   function bgOf(v) { return 'url("' + av("img/bg-" + v + ".jpg") + '")'; }
@@ -479,7 +479,15 @@ function layoutFrameBox(el) {
     probe.addEventListener("error", function () { finish("mp4"); });
     probe.src = av("img/alpha-probe.webm");
     probe.load();
-    setTimeout(function () { finish("mp4"); }, 1200);
+    // 숨은 탭에서는 프로브도 안 받아지므로(크롬 실측) 시간초과로 mp4를 확정하면
+    // 안 된다 — 크롬에 HEVC 알파를 물리게 된다. 보일 때까지 판정을 미룬다.
+    // 그동안 배경은 --still 바닥이 이미 같은 그림을 칠하고 있어 티가 안 난다
+    (function tmo() {
+      setTimeout(function () {
+        if (document.hidden) { tmo(); return; }
+        finish("mp4");
+      }, 1200);
+    })();
   });
 
   naeruVideos.forEach(function (v) {
@@ -527,16 +535,40 @@ function layoutFrameBox(el) {
   /* 영상이 실제로 흐르는지 감시한다. poster가 깔려 있어서 재생이 막혀도
      "정지한 내루미"로 그럴듯하게 보이기 때문에, 안 도는 걸 눈으로는 못 잡는다
      (숨쉬는 모션이 사라졌다는 제보가 이것이었다). 안 흐르면 다시 play(),
-     그래도 안 되면 다른 코덱으로, 마지막엔 정지본으로 내린다. */
+     그래도 안 되면 다른 코덱으로, 마지막엔 정지본으로 내린다.
+
+     **숨은 탭에서는 판정하지 않는다.** 우리가 visibilitychange에서 일부러
+     멈춰 뒀고, 크롬은 숨은 탭의 영상을 아예 안 받기도 한다(실측: localhost
+     webm이 90초 넘게 readyState 0). 그 상태를 "재생 실패"로 읽으면 코덱을
+     바꿨다가 정지본으로 내려앉고, 그게 영구 래치라 탭으로 돌아와도 영영 안
+     돈다 — "몇 분 움직이다 이후로 정지"의 정체가 이것이다(2026-09-04 제보,
+     retried=1 + still=on 상태로 재현).
+
+     진행 판정은 currentTime 비교가 아니라 timeupdate 이벤트로 한다. 이 영상은
+     13.17초 핑퐁 루프라 1.8초 창에서 루프를 넘기면 currentTime이 **작아진다**
+     — `> t0`로 재면 정상 재생을 정지로 오판한다(t0가 11.4초 이후면 항상). */
+  var naeruGaveUp = 0;                           // 복구를 몇 번이나 시도했나
+
   function watchPlayback(v, variant, fmt) {
-    var t0 = v.currentTime;
-    setTimeout(function () {
-      if (!v.isConnected || v.currentTime > t0) return;
-      v.play().catch(function () {});
+    var moved = false;
+    function mark() { moved = true; }
+    v.addEventListener("timeupdate", mark);
+    function stop() { v.removeEventListener("timeupdate", mark); }
+
+    function judge(second) {
+      moved = false;
       setTimeout(function () {
-        if (v.currentTime > t0) return;
+        if (!v.isConnected || naeruStillFallback) { stop(); return; }
+        if (document.hidden) { judge(second); return; }   // 숨은 동안은 보류
+        if (moved) { stop(); return; }                    // 잘 돌고 있다
+        if (!second) {                                    // 한 번은 다시 눌러본다
+          v.play().catch(function () {});
+          judge(true);
+          return;
+        }
+        stop();
         var alt = fmt === "webm" ? "mp4" : "webm";
-        if (!v.dataset.retried) {                // 코덱 한 번만 바꿔본다
+        if (!v.dataset.retried) {              // 코덱 한 번만 바꿔본다
           v.dataset.retried = "1";
           naeruFormat = alt;
           v.src = naeruSrcOf(variant, alt);
@@ -544,12 +576,27 @@ function layoutFrameBox(el) {
           watchPlayback(v, variant, alt);
           return;
         }
-        naeruStillFallback = true;               // 둘 다 안 돌면 정지본
+        naeruStillFallback = true;             // 둘 다 안 돌면 정지본
         naeruVideos.forEach(function (x) { x.classList.remove("on"); });
         naeruStill.src = naeruStillOf(variant);
         naeruStill.classList.add("on");
       }, 1800);
-    }, 1800);
+    }
+    judge(false);
+  }
+
+  /* 정지본으로 내려앉은 걸 되돌린다. 위 판정이 아무리 조심해도 한 번 틀리면
+     그 세션 내내 멈춘 채로 남는 게 더 나쁘므로, 탭이 다시 보일 때 한 번씩
+     되살려 본다. 진짜로 못 트는 환경(코덱 미지원 등)에서 정지본↔영상이
+     깜빡이지 않게 3번까지만. */
+  function recoverNaeru() {
+    if (noMotion || !naeruStillFallback || naeruGaveUp >= 3) return;
+    naeruGaveUp++;
+    naeruStillFallback = false;
+    naeruVideos.forEach(function (x) { delete x.dataset.retried; });
+    // 정지본은 여기서 내리지 않는다 — setNaeru가 영상을 켜는 순간에 내린다.
+    // 먼저 지우면 영상이 준비될 때까지(최대 4초) 내루미가 통째로 사라진다
+    setNaeru(slot, active);
   }
 
   function setNaeru(targetSlot, variant) {
@@ -573,6 +620,7 @@ function layoutFrameBox(el) {
                    whenDecoded(bgOf(variant).replace(/^url\("|"\)$/g, ""))
       ]).then(function () {
         vNew.classList.add("on");
+        naeruStill.classList.remove("on");   // 영상이 뜨는 바로 그 순간에 내린다
         bgs[targetSlot].classList.add("on");  // ← 배경은 여기서만 켠다
         bgs[1 - targetSlot].classList.remove("on");
         vOld.classList.remove("on");
@@ -671,6 +719,7 @@ function layoutFrameBox(el) {
     if (!noMotion && !naeruStillFallback && naeruVideos[slot].src) {
       naeruVideos[slot].play().catch(function () {});
     }
+    recoverNaeru();                              // 숨은 사이 정지본으로 내려앉았으면 복구
     render();
     if (Date.now() - lastFetch > 60000) fetchWeather().then(sync);
   });

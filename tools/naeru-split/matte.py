@@ -257,6 +257,7 @@ def build_variant(variant):
 
     out_dir = B / f"naeru-{variant}"
     out_dir.mkdir(exist_ok=True)
+    colors = []
     for o_fp, a_fp in zip(o_frames, a_frames):
         o = Image.open(o_fp).convert("RGB")
         a = Image.open(a_fp).convert("L")
@@ -264,7 +265,26 @@ def build_variant(variant):
         rgb = Image.merge("RGB", (unpremultiply(orr, pr, a),
                                   unpremultiply(og, pg, a),
                                   unpremultiply(ob, pb, a)))
-        rgb = bleed_transparent(rgb, a)
+        colors.append(bleed_transparent(rgb, a))
+
+    # 색에도 시간축 1-2-1 저역통과를 건다(알파와 같은 필터).
+    #
+    # 왜 필요해졌나 — 이 노이즈는 원본 푸티지가 원래 갖고 있던 것이다(실측:
+    # 구워져 있던 원본 경계 3.28 vs 지금 3.59). 배경이 영상이던 시절엔 풀·구름이
+    # 같이 들끓어서 안 보였는데, 배경을 정지 이미지로 바꾸고 나니 화면에서
+    # 움직이는 게 내루미뿐이라 몸통 안쪽 윤곽선의 프레임간 떨림이 그대로
+    # 드러난다(2026-09-04 제보 "자글거림이 여전히 남아있어" — 실제 화면을
+    # 30fps로 녹화해 재보니 떨림이 실루엣 테두리가 아니라 몸 안쪽에 퍼져 있었다).
+    # 인코딩 화질로는 못 줄인다(crf16과 crf34가 같은 값). 실측 1.205 → 0.605,
+    # 복원 PSNR은 0.45dB만 손해.
+    for i, (o_fp, a_fp) in enumerate(zip(o_frames, a_frames)):
+        a = Image.open(a_fp).convert("L")
+        prv, nxt = colors[(i - 1) % N_FRAMES], colors[(i + 1) % N_FRAMES]
+        rgb = Image.merge("RGB", [
+            ImageMath.lambda_eval(
+                lambda x: x["convert"]((x["A"] + 2 * x["B"] + x["C"]) / 4, "L"),
+                A=x, B=y, C=z)
+            for x, y, z in zip(prv.split(), colors[i].split(), nxt.split())])
         rgb.putalpha(a)
         rgb.save(out_dir / o_fp.name)
     print(f"{variant}: {N_FRAMES}프레임 -> {out_dir}")
