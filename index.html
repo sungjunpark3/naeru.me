@@ -113,9 +113,10 @@
      렌더 위치를 그대로 읽을 수 있다. 프레임 좌표 (1995,1399) → 크롭
      (1744,1328,576,496) 기준 (43.5764%, 14.3145%) */
   #naeru-head { position: absolute; left: 43.5764%; top: 14.3145%; width: 1px; height: 1px; }
-  /* 나비가 앉는 자리 = 두 눈 사이. 루프 7프레임에서 눈을 실측해 평균낸
-     크롭 좌표 (247.8, 116.7) → 576×496 기준 백분율 */
-  #naeru-brow { position: absolute; left: 43.0283%; top: 23.5218%; width: 1px; height: 1px; }
+  /* 나비가 앉는 자리 = 두 눈 사이. 나비는 늘 기준 프레임(79)에서 영상을
+     세우고 앉으므로, 여러 프레임의 평균이 아니라 **그 프레임의** 눈 중점을
+     쓴다 — 실측 크롭 (243.5, 119.5) → 576×496 기준 백분율 */
+  #naeru-brow { position: absolute; left: 42.2743%; top: 24.0927%; width: 1px; height: 1px; }
 
   /* ── 비 레이어: 하늘 프리즈 위에서도 비가 계속 내리도록
      영상이 아닌 DOM에서 렌더. 줄기는 수직 텍스처, 레이어를
@@ -488,7 +489,7 @@ function layoutFrameBox(el) {
      그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
      **bg-*.jpg / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
      (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
-  var ASSET_V = "20260905a";
+  var ASSET_V = "20260905b";
   function av(u) { return u + "?v=" + ASSET_V; }
   document.documentElement.dataset.av = ASSET_V;   // 혀 IIFE가 캐시 판번호를 쓴다
 
@@ -1365,6 +1366,17 @@ function layoutFrameBox(el) {
 
   var FIRST = [20000, 50000];
   var GAP   = [70000, 180000];
+  var RETRY = [7000, 14000];
+  /* 앉을 때 영상을 세운다 — **이게 핵심이다.** 나비는 #naeru-brow(고정 %)를
+     따라가는데 영상 속 얼굴은 계속 움직이므로, 영상을 그대로 두면 코에
+     붙어 있질 못한다. 세우는 프레임은 혀 개그와 같은 기준 프레임 79이고,
+     그 프레임의 눈 위치에 맞춰 #naeru-brow를 잡아 뒀다. 핑퐁이라 한 바퀴에
+     두 번(3.29초, 9.875초) 지나가므로, 비행 시간(IN_MS)만큼 앞에서 출발하면
+     도착이 곧 그 프레임이 된다. */
+  var REF_FRAME = 79, FPS = 24, N_FRAMES = 316;
+  var LOOP  = N_FRAMES / FPS;
+  var MARKS = [REF_FRAME / FPS, (N_FRAMES - REF_FRAME) / FPS];
+  var WINDOW = 1.5 / FPS;
   // 두 눈 사이(크롭 좌표로 62px)에 앉으므로 그보다 좁아야 눈을 안 덮는다.
   // 0.023이면 크롭 환산 87px이라 양쪽 눈을 가렸다(실측)
   var SIZE  = 0.016;                    // 프레임 폭 대비 날개폭
@@ -1374,6 +1386,17 @@ function layoutFrameBox(el) {
   var flit  = document.getElementById("flit");
   var wings = document.getElementById("flit-wings");
   var W = 0, H = 0;
+  var vid = null;                       // 이번 방문 동안 세워 둘 영상
+
+  function activeVideo() {
+    var vs = [document.getElementById("naeruA"), document.getElementById("naeruB")];
+    for (var i = 0; i < vs.length; i++) {
+      if (vs[i] && vs[i].classList.contains("on") && vs[i].getAttribute("src") && !vs[i].paused) {
+        return vs[i];
+      }
+    }
+    return null;
+  }
 
   function layout() {
     var box = layoutFrameBox(frame);
@@ -1401,6 +1424,7 @@ function layoutFrameBox(el) {
   }
 
   function leave(dir) {
+    if (vid) { vid.play().catch(function () {}); vid = null; }   // 다시 움직인다
     var from = perch(), t0 = performance.now();
     var to = [dir > 0 ? 1.15 : -0.15, rand(0.12, 0.26)];
     (function step(now) {
@@ -1417,6 +1441,17 @@ function layoutFrameBox(el) {
   }
 
   function sit(dir) {
+    // 코에 닿는 순간 영상을 세운다. 기준 프레임에 맞춰 도착했더라도 rAF와
+    // 영상 시계가 몇 ms 어긋날 수 있으므로 그 프레임으로 스냅한다 —
+    // 한두 프레임 차이는 눈에 안 보이지만 눈 위치는 정확해진다
+    if (vid) {
+      var m = MARKS[0];
+      for (var i = 1; i < MARKS.length; i++) {
+        if (Math.abs(vid.currentTime - MARKS[i]) < Math.abs(vid.currentTime - m)) m = MARKS[i];
+      }
+      vid.pause();
+      try { vid.currentTime = m + 0.01; } catch (e) {}
+    }
     var t0 = performance.now(), DUR = rand(3500, 6500);
     if (window.naeru) window.naeru.peek(-dir);   // 앉은 쪽으로 갸웃
     (function step(now) {
@@ -1443,8 +1478,8 @@ function layoutFrameBox(el) {
     if (on) holdTimer = setTimeout(function () { window.naeru.hold = false; }, 25000);
   }
 
-  function arrive() {
-    hold(true);                                  // 오는 동안 다른 동작 금지
+  function arrive(v) {
+    vid = v;
     var dir = Math.random() < 0.5 ? 1 : -1;      // 1 = 왼쪽에서 날아옴
     var p0 = [dir > 0 ? -0.15 : 1.15, rand(0.16, 0.30)];
     var t0 = performance.now();
@@ -1462,17 +1497,37 @@ function layoutFrameBox(el) {
     })(t0);
   }
 
-  function schedule(first) {
-    var ms = DEBUG ? (first ? 1500 : 6000)
-                   : rand.apply(null, first ? FIRST : GAP);
+  /* 도착이 곧 기준 프레임이 되도록, 그 프레임보다 비행 시간만큼 앞에서
+     출발한다. 최대 한 바퀴(13.2초)면 반드시 온다 */
+  function waitForLaunch(v) {
+    var giveUp = performance.now() + 16000;
+    (function step(now) {
+      if (!v.isConnected || v.paused || document.hidden || now > giveUp) {
+        hold(false); schedule("retry"); return;
+      }
+      var t = v.currentTime;
+      for (var i = 0; i < MARKS.length; i++) {
+        var launch = (MARKS[i] - IN_MS / 1000 + LOOP) % LOOP;
+        if (Math.abs(t - launch) < WINDOW) { arrive(v); return; }
+      }
+      requestAnimationFrame(step);
+    })(performance.now());
+  }
+
+  function schedule(kind) {
+    var gap = kind === "first" ? FIRST : kind === "retry" ? RETRY : GAP;
+    var ms = DEBUG ? (kind === "first" ? 1500 : 6000) : rand.apply(null, gap);
     setTimeout(function () {
-      if (document.hidden) { schedule(); return; }
-      // 공이 날아오는 중이면 미룬다 — 둘이 동시에 오면 어디를 봐야 할지 모른다
-      if (window.naeru && window.naeru.busy) { schedule(); return; }
-      arrive();
+      if (document.hidden) { schedule("retry"); return; }
+      // 공이 날아오는 중이거나 자체 동작 중이면 미룬다
+      if (window.naeru && (window.naeru.busy || window.naeru.hold)) { schedule("retry"); return; }
+      var v = activeVideo();
+      if (!v) { hold(true); arrive(null); return; }   // 정지본 폴백 등 — 그냥 날아온다
+      hold(true);                                     // 기다리는 동안부터 잡아 둔다
+      waitForLaunch(v);
     }, ms);
   }
-  schedule(true);
+  schedule("first");
 })();
 </script>
 
@@ -1505,7 +1560,7 @@ function layoutFrameBox(el) {
   var MARKS = [REF_FRAME / FPS, (N_FRAMES - REF_FRAME) / FPS];
   var WINDOW = 1.5 / FPS;                          // 이 안에 들어오면 그 프레임으로 본다
   var FIRST = [10000, 22000];
-  var GAP   = [55000, 130000];
+  var GAP   = [35000, 85000];
   var RETRY = [7000, 14000];      // 그림이 아직이거나 다른 동작 중이라 미룰 때
   var IN_MS = 220, HOLD_MS = 420, OUT_MS = 280;
 
