@@ -102,6 +102,9 @@
      렌더 위치를 그대로 읽을 수 있다. 프레임 좌표 (1995,1399) → 크롭
      (1744,1328,576,496) 기준 (43.5764%, 14.3145%) */
   #naeru-head { position: absolute; left: 43.5764%; top: 14.3145%; width: 1px; height: 1px; }
+  /* 나비가 앉는 자리 = 두 눈 사이. 루프 7프레임에서 눈을 실측해 평균낸
+     크롭 좌표 (247.8, 116.7) → 576×496 기준 백분율 */
+  #naeru-brow { position: absolute; left: 43.0283%; top: 23.5218%; width: 1px; height: 1px; }
 
   /* ── 비 레이어: 하늘 프리즈 위에서도 비가 계속 내리도록
      영상이 아닌 DOM에서 렌더. 줄기는 수직 텍스처, 레이어를
@@ -278,6 +281,7 @@
     <video id="naeruB" class="naeru" muted loop playsinline preload="none"></video>
     <img id="naeruStill" alt="">
     <div id="naeru-head"></div>
+    <div id="naeru-brow"></div>
   </div><div id="emote" class="graded"></div></div></div>
 </div>
 
@@ -987,8 +991,9 @@ function layoutFrameBox(el) {
   var act  = document.getElementById("naeru-act");
   var face = document.getElementById("naeru-face");
   var head = document.getElementById("naeru-head");
+  var brow = document.getElementById("naeru-brow");
   var stage = document.getElementById("stage");
-  if (!move || !act || !face || !head || !stage) return;
+  if (!move || !act || !face || !head || !brow || !stage) return;
 
   var facing = 1;              // 1 = 원래 방향, -1 = 좌우 뒤집힘
   var HOP_GAP  = [8000, 30000];
@@ -999,19 +1004,22 @@ function layoutFrameBox(el) {
     busy:   false,      // 공이 날아오는 동안(또는 자체 행동 중) 새 행동 금지
     flinch: flinch,
     peek:   peek,       // 나비 IIFE가 "머리에 앉았다"고 알릴 때 쓴다
-    headAt: headAt
+    headAt: headAt,     // 머리 꼭대기 — 공의 조준점
+    browAt: browAt      // 두 눈 사이 — 나비가 앉는 자리
   };
 
   function rand(a, b) { return a + Math.random() * (b - a); }
 
-  function headAt() {                   // 머리 꼭대기의 현재 화면 좌표(프레임 비율)
-    var r = head.getBoundingClientRect();
+  function anchorAt(el, fx, fy) {        // 기준점의 현재 화면 좌표(프레임 비율)
+    var r = el.getBoundingClientRect();
     var s = stage.getBoundingClientRect();
     // #stage가 아직 크기를 못 받은 순간의 폴백. 프레임 비율이어야 한다 —
     // 크롭 기준 비율(0.436, 0.143)을 넣으면 공이 엉뚱한 데로 날아간다
-    if (!s.width || !s.height) return { x: 1995 / 3840, y: 1399 / 2160 };
+    if (!s.width || !s.height) return { x: fx, y: fy };
     return { x: (r.left - s.left) / s.width, y: (r.top - s.top) / s.height };
   }
+  function headAt() { return anchorAt(head, 1995 / 3840, 1399 / 2160); }
+  function browAt() { return anchorAt(brow, 2000 / 3840, 1445 / 2160); }
 
   function setMove(t) { move.style.transform = t; }
   function setAct(t)  { act.style.transform  = t; }
@@ -1133,7 +1141,6 @@ function layoutFrameBox(el) {
 
   function flinch(dir) {                               // 공에 맞을 때 — 공 IIFE가 호출
     dir = dir || (Math.random() < 0.5 ? 1 : -1);
-    showEmote("star", 560);
     sequence([
       { dur: 90, fn: function (t) {                    // 90ms에 최대
           setAct("translateX(" + (dir * 0.9 * t) + "%) rotate(" + (dir * 2 * t) +
@@ -1168,10 +1175,7 @@ function layoutFrameBox(el) {
     what: '<svg viewBox="0 0 45 45"><g ' + DARK + '>' + QS +
           '</g><circle cx="20.2" cy="31.5" r="4.6" fill="rgba(58,42,30,.5)"/><g ' +
           LITE + '>' + QS + '</g>' +
-          '<circle cx="20.2" cy="31.5" r="2.3" fill="#fdf6e4"/></svg>',
-    star: '<svg viewBox="0 0 45 45"><path d="M22.5 4l5.2 10.8 11.8 1.7-8.5 8.3 2 11.8' +
-          '-10.5-5.6L12 36.6l2-11.8-8.5-8.3 11.8-1.7z" fill="#ffe6a3" ' +
-          'stroke="rgba(58,42,30,.5)" stroke-width="2.4" stroke-linejoin="round"/></svg>'
+          '<circle cx="20.2" cy="31.5" r="2.3" fill="#fdf6e4"/></svg>'
   };
 
   function showEmote(kind, hold) {
@@ -1333,7 +1337,9 @@ function layoutFrameBox(el) {
 
   var FIRST = [20000, 50000];
   var GAP   = [70000, 180000];
-  var SIZE  = 0.023;                    // 프레임 폭 대비 날개폭
+  // 두 눈 사이(크롭 좌표로 62px)에 앉으므로 그보다 좁아야 눈을 안 덮는다.
+  // 0.023이면 크롭 환산 87px이라 양쪽 눈을 가렸다(실측)
+  var SIZE  = 0.016;                    // 프레임 폭 대비 날개폭
   var IN_MS = 2600, OUT_MS = 2200;
 
   var frame = document.getElementById("frame");
@@ -1362,16 +1368,12 @@ function layoutFrameBox(el) {
     wings.style.transform = "scaleX(" + (0.15 + 0.85 * k).toFixed(3) + ")";
   }
 
-  function headTop() {
-    var h = window.naeru ? window.naeru.headAt() : { x: 0.523, y: 0.634 };
-    // 그림 안에서 나비는 viewBox 위쪽(대략 27~74%)에만 그려져 있어서, 요소
-    // 중심을 머리 꼭대기에 그대로 두면 실제로는 붙어 보인다. 0.013을 빼면
-    // 18px 떠 보였다(실측)
-    return { x: h.x, y: h.y - 0.004 };
+  function perch() {                    // 앉는 자리 = 두 눈 사이
+    return window.naeru ? window.naeru.browAt() : { x: 0.521, y: 0.669 };
   }
 
   function leave(dir) {
-    var from = headTop(), t0 = performance.now();
+    var from = perch(), t0 = performance.now();
     var to = [dir > 0 ? 1.15 : -0.15, rand(0.12, 0.26)];
     (function step(now) {
       var t = (now - t0) / OUT_MS;
@@ -1397,7 +1399,7 @@ function layoutFrameBox(el) {
       var ph = (t / 2500) % 1;
       var fold = ph < 0.12 ? Math.sin(ph / 0.12 * Math.PI) : 0;
       wings.style.transform = "scaleX(" + (1 - 0.72 * fold).toFixed(3) + ")";
-      var p = headTop();
+      var p = perch();
       place(p.x, p.y, 0);
       requestAnimationFrame(step);
     })(t0);
@@ -1410,7 +1412,7 @@ function layoutFrameBox(el) {
     flit.style.opacity = "1";
     (function step(now) {
       var t = (now - t0) / IN_MS;
-      var p1 = headTop();                        // 목표는 매 프레임 갱신 — 폴짝해도 따라간다
+      var p1 = perch();                        // 목표는 매 프레임 갱신 — 폴짝해도 따라간다
       if (t >= 1) { sit(dir); return; }
       flap(11, now);
       var e = 1 - Math.pow(1 - t, 2);            // 다가오며 느려진다
