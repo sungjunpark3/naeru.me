@@ -258,12 +258,56 @@
      "혼자 튀지 않을" 정도면 된다. 임팩트 링(#bonk)도 같이 먹는 게 자연스럽다.
      dusk는 원본 무보정이라 필터 없음.
      `$="-rain"`이 night-rain도 잡으므로 night-rain 규칙을 뒤에 둔다(같은 우선순위) */
-  .graded { transition: filter 2.5s ease; }       /* 배경 크로스페이드와 같은 속도 */
-  body[data-variant="dawn"]       .graded { filter: brightness(1.04) saturate(.93); }
-  body[data-variant="day"]        .graded { filter: brightness(1.08) saturate(1.06); }
-  body[data-variant="night"]      .graded { filter: brightness(.60)  saturate(.45); }
-  body[data-variant$="-rain"]     .graded { filter: brightness(.97)  saturate(.32); }
-  body[data-variant="night-rain"] .graded { filter: brightness(.50)  saturate(.28); }
+  /* 변형(시간대·날씨) 보정과 계절 보정을 **곱해서** 건다. 각각 따로
+     filter를 쓰면 나중 규칙이 앞을 덮어써서 하나만 남는다 */
+  .graded { filter: var(--grade, none) var(--season, none); transition: filter 2.5s ease; }
+  body[data-variant="dawn"]       .graded { --grade: brightness(1.04) saturate(.93); }
+  body[data-variant="day"]        .graded { --grade: brightness(1.08) saturate(1.06); }
+  body[data-variant="night"]      .graded { --grade: brightness(.60)  saturate(.45); }
+  body[data-variant$="-rain"]     .graded { --grade: brightness(.97)  saturate(.32); }
+  body[data-variant="night-rain"] .graded { --grade: brightness(.50)  saturate(.28); }
+
+  /* ── 계절 ────────────────────────────────────────────────────
+     배경은 계절별로 따로 구워서(bg-<변형>-<계절>.jpg) 화질이 좋다.
+     내루미·공·나비는 한 벌뿐이라 여기서 델타만 입힌다 — 안 그러면 겨울 배경
+     위에 여름 톤 캐릭터가 혼자 떠 있는다. 여름은 원본이라 필터 없음 */
+  :root { --season: none; }
+  html[data-season="spring"] { --season: saturate(1.05); }
+  html[data-season="autumn"] { --season: sepia(.12) saturate(1.06); }
+  /* 겨울은 .55까지 빼면 캐릭터가 배경에 묻혀 초점이 사라진다 — 배경보다는
+     조금 더 선명하게 남겨 둔다 */
+  html[data-season="winter"] { --season: saturate(.68) brightness(1.04); }
+  #stage { filter: var(--season, none); transition: filter 2.5s ease; }
+
+  /* 눈·낙엽. 비 레이어와 같은 타일·키프레임을 쓰고, 옆으로 흔들리는 것만
+     더했다(비는 곧게 떨어지지만 눈과 낙엽은 흔들린다) */
+  .fall {
+    position: fixed;
+    inset: -14% -8%;
+    pointer-events: none;
+    background-repeat: repeat;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 2.5s ease, visibility 2.5s;
+    animation: rainfall linear infinite, sway ease-in-out infinite;
+    animation-play-state: paused;
+  }
+  .fall-far  { background-image: var(--fall-far);  animation-duration: 19s, 13s; }
+  .fall-near { background-image: var(--fall-near); animation-duration: 12s, 8s; }
+  @keyframes sway {
+    0%, 100% { transform: translateX(-1.6%); }
+    50%      { transform: translateX(1.6%); }
+  }
+  /* 비가 올 땐 안 띄운다 — 비와 눈이 같이 내리면 이상하다 */
+  html[data-season="winter"] body:not([data-weather="rain"]) .fall,
+  html[data-season="autumn"] body:not([data-weather="rain"]) .fall {
+    visibility: visible;
+    animation-play-state: running;
+  }
+  html[data-season="winter"] body:not([data-weather="rain"]) .fall-far  { opacity: 0.50; }
+  html[data-season="winter"] body:not([data-weather="rain"]) .fall-near { opacity: 0.68; }
+  html[data-season="autumn"] body:not([data-weather="rain"]) .fall-far  { opacity: 0.55; }
+  html[data-season="autumn"] body:not([data-weather="rain"]) .fall-near { opacity: 0.75; }
 
   /* 머리 위에 잠깐 뜨는 기호(별·zzz·물음표). #naeru-act의 자식이라 폴짝·움찔을
      따라가고, #naeru-face 밖이라 좌우 뒤집기에는 안 따라간다 — 기호가 거울상이
@@ -300,7 +344,7 @@
      (JS도 이 경우 영상을 아예 로드하지 않음) */
   @media (prefers-reduced-motion: reduce) {
     .clock-inner, .time .colon { animation: none !important; }
-    .rain { display: none !important; }
+    .rain, .fall { display: none !important; }
     .naeru, #naeruNt, #tongue { display: none !important; }
     #glow { display: none !important; }
     .bg-layer, #naeruStill { transition: none !important; }
@@ -332,6 +376,10 @@
 
 <div class="rain rain-far"></div>
 <div class="rain rain-near"></div>
+
+<!-- 겨울 눈 / 가을 낙엽. 텍스처는 JS가 계절에 따라 --fall-* 로 꽂는다 -->
+<div class="fall fall-far"></div>
+<div class="fall fall-near"></div>
 
 <div class="vignette"></div>
 
@@ -459,6 +507,23 @@ function layoutFrameBox(el) {
     return (parseInt(p.hour, 10) % 24) * 60 + parseInt(p.minute, 10);
   }
 
+  /* ── 계절 (기상학적 4계절: 3~5 봄, 6~8 여름, 9~11 가을, 12~2 겨울) ──
+     여름이 원본 톤이라 여름만 접미사가 없다. `?s=` 로 강제 가능 */
+  var forcedS = params.get("s");
+  if (["spring", "summer", "autumn", "winter"].indexOf(forcedS) < 0) forcedS = null;
+
+  function seasonOf(now) {
+    if (forcedS) return forcedS;
+    var m = parseInt(new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ, month: "numeric"
+    }).format(now), 10);
+    return (m === 12 || m <= 2) ? "winter"
+         : m <= 5 ? "spring"
+         : m <= 8 ? "summer" : "autumn";
+  }
+
+  var season = seasonOf(new Date());
+
   function currentVariant() {
     var band = forced || bandFor(seoulMinutes(new Date()));
     return band + (weather === "rain" ? "-rain" : "");
@@ -537,11 +602,14 @@ function layoutFrameBox(el) {
      그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
      **bg-*.jpg / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
      (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
-  var ASSET_V = "20260905c";
+  var ASSET_V = "20260905d";
   function av(u) { return u + "?v=" + ASSET_V; }
   document.documentElement.dataset.av = ASSET_V;   // 혀 IIFE가 캐시 판번호를 쓴다
 
-  function bgOf(v) { return 'url("' + av("img/bg-" + v + ".jpg") + '")'; }
+  function bgOf(v) {
+    var suffix = season === "summer" ? "" : "-" + season;   // 여름이 원본
+    return 'url("' + av("img/bg-" + v + suffix + ".jpg") + '")';
+  }
   function naeruStillOf(v) { return av("img/naeru-" + v + ".png"); }
   function naeruSrcOf(v, fmt) { return av("img/naeru-" + v + "." + fmt); }
 
@@ -728,6 +796,16 @@ function layoutFrameBox(el) {
     });
   }
 
+  /* 계절을 문서에 반영한다. CSS는 html[data-season]으로 보정 필터와 눈·낙엽
+     표시를 고르고, 텍스처 경로는 판번호가 붙어야 해서 JS가 꽂는다 */
+  function applySeason() {
+    root.dataset.season = season;
+    var tex = season === "winter" ? ["snow-far", "snow-near"]
+            : season === "autumn" ? ["leaf-far", "leaf-near"] : null;
+    root.style.setProperty("--fall-far",  tex ? 'url("' + av("img/" + tex[0] + ".png") + '")' : "none");
+    root.style.setProperty("--fall-near", tex ? 'url("' + av("img/" + tex[1] + ".png") + '")' : "none");
+  }
+
   function show(variant) {           // 최초 로드: 즉시 표시
     active = variant;
     document.body.dataset.variant = variant;
@@ -815,9 +893,12 @@ function layoutFrameBox(el) {
 
     renderInfo();
 
-    // 시간대가 바뀌었으면 배경 크로스페이드
+    // 시간대나 계절이 바뀌었으면 배경 크로스페이드.
+    // 계절은 변형 이름에 안 들어가므로 따로 비교해야 한다
     var v = currentVariant();
-    if (v !== active) crossfadeTo(v);
+    var s2 = seasonOf(new Date());
+    if (s2 !== season) { season = s2; applySeason(); crossfadeTo(v); }
+    else if (v !== active) crossfadeTo(v);
   }
 
   /* ── 시작: 캐시·강제값이 있으면 대기 없이 즉시 표시,
@@ -831,6 +912,7 @@ function layoutFrameBox(el) {
   function boot() {
     if (booted) { sync(); return; }
     booted = true;
+    applySeason();
     show(currentVariant());
     render();
     setInterval(function () {        // 날씨 실황 5분 주기 갱신
@@ -1727,8 +1809,10 @@ function layoutFrameBox(el) {
   layout();
 
   function on() {
+    // 겨울엔 안 나온다 — 반딧불이는 여름 벌레다
     return (document.body.dataset.variant || "").indexOf("night") === 0 &&
-           document.body.dataset.weather !== "rain";
+           document.body.dataset.weather !== "rain" &&
+           document.documentElement.dataset.season !== "winter";
   }
 
   var running = false;
