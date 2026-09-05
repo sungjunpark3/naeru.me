@@ -43,33 +43,26 @@ def dot(r, alpha):
     return out
 
 
-# 단풍잎 실루엣(정규화 0~1, y는 아래로, 잎끝이 위·잎자루가 아래).
-# 물방울 모양은 "갈색 마름모"로 보이고(2026-09-05 제보), 방사형 사인 곡선으로
-# 만든 5갈래는 꽃처럼 보인다 — 갈래 사이가 너무 깊어서다. 캐나다 국기식으로
-# 갈래를 넓게 잡고 톱니를 얕게 둬야 단풍으로 읽힌다.
-MAPLE = [(0.50, 0.02), (0.57, 0.26), (0.70, 0.22), (0.66, 0.38), (0.86, 0.34),
-         (0.79, 0.48), (0.96, 0.55), (0.73, 0.60), (0.76, 0.72), (0.59, 0.66),
-         (0.60, 0.82), (0.52, 0.76), (0.52, 1.00), (0.48, 1.00), (0.48, 0.76),
-         (0.40, 0.82), (0.41, 0.66), (0.24, 0.72), (0.27, 0.60), (0.04, 0.55),
-         (0.21, 0.48), (0.14, 0.34), (0.34, 0.38), (0.30, 0.22), (0.43, 0.26)]
+# 단풍잎은 **그림 파일에서 가져다 쓴다**(tools/season/leaves/). 다각형으로
+# 그려 봤지만 물방울은 "갈색 마름모", 방사형 사인 5갈래는 꽃처럼 보였고,
+# 무엇보다 **한 종류·단색**이라 단풍으로 안 읽혔다(2026-09-05 제보).
+# 지금은 모양과 색이 제각각인 13장을 무작위로 골라 쓴다.
+LEAF_DIR = Path(__file__).resolve().parent / "leaves"
+_LEAVES = None
 
 
-def leaf(size, color, angle):
-    """단풍잎. 4배로 그린 뒤 줄여서 갈래가 뭉개지지 않게 한다.
-
-    **화면에서 20px 아래로 내려가면 어떤 단풍 윤곽도 별 얼룩이 된다.** 그래서
-    물방울 시절보다 크게 쓴다(원경 22~30, 근경 42~58). 잎맥은 28px 이상일 때만
-    긋는다 — 작을 땐 잡티로만 보인다."""
-    k = 4
-    px = int(size * k)
-    im = Image.new("RGBA", (px, px), (0, 0, 0, 0))
-    g = ImageDraw.Draw(im)
-    g.polygon([(x * px, y * px) for x, y in MAPLE], fill=color + (238,))
-    if size >= 28:
-        vein = (max(0, color[0] - 70), max(0, color[1] - 26), max(0, color[2] - 18), 140)
-        for tx, ty in ((0.50, 0.12), (0.80, 0.42), (0.20, 0.42)):
-            g.line([(0.50 * px, 0.78 * px), (tx * px, ty * px)],
-                   fill=vein, width=max(1, k // 2))
+def leaf(size, angle):
+    """단풍잎 한 장을 골라 크기·각도를 바꿔 돌려준다."""
+    global _LEAVES
+    if _LEAVES is None:
+        _LEAVES = [Image.open(f).convert("RGBA")
+                   for f in sorted(LEAF_DIR.glob("leaf*.png"))]
+        if not _LEAVES:
+            raise SystemExit(f"{LEAF_DIR}에 잎 그림이 없다")
+    src = random.choice(_LEAVES)
+    k = 3                                     # 3배로 줄였다 돌려서 계단을 없앤다
+    n = max(8, int(size * k))
+    im = src.resize((n, int(n * src.height / src.width)), Image.LANCZOS)
     im = im.rotate(angle, expand=True, resample=Image.BICUBIC)
     return im.resize((max(1, im.width // k), max(1, im.height // k)), Image.LANCZOS)
 
@@ -83,11 +76,7 @@ def build(name, kind, n, lo, hi):
             sp = dot(r, random.randint(150, 255))
             paste_wrapped(canvas, sp, x - r, y - r)
         else:
-            size = random.uniform(lo, hi)
-            # 원화가 탁한 편이라 순색 빨강은 혼자 튄다 — 한 단계 죽인 팔레트
-            col = random.choice([(176, 72, 48), (198, 110, 54),
-                                 (206, 150, 72), (160, 88, 50)])
-            sp = leaf(size, col, random.uniform(0, 360))
+            sp = leaf(random.uniform(lo, hi), random.uniform(0, 360))
             paste_wrapped(canvas, sp, x - sp.width / 2, y - sp.height / 2)
     canvas.save(REPO / "img" / name)
     print(f"  {name}  {n}개")

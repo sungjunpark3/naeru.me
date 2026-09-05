@@ -139,20 +139,60 @@ def winter_snow(a, L, yy, tree, shape, rng):
     return a * (1 - snow[..., None]) + white * keep * 0.93 * snow[..., None]
 
 
-def storm_sky(a, sky):
-    """비·눈이 올 땐 하늘이 먹구름이어야 한다. 밝기를 아래로 눌러 대비를 키우면
-    밝은 구름만 잿빛으로 남고 파란 하늘은 어두워진다."""
-    L = a.mean(2)
-    mid = np.percentile(L[sky > 0.5], 50) if (sky > 0.5).any() else 170
-    Lt = np.clip(70 + (L - mid) * 1.4, 8, 210)
-    gray = a * 0.30 + a.mean(2, keepdims=True) * 0.70
-    stormy = np.clip(gray * (Lt / np.maximum(L, 1))[..., None], 0, 255)
-    stormy[..., 2] *= 1.05                        # 살짝 푸른 잿빛
-    return a * (1 - sky[..., None]) + stormy * sky[..., None]
+_STORM = None
+
+
+def storm_canvas(shape):
+    """먹구름 그림을 화면 크기에 맞춰 한 번만 준비한다.
+
+    **있는 구름을 어둡게 눌러서는 안 된다** — 밝기를 선형으로 늘리면 밝은 구름과
+    그늘이 양극단으로 벌어져 색반전처럼 보이고, 마스크가 끝나는 자리에 가로 띠가
+    생긴다(2026-09-05 제보 "왜 상단 60%만 검게 된 거야"). 그래서 하늘을 **통째로
+    갈아끼운다**. 그림은 tools/season/storm-sky.jpg(생성본)이고, 잉크선이 원화보다
+    세서 흐림을 섞어 눌러 둔다."""
+    global _STORM
+    if _STORM is not None:
+        return _STORM
+    H, W = shape
+    src = Image.open(HERE / "storm-sky.jpg").convert("RGB")
+    src = src.crop((0, 0, src.width, int(src.height * 0.86))) \
+             .resize((W, 1450), Image.LANCZOS)
+    c = np.zeros((H, W, 3), np.float32)
+    c[:1450] = np.asarray(src, np.float32)
+    c[1450:] = c[1449]                       # 아래는 마지막 줄로 채운다(가중치 0)
+    sm = np.asarray(Image.fromarray(c.astype(np.uint8))
+                    .filter(ImageFilter.GaussianBlur(3)), np.float32)
+    _STORM = c * 0.35 + sm * 0.65
+    return _STORM
+
+
+def storm_sky(a, L0, yy, variant):
+    """하늘을 먹구름으로 갈아끼운다.
+
+    가중치는 위에서 아래로 **부드럽게** 빠져 지평선을 지나 사라진다 — 마스크를
+    지평선에서 끊으면 가로 띠가 생긴다. 어두운 나무(L<95)는 덜 건드려 실루엣이
+    남는다.
+
+    먹구름 그림은 한 장뿐이라 8변형에 그대로 쓰면 밤과 낮이 같아진다. 그래서
+    **원래 하늘의 채널별 평균에 맞춰** 색과 밝기를 옮긴다 — 노을은 노을대로,
+    밤은 밤대로 어두워진다."""
+    H, W = L0.shape
+    canvas = storm_canvas((H, W)).copy()
+    w = blur(np.clip(1 - ramp(yy, 1150, 1560), 0, 1) * ramp(L0, 95, 135), 14)
+    core = w > 0.6
+    if core.any():
+        dim = 0.85 if variant.startswith("night") else 0.62
+        want = a[core].mean(0) * dim
+        have = np.maximum(canvas[core].mean(0), 1)
+        canvas *= (want / have)
+    canvas = np.clip(canvas, 0, 255)
+    # 원본을 조금 섞어야 생성본의 잉크선이 원화 톤에 묻힌다
+    mixed = canvas * 0.65 + a * 0.35
+    return a * (1 - w[..., None]) + mixed * w[..., None]
 
 
 def main():
-    L, yy, sky, tree, shape = build_masks()
+    L, yy, sky, tree, shape = build_masks()   # sky는 지금 안 쓴다(하늘은 통째 교체)
     tmp = Path(tempfile.mkdtemp())
     for v in VARIANTS:
         base = np.asarray(Image.open(IMG / f"bg-{v}.jpg").convert("RGB"), np.float32)
@@ -176,7 +216,7 @@ def main():
 
             if v.endswith("-rain"):
                 b = np.asarray(Image.open(out).convert("RGB"), np.float32)
-                Image.fromarray(np.clip(storm_sky(b, sky), 0, 255).astype(np.uint8)) \
+                Image.fromarray(np.clip(storm_sky(b, L, yy, v), 0, 255).astype(np.uint8)) \
                      .save(out, quality=93)
         print(f"  {v} → {' '.join(SEASONS)}")
     print("=== 완료")
