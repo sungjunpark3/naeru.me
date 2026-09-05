@@ -11,7 +11,8 @@
 #   · 겨울: 채도를 빼면 "빛바랜 여름"이지 눈 덮인 겨울이 아니다. 들판과 나무에
 #     **눈을 실제로 얹어야** 한다.
 #   · 비·눈이 올 땐 하늘이 먹구름이어야 한다. 기존 -rain 보정은 전체를 어둡게만
-#     할 뿐 하늘은 그대로 뭉게구름이다.
+#     할 뿐 하늘은 그대로 뭉게구름이다. 그렇다고 구름을 그려 넣으면 화면을
+#     잡아먹는다 — storm_sky() 주석 참고.
 #
 # 마스크는 **bg-day.jpg 한 장에서만** 만들어 8변형이 공유한다. 8변형은 같은
 # 그림의 색보정본이라 형태가 픽셀 단위로 같고, 밤 변형은 대비가 낮아 따로
@@ -139,57 +140,35 @@ def winter_snow(a, L, yy, tree, shape, rng):
     return a * (1 - snow[..., None]) + white * keep * 0.93 * snow[..., None]
 
 
-_STORM = None
-
-
-def storm_canvas(shape):
-    """먹구름 그림을 화면 크기에 맞춰 한 번만 준비한다.
-
-    **있는 구름을 어둡게 눌러서는 안 된다** — 밝기를 선형으로 늘리면 밝은 구름과
-    그늘이 양극단으로 벌어져 색반전처럼 보이고, 마스크가 끝나는 자리에 가로 띠가
-    생긴다(2026-09-05 제보 "왜 상단 60%만 검게 된 거야"). 그래서 하늘을 **통째로
-    갈아끼운다**. 그림은 tools/season/storm-sky.jpg다.
-
-    **생성본을 그대로 쓰면 안 된다** — 잉크 윤곽선이 들어 있어서 파스텔풍
-    원화와 이질적이다(2026-09-05 제보). 중앙값 21 필터로 가는 어두운 선만
-    지우고 흐림을 먹여 저장해 뒀다(만드는 법은 커밋 메시지 참조)."""
-    global _STORM
-    if _STORM is not None:
-        return _STORM
-    H, W = shape
-    src = Image.open(HERE / "storm-sky.jpg").convert("RGB")
-    src = src.crop((0, 0, src.width, int(src.height * 0.86))) \
-             .resize((W, 1450), Image.LANCZOS)
-    c = np.zeros((H, W, 3), np.float32)
-    c[:1450] = np.asarray(src, np.float32)
-    c[1450:] = c[1449]                       # 아래는 마지막 줄로 채운다(가중치 0)
-    _STORM = c
-    return _STORM
-
-
 def storm_sky(a, L0, yy, variant):
-    """하늘을 먹구름으로 갈아끼운다.
+    """비·눈이 올 땐 하늘을 무겁게 내려앉은 잿빛으로 만든다.
 
-    가중치는 위에서 아래로 **부드럽게** 빠져 지평선을 지나 사라진다 — 마스크를
-    지평선에서 끊으면 가로 띠가 생긴다. 어두운 나무(L<95)는 덜 건드려 실루엣이
-    남는다.
+    두 번 실패하고 세 번째다(전부 2026-09-05 제보):
+      1. 밝기를 **선형으로 늘려** 대비를 키웠더니 밝은 구름과 그늘이 양극단으로
+         벌어져 색반전처럼 보였고, 마스크를 지평선에서 끊어 상단만 칠해진
+         가로 띠가 생겼다.
+      2. 생성한 먹구름 그림을 통째로 갈아끼웠더니 (a) 잉크 윤곽선이 파스텔풍
+         원화와 이질적이었고, (b) 선을 지운 뒤에도 구름 덩어리가 너무 세서
+         "그림에서 먹구름만 보인다"가 됐다.
 
-    먹구름 그림은 한 장뿐이라 8변형에 그대로 쓰면 밤과 낮이 같아진다. 그래서
-    **원래 하늘의 채널별 평균에 맞춰** 색과 밝기를 옮긴다 — 노을은 노을대로,
-    밤은 밤대로 어두워진다."""
-    H, W = L0.shape
-    canvas = storm_canvas((H, W)).copy()
+    실제로 비 오는 하늘은 조각 같은 구름이 아니라 **평평한 잿빛**이다. 그래서
+    원화의 하늘을 그대로 쓰되 **국소 대비를 줄이고**(FLAT) 어둡게 눌러(DIM)
+    탈채도한다. 구름 형태는 희미하게 남아 하늘이 죽지 않고, 화면의 주인공은
+    초원과 내루미로 돌아온다.
+
+    가중치는 위에서 아래로 부드럽게 빠져 지평선을 지나 사라진다 — 여기서
+    끊으면 1번의 가로 띠가 다시 생긴다. 어두운 나무(L<95)는 덜 건드려
+    실루엣이 남는다."""
+    FLAT, DIM = 0.85, 0.60
+    L = a.mean(2)
+    big = np.asarray(Image.fromarray(L.astype(np.uint8))
+                     .filter(ImageFilter.GaussianBlur(70)), np.float32)
+    tgt = (big + (L - big) * FLAT) * DIM
+    gray = a * 0.25 + a.mean(2, keepdims=True) * 0.75
+    stormy = np.clip(gray * (tgt / np.maximum(L, 1))[..., None], 0, 255)
+    stormy[..., 2] *= 1.04                       # 살짝 푸른 잿빛
     w = blur(np.clip(1 - ramp(yy, 1150, 1560), 0, 1) * ramp(L0, 95, 135), 14)
-    core = w > 0.6
-    if core.any():
-        dim = 0.85 if variant.startswith("night") else 0.62
-        want = a[core].mean(0) * dim
-        have = np.maximum(canvas[core].mean(0), 1)
-        canvas *= (want / have)
-    canvas = np.clip(canvas, 0, 255)
-    # 원본을 약간만 섞어 원화의 입자감을 남긴다
-    mixed = canvas * 0.85 + a * 0.15
-    return a * (1 - w[..., None]) + mixed * w[..., None]
+    return a * (1 - w[..., None]) + stormy * w[..., None]
 
 
 def main():
