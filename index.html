@@ -489,7 +489,7 @@ function layoutFrameBox(el) {
      그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
      **bg-*.jpg / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
      (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
-  var ASSET_V = "20260905b";
+  var ASSET_V = "20260905c";
   function av(u) { return u + "?v=" + ASSET_V; }
   document.documentElement.dataset.av = ASSET_V;   // 혀 IIFE가 캐시 판번호를 쓴다
 
@@ -1552,8 +1552,12 @@ function layoutFrameBox(el) {
    ?tongue=0 끄기 / ?tongue=1 자주 ──────────────────────────────── */
 (function () {
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  /* **기본은 꺼져 있다.** 동작 자체는 되지만 아직 불안정해서 감춰 뒀다
+     (2026-09-05 "낼름거림은 저장은 하되 보이지 않게"). ?tongue=1로만 나온다.
+     자산(naeru-<변형>-nt.png, tongue-<변형>.png)과 tools/naeru-split/tongue.py는
+     그대로 남겨 둔다 — 다시 켤 때 여기 한 줄만 되돌리면 된다. */
   var flag = new URLSearchParams(location.search).get("tongue");
-  if (flag === "0") return;
+  if (flag !== "1" && flag !== "2") return;
   var DEBUG = flag === "1";
 
   var REF_FRAME = 79, FPS = 24, N_FRAMES = 316;   // tongue.py의 REF와 같아야 한다

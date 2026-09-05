@@ -41,6 +41,12 @@ FEET_LO, FEET_HI = 25, 70
 # **보태면**(max) 배경은 |O-P|≈0이라 안 딸려온다.
 RING_OUT, RING_IN = 6, 2
 RING_LO, RING_HI  = 8, 40
+# 의도 강제(전 프레임 감사, 2026-09-05): |원본 - plate 얹은 것|이 이 값을 넘으면
+# 캐릭터가 있는 화소. 바깥으로 BODY_OUT px까지는 알파를 허용하고, 안쪽
+# BODY_IN px부터는 반드시 불투명이어야 한다
+BODY_TH  = 10
+BODY_OUT = 3
+BODY_IN  = 6
 
 
 def silhouette(rgb_img, canvas_size):
@@ -121,6 +127,20 @@ def build_alpha_sequence():
     print(f"alpha: {N_FRAMES}프레임 -> {out_dir}")
 
 
+def tap5(a, b, c, d, e):
+    """시간축 5탭 저역통과 (1-3-4-3-1)/12.
+
+    3탭(1-2-1)에서 5탭으로 올린 이유(2026-09-05 전 프레임 감사): 몸통 떨림이
+    원색 1.211 → 3탭 0.605 → 5탭 0.426으로 더 준다. 7탭(0.305)까지 가면 혀
+    주름과 배 줄무늬가 눈에 띄게 뭉개져서 5탭에서 멈췄다. 모션보상 정렬도
+    해봤는데 캐릭터가 비강체로 변형돼서 블록 정합이 오히려 오차를 넣는다
+    (±1에서 1.082, ±3에서 1.131 — 단순 평균만 못하다)."""
+    return ImageMath.lambda_eval(
+        lambda x: x["convert"]((x["A"] + 3 * x["B"] + 4 * x["C"] +
+                                3 * x["D"] + x["E"]) / 12, "L"),
+        A=a, B=b, C=c, D=d, E=e)
+
+
 def median3(a, b, c):
     """세 장의 화소별 중앙값 = max(min(a,b), min(max(a,b), c))."""
     return ImageChops.lighter(ImageChops.darker(a, b),
@@ -186,13 +206,56 @@ def refine_alpha_sequence():
 
     # 중앙값만으로는 한 프레임짜리 튐만 없어지고, 경계가 매 프레임 ±1px씩
     # 흔들리는 자글거림은 남는다(시간축 라플라시안 중앙값 8.4 — 눈에 보인다).
-    # 1-2-1 저역통과를 한 번 더 걸어 고주파 성분을 절반으로 깎는다. 캐릭터
-    # 모션은 부드러워서 이 정도 평활에는 안 뭉개진다.
+    # 5탭 저역통과를 한 번 더 건다 — 경계 라플라시안 p99가 26.5 → 12.6.
+    # 마지막으로 **프레임마다** 의도를 강제한다. 캐릭터가 어디 있는지는
+    # 스프라이트를 안 믿고 plate로 독립 판정한다 — plate가 지운 자리가 곧
+    # 캐릭터다(|원본 - plate 얹은 것|). 전 프레임 감사(2026-09-05)에서 정수리
+    # 바깥으로 알파가 새어나가고(51,658화소) 발밑에 구멍이 남는 게(123,943화소)
+    # 잡혔다. 둘 다 화면에서 프레임마다 깜빡인다.
+    #
+    # 자르고 채우는 건 **깃털을 먹인 상한/하한**으로 한다. 딱 잘라 0/255로
+    # 만들면 경계에 계단이 생겨 오히려 더 눈에 띈다.
+    #
+    # 접지선(FEET_TOP_GLOBAL) 아래는 건드리지 않는다 — 거기는 plate가 일부러
+    # 안 지우므로(그림자를 남기려고) body 판정이 false가 되고, 그대로 자르면
+    # 발이 사라진다.
+    ground = FEET_TOP_GLOBAL - CROP_ORIGIN[1]
+    below = Image.new("L", CROP_SIZE, 0)
+    ImageDraw.Draw(below).rectangle([0, ground, CROP_SIZE[0], CROP_SIZE[1]], fill=255)
+
+    def m(i):
+        return med[i % N_FRAMES]          # 핑퐁 루프라 양 끝은 순환으로 잇는다
+
+    # **몸 마스크를 시간축으로 먼저 안정화한다.** |원본-plate|는 경계에서 노이즈에
+    # 민감해 프레임마다 1~2px씩 흔들리는데, 그대로 강제에 쓰면 마스크의 떨림이
+    # 알파로 옮겨온다 — 실측(2026-09-05): 강제를 세게 걸었더니 구멍은 113,878 →
+    # 742로 잡혔지만 알파 떨림이 181 → 549로 뛰고 PSNR도 기준 미달이 됐다.
+    bodies = []
+    for o_fp in o_frames:
+        o = Image.open(o_fp).convert("RGB")
+        bg = Image.alpha_composite(o.convert("RGBA"), plate).convert("RGB")
+        dd = ImageChops.difference(o, bg).split()
+        dmax = ImageChops.lighter(ImageChops.lighter(dd[0], dd[1]), dd[2])
+        bodies.append(dmax.point(lambda v: 255 if v > BODY_TH else 0))
+    bodies = [median3(bodies[(i - 1) % N_FRAMES], bodies[i], bodies[(i + 1) % N_FRAMES])
+              for i in range(N_FRAMES)]
+
     for i, fp in enumerate(a_frames):
-        a, b, c = med[max(0, i - 1)], med[i], med[min(N_FRAMES - 1, i + 1)]
-        ImageMath.lambda_eval(
-            lambda x: x["convert"]((x["A"] + 2 * x["B"] + x["C"]) / 4, "L"),
-            A=a, B=b, C=c).save(out_dir / fp.name)
+        out = tap5(m(i - 2), m(i - 1), m(i), m(i + 1), m(i + 2))
+
+        body = bodies[i]
+        # **깃털은 넓게(2.0) 두는 게 맞다.** 좁혀서 강제를 세게 걸면 몸 안 구멍은
+        # 113,878 → 742로 사라지지만 알파 경사가 가팔라져서 같은 이동에도
+        # 프레임간 변화가 커진다 — 떨림 181 → 535, PSNR도 기준 미달(2026-09-05
+        # 실측). 몸 마스크를 시간축 안정화해도 535 → 그대로였다. 남는 "구멍"은
+        # 알파 중앙값 212짜리 완만한 안쪽 경사라 화면에서 안 보인다.
+        hi = ImageChops.lighter(
+            body.filter(ImageFilter.MaxFilter(2 * BODY_OUT + 1)), below) \
+            .filter(ImageFilter.GaussianBlur(2.0))
+        lo = body.filter(ImageFilter.MinFilter(2 * BODY_IN + 1)) \
+                 .filter(ImageFilter.GaussianBlur(2.0))
+        out = ImageChops.lighter(ImageChops.darker(out, hi), lo)
+        out.save(out_dir / fp.name)
     print(f"alpha2: {N_FRAMES}프레임 -> {out_dir}")
 
 
@@ -267,7 +330,7 @@ def build_variant(variant):
                                   unpremultiply(ob, pb, a)))
         colors.append(bleed_transparent(rgb, a))
 
-    # 색에도 시간축 1-2-1 저역통과를 건다(알파와 같은 필터).
+    # 색에도 시간축 5탭 저역통과를 건다(알파와 같은 필터).
     #
     # 왜 필요해졌나 — 이 노이즈는 원본 푸티지가 원래 갖고 있던 것이다(실측:
     # 구워져 있던 원본 경계 3.28 vs 지금 3.59). 배경이 영상이던 시절엔 풀·구름이
@@ -275,16 +338,15 @@ def build_variant(variant):
     # 움직이는 게 내루미뿐이라 몸통 안쪽 윤곽선의 프레임간 떨림이 그대로
     # 드러난다(2026-09-04 제보 "자글거림이 여전히 남아있어" — 실제 화면을
     # 30fps로 녹화해 재보니 떨림이 실루엣 테두리가 아니라 몸 안쪽에 퍼져 있었다).
-    # 인코딩 화질로는 못 줄인다(crf16과 crf34가 같은 값). 실측 1.205 → 0.605,
-    # 복원 PSNR은 0.45dB만 손해.
+    # 인코딩 화질로는 못 줄인다(crf16과 crf34가 같은 값).
+    # 실측(전 프레임 감사): 원색 1.211 → 3탭 0.605 → 5탭 0.426, PSNR 1.2dB 손해.
+    def c(i):
+        return colors[i % N_FRAMES]
+
     for i, (o_fp, a_fp) in enumerate(zip(o_frames, a_frames)):
         a = Image.open(a_fp).convert("L")
-        prv, nxt = colors[(i - 1) % N_FRAMES], colors[(i + 1) % N_FRAMES]
-        rgb = Image.merge("RGB", [
-            ImageMath.lambda_eval(
-                lambda x: x["convert"]((x["A"] + 2 * x["B"] + x["C"]) / 4, "L"),
-                A=x, B=y, C=z)
-            for x, y, z in zip(prv.split(), colors[i].split(), nxt.split())])
+        bands = [x.split() for x in (c(i - 2), c(i - 1), c(i), c(i + 1), c(i + 2))]
+        rgb = Image.merge("RGB", [tap5(*[b[ch] for b in bands]) for ch in range(3)])
         rgb.putalpha(a)
         rgb.save(out_dir / o_fp.name)
     print(f"{variant}: {N_FRAMES}프레임 -> {out_dir}")
