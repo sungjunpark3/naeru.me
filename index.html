@@ -97,6 +97,17 @@
     opacity: 0; transition: opacity 2.5s ease;
   }
   .naeru.on, #naeruStill.on { opacity: 1; }
+
+  /* 혀 개그용 두 장. 영상을 세운 그 프레임의 "혀 없는 몸"과 "혀"라서, 둘을
+     겹치면 원래 화면과 픽셀이 같다 — 바꿔치는 순간이 안 보인다.
+     DOM 순서상 영상·정지본보다 뒤에 있어 위에 그려진다 */
+  #naeruNt, #tongue {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; pointer-events: none;
+  }
+  /* 혀는 입 안으로 빨려 들어가므로 기준점이 입이다.
+     크롭 (243, 152) → (243/576, 152/496) */
+  #tongue { transform-origin: 42.1875% 30.6452%; will-change: transform; }
   /* 공 IIFE의 headAt()이 겨냥하는, 화면에 안 보이는 기준점. #naeru-face
      안에 있어서 폴짝·움찔·뒤집기 중에도 getBoundingClientRect()로 실제
      렌더 위치를 그대로 읽을 수 있다. 프레임 좌표 (1995,1399) → 크롭
@@ -259,7 +270,7 @@
   @media (prefers-reduced-motion: reduce) {
     .clock-inner, .time .colon { animation: none !important; }
     .rain { display: none !important; }
-    .naeru { display: none !important; }
+    .naeru, #naeruNt, #tongue { display: none !important; }
     .bg-layer, #naeruStill { transition: none !important; }
     #frame { display: none !important; }
   }
@@ -280,6 +291,8 @@
     <video id="naeruA" class="naeru" muted loop playsinline preload="auto"></video>
     <video id="naeruB" class="naeru" muted loop playsinline preload="none"></video>
     <img id="naeruStill" alt="">
+    <img id="naeruNt" alt="">
+    <img id="tongue" alt="">
     <div id="naeru-head"></div>
     <div id="naeru-brow"></div>
   </div><div id="emote" class="graded"></div></div></div>
@@ -475,8 +488,9 @@ function layoutFrameBox(el) {
      그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
      **bg-*.jpg / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
      (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
-  var ASSET_V = "20260904e";
+  var ASSET_V = "20260905a";
   function av(u) { return u + "?v=" + ASSET_V; }
+  document.documentElement.dataset.av = ASSET_V;   // 혀 IIFE가 캐시 판번호를 쓴다
 
   function bgOf(v) { return 'url("' + av("img/bg-" + v + ".jpg") + '")'; }
   function naeruStillOf(v) { return av("img/naeru-" + v + ".png"); }
@@ -1120,7 +1134,6 @@ function layoutFrameBox(el) {
      기울 때 살짝 눌러주면 무게가 실려 뒤뚱거리는 느낌이 난다 */
   function look() {
     window.naeru.busy = true;
-    if (Math.random() < 0.28) showEmote("what", 700);   // 가끔 "뭐지?"
     var dir = Math.random() < 0.5 ? 1 : -1;
     var dur = rand(6000, 8000);
     var period = rand(1500, 1900);                    // 한 번 왕복하는 데 걸리는 시간
@@ -1260,8 +1273,17 @@ function layoutFrameBox(el) {
   }
 
   /* 나비가 앉았을 때의 짧은 갸웃. 공 IIFE의 flinch와 달리 busy를 존중한다 —
-     폴짝 중에 끼어들면 #naeru-act를 서로 덮어쓴다 */
+     폴짝 중에 끼어들면 #naeru-act를 서로 덮어쓴다.
+
+     물음표는 **여기서만** 띄운다. 두리번에 확률로 붙여 놨더니 아무 일도 없는데
+     혼자 "?"가 떠서 뜬금없었다(2026-09-05 제보). peek()은 나비 IIFE만 부르므로
+     이 자리에 두면 나비와 물음표가 구조적으로 한 쌍이 된다 — busy라 갸웃을
+     건너뛰면 물음표도 같이 안 뜬다. */
   function peek(dir) {
+    // 기호가 먼저다 — busy면 갸웃(#naeru-act)만 건너뛰고 물음표는 그대로 뜬다.
+    // 반대로 두면 폴짝 중에 나비가 앉을 때 물음표까지 사라져서 "나비는 왔는데
+    // 아무 반응이 없는" 그림이 된다
+    showEmote("what", 900);
     if (window.naeru.busy) return;
     window.naeru.busy = true;
     dir = dir || 1;
@@ -1431,6 +1453,124 @@ function layoutFrameBox(el) {
       // 공이 날아오는 중이면 미룬다 — 둘이 동시에 오면 어디를 봐야 할지 모른다
       if (window.naeru && window.naeru.busy) { schedule(); return; }
       arrive();
+    }, ms);
+  }
+  schedule(true);
+})();
+</script>
+
+<script>
+/* ── 혀 날름 ────────────────────────────────────────────────────────
+   가끔 혀를 쏙 집어넣었다가 다시 뺀다.
+
+   **316프레임 루프에는 혀가 들어간 프레임이 없다.** 혀 영역의 프레임간 변화가
+   평균 1.81이고 실루엣 화소수도 75,375~84,075라 혀가 빠질 여지가 없다 —
+   재생 구간이나 속도로는 못 만든다. 그래서 혀를 지운 몸(naeru-<변형>-nt.png)과
+   혀만(tongue-<변형>.png)을 따로 구웠다(tools/naeru-split/tongue.py).
+
+   두 장은 **기준 프레임 79 한 장씩**이다. 그래서 루프가 그 프레임에 왔을 때만
+   시작하고, 그 순간 영상을 세운다. 세운 프레임과 정지본이 같은 그림이라
+   바꿔치는 순간이 안 보이고, 몸이 멈춘 채로 혀만 움직인다 — 만화에서 한 동작을
+   보여줄 때 몸을 붙잡아 두는 것과 같다. 전 프레임을 구우면 몸도 계속 숨쉬게
+   할 수 있지만 변형당 영상이 한 벌 더 생기고(+7MB) 인페인팅이 1,272번이라
+   1초짜리 개그에는 값이 안 맞는다.
+
+   핑퐁이라 기준 프레임은 한 바퀴에 두 번(3.29초, 9.875초) 지나간다.
+
+   ?tongue=0 끄기 / ?tongue=1 자주 ──────────────────────────────── */
+(function () {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var flag = new URLSearchParams(location.search).get("tongue");
+  if (flag === "0") return;
+  var DEBUG = flag === "1";
+
+  var REF_FRAME = 79, FPS = 24, N_FRAMES = 316;   // tongue.py의 REF와 같아야 한다
+  var MARKS = [REF_FRAME / FPS, (N_FRAMES - REF_FRAME) / FPS];
+  var WINDOW = 1.5 / FPS;                          // 이 안에 들어오면 그 프레임으로 본다
+  var FIRST = [25000, 60000];
+  var GAP   = [60000, 150000];
+  var IN_MS = 220, HOLD_MS = 420, OUT_MS = 280;
+
+  var nt   = document.getElementById("naeruNt");
+  var tong = document.getElementById("tongue");
+  if (!nt || !tong) return;
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function ver() { return "?v=" + (document.documentElement.dataset.av || "0"); }
+  function activeVideo() {
+    return document.querySelector("#naeruA.on, #naeruB.on");
+  }
+
+  function preload(variant) {                      // 미리 받아둬야 바꿔칠 때 안 깜빡인다
+    nt.src   = "img/naeru-" + variant + "-nt.png" + ver();
+    tong.src = "img/tongue-" + variant + ".png" + ver();
+  }
+
+  function tick(dur, fn, done) {
+    var t0 = performance.now();
+    (function step(now) {
+      var t = Math.min(1, (now - t0) / dur);
+      fn(t);
+      if (t < 1) requestAnimationFrame(step);
+      else if (done) done();
+    })(t0);
+  }
+
+  function place(k) {          // k: 1=완전히 나옴 0=입 안
+    tong.style.transform = "scale(" + k.toFixed(4) + ") rotate(" +
+                           ((1 - k) * -7).toFixed(2) + "deg)";
+  }
+
+  function play(v) {
+    if (window.naeru) window.naeru.busy = true;
+    v.pause();
+    nt.style.opacity = "1";
+    tong.style.opacity = "1";
+    place(1);
+    tick(IN_MS, function (t) {                     // 쏙 — 끝에서 빨라진다
+      place(1 - (t * t) * 0.94);
+    }, function () {
+      place(0.06);
+      setTimeout(function () {
+        tick(OUT_MS, function (t) {                // 다시 뿅, 살짝 넘겼다 제자리
+          var e = 1 - Math.pow(1 - t, 3);
+          place(0.06 + 1.02 * e - (Math.sin(t * Math.PI) * 0.08));
+        }, function () {
+          tong.style.opacity = "0";
+          nt.style.opacity = "0";
+          tong.style.transform = "";
+          v.play().catch(function () {});
+          if (window.naeru) window.naeru.busy = false;
+          schedule();
+        });
+      }, HOLD_MS);
+    });
+  }
+
+  /* 기준 프레임이 지나갈 때까지 지켜본다. 최대 한 바퀴(13.2초)면 반드시 온다 */
+  function waitForFrame(v) {
+    var giveUp = performance.now() + 16000;
+    (function step(now) {
+      if (!v.isConnected || v.paused || document.hidden) { schedule(); return; }
+      if (now > giveUp) { schedule(); return; }
+      var t = v.currentTime;
+      for (var i = 0; i < MARKS.length; i++) {
+        if (Math.abs(t - MARKS[i]) < WINDOW) { play(v); return; }
+      }
+      requestAnimationFrame(step);
+    })(performance.now());
+  }
+
+  function schedule(first) {
+    var ms = DEBUG ? (first ? 2000 : 5000)
+                   : rand.apply(null, first ? FIRST : GAP);
+    setTimeout(function () {
+      var v = activeVideo();
+      if (document.hidden || !v || v.paused || !v.getAttribute("src")) { schedule(); return; }
+      if (window.naeru && window.naeru.busy) { schedule(); return; }
+      preload(document.body.dataset.variant || "dusk");
+      if (!nt.complete || !tong.complete) { schedule(); return; }
+      waitForFrame(v);
     }, ms);
   }
   schedule(true);
