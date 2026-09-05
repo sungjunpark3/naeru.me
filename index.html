@@ -298,10 +298,10 @@
     0%, 100% { transform: translateX(-1.6%); }
     50%      { transform: translateX(1.6%); }
   }
-  /* 겨울엔 **비 대신 눈**이 온다 — 강수일 때 .rain을 숨기고 눈을 더 굵게.
-     가을 낙엽은 비가 오면 안 띄운다(둘이 같이 내리면 어수선하다) */
-  html[data-season="winter"] .fall,
-  html[data-season="autumn"] body:not([data-weather="rain"]) .fall {
+  /* 내리는 것은 **겨울 눈뿐**이다. 가을 낙엽도 만들어 봤지만 2026-09-05에
+     뺐다 — 배경의 단풍만 남기고 하늘에서 내리는 잎은 안 쓴다.
+     겨울엔 비 대신 눈이 온다: 강수일 때 .rain을 숨기고 눈을 더 굵게 */
+  html[data-season="winter"] .fall {
     visibility: visible;
     animation-play-state: running;
   }
@@ -310,8 +310,6 @@
   html[data-season="winter"] body[data-weather="rain"] .fall-far  { opacity: 0.68; }
   html[data-season="winter"] body[data-weather="rain"] .fall-near { opacity: 0.85; }
   html[data-season="winter"] .rain { visibility: hidden; opacity: 0; }
-  html[data-season="autumn"] body:not([data-weather="rain"]) .fall-far  { opacity: 0.45; }
-  html[data-season="autumn"] body:not([data-weather="rain"]) .fall-near { opacity: 0.62; }
 
   /* 머리 위에 잠깐 뜨는 기호(별·zzz·물음표). #naeru-act의 자식이라 폴짝·움찔을
      따라가고, #naeru-face 밖이라 좌우 뒤집기에는 안 따라간다 — 기호가 거울상이
@@ -381,7 +379,7 @@
 <div class="rain rain-far"></div>
 <div class="rain rain-near"></div>
 
-<!-- 겨울 눈 / 가을 낙엽. 텍스처는 JS가 계절에 따라 --fall-* 로 꽂는다 -->
+<!-- 겨울 눈. 텍스처는 JS가 계절에 따라 --fall-* 로 꽂는다 -->
 <div class="fall fall-far"></div>
 <div class="fall fall-near"></div>
 
@@ -606,7 +604,7 @@ function layoutFrameBox(el) {
      그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
      **bg-*.jpg / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
      (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
-  var ASSET_V = "20260905f";
+  var ASSET_V = "20260905g";
   function av(u) { return u + "?v=" + ASSET_V; }
   document.documentElement.dataset.av = ASSET_V;   // 혀 IIFE가 캐시 판번호를 쓴다
 
@@ -805,8 +803,7 @@ function layoutFrameBox(el) {
      표시를 고르고, 텍스처 경로는 판번호가 붙어야 해서 JS가 꽂는다 */
   function applySeason() {
     root.dataset.season = season;
-    var tex = season === "winter" ? ["snow-far", "snow-near"]
-            : season === "autumn" ? ["leaf-far", "leaf-near"] : null;
+    var tex = season === "winter" ? ["snow-far", "snow-near"] : null;
     root.style.setProperty("--fall-far",  tex ? 'url("' + av("img/" + tex[0] + ".png") + '")' : "none");
     root.style.setProperty("--fall-near", tex ? 'url("' + av("img/" + tex[1] + ".png") + '")' : "none");
   }

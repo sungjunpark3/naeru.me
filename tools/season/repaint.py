@@ -148,8 +148,11 @@ def storm_canvas(shape):
     **있는 구름을 어둡게 눌러서는 안 된다** — 밝기를 선형으로 늘리면 밝은 구름과
     그늘이 양극단으로 벌어져 색반전처럼 보이고, 마스크가 끝나는 자리에 가로 띠가
     생긴다(2026-09-05 제보 "왜 상단 60%만 검게 된 거야"). 그래서 하늘을 **통째로
-    갈아끼운다**. 그림은 tools/season/storm-sky.jpg(생성본)이고, 잉크선이 원화보다
-    세서 흐림을 섞어 눌러 둔다."""
+    갈아끼운다**. 그림은 tools/season/storm-sky.jpg다.
+
+    **생성본을 그대로 쓰면 안 된다** — 잉크 윤곽선이 들어 있어서 파스텔풍
+    원화와 이질적이다(2026-09-05 제보). 중앙값 21 필터로 가는 어두운 선만
+    지우고 흐림을 먹여 저장해 뒀다(만드는 법은 커밋 메시지 참조)."""
     global _STORM
     if _STORM is not None:
         return _STORM
@@ -160,9 +163,7 @@ def storm_canvas(shape):
     c = np.zeros((H, W, 3), np.float32)
     c[:1450] = np.asarray(src, np.float32)
     c[1450:] = c[1449]                       # 아래는 마지막 줄로 채운다(가중치 0)
-    sm = np.asarray(Image.fromarray(c.astype(np.uint8))
-                    .filter(ImageFilter.GaussianBlur(3)), np.float32)
-    _STORM = c * 0.35 + sm * 0.65
+    _STORM = c
     return _STORM
 
 
@@ -186,8 +187,8 @@ def storm_sky(a, L0, yy, variant):
         have = np.maximum(canvas[core].mean(0), 1)
         canvas *= (want / have)
     canvas = np.clip(canvas, 0, 255)
-    # 원본을 조금 섞어야 생성본의 잉크선이 원화 톤에 묻힌다
-    mixed = canvas * 0.65 + a * 0.35
+    # 원본을 약간만 섞어 원화의 입자감을 남긴다
+    mixed = canvas * 0.85 + a * 0.15
     return a * (1 - w[..., None]) + mixed * w[..., None]
 
 
