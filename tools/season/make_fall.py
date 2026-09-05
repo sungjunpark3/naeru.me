@@ -43,16 +43,33 @@ def dot(r, alpha):
     return out
 
 
+# 단풍잎 실루엣(정규화 0~1, y는 아래로, 잎끝이 위·잎자루가 아래).
+# 물방울 모양은 "갈색 마름모"로 보이고(2026-09-05 제보), 방사형 사인 곡선으로
+# 만든 5갈래는 꽃처럼 보인다 — 갈래 사이가 너무 깊어서다. 캐나다 국기식으로
+# 갈래를 넓게 잡고 톱니를 얕게 둬야 단풍으로 읽힌다.
+MAPLE = [(0.50, 0.02), (0.57, 0.26), (0.70, 0.22), (0.66, 0.38), (0.86, 0.34),
+         (0.79, 0.48), (0.96, 0.55), (0.73, 0.60), (0.76, 0.72), (0.59, 0.66),
+         (0.60, 0.82), (0.52, 0.76), (0.52, 1.00), (0.48, 1.00), (0.48, 0.76),
+         (0.40, 0.82), (0.41, 0.66), (0.24, 0.72), (0.27, 0.60), (0.04, 0.55),
+         (0.21, 0.48), (0.14, 0.34), (0.34, 0.38), (0.30, 0.22), (0.43, 0.26)]
+
+
 def leaf(size, color, angle):
-    """길쭉한 물방울 모양 + 잎맥 한 줄. 작게 쓰이므로 형태만 읽히면 된다."""
+    """단풍잎. 4배로 그린 뒤 줄여서 갈래가 뭉개지지 않게 한다.
+
+    **화면에서 20px 아래로 내려가면 어떤 단풍 윤곽도 별 얼룩이 된다.** 그래서
+    물방울 시절보다 크게 쓴다(원경 22~30, 근경 42~58). 잎맥은 28px 이상일 때만
+    긋는다 — 작을 땐 잡티로만 보인다."""
     k = 4
-    w, h = int(size * k), int(size * 1.6 * k)
-    im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    px = int(size * k)
+    im = Image.new("RGBA", (px, px), (0, 0, 0, 0))
     g = ImageDraw.Draw(im)
-    g.polygon([(w / 2, 0), (w, h * 0.42), (w / 2, h), (0, h * 0.42)],
-              fill=color + (235,))
-    g.line([(w / 2, h * 0.08), (w / 2, h * 0.92)],
-           fill=(90, 55, 30, 120), width=max(1, k // 2))
+    g.polygon([(x * px, y * px) for x, y in MAPLE], fill=color + (238,))
+    if size >= 28:
+        vein = (max(0, color[0] - 70), max(0, color[1] - 26), max(0, color[2] - 18), 140)
+        for tx, ty in ((0.50, 0.12), (0.80, 0.42), (0.20, 0.42)):
+            g.line([(0.50 * px, 0.78 * px), (tx * px, ty * px)],
+                   fill=vein, width=max(1, k // 2))
     im = im.rotate(angle, expand=True, resample=Image.BICUBIC)
     return im.resize((max(1, im.width // k), max(1, im.height // k)), Image.LANCZOS)
 
@@ -67,8 +84,9 @@ def build(name, kind, n, lo, hi):
             paste_wrapped(canvas, sp, x - r, y - r)
         else:
             size = random.uniform(lo, hi)
-            col = random.choice([(200, 121, 46), (180, 83, 42),
-                                 (217, 160, 60), (166, 96, 38)])
+            # 원화가 탁한 편이라 순색 빨강은 혼자 튄다 — 한 단계 죽인 팔레트
+            col = random.choice([(176, 72, 48), (198, 110, 54),
+                                 (206, 150, 72), (160, 88, 50)])
             sp = leaf(size, col, random.uniform(0, 360))
             paste_wrapped(canvas, sp, x - sp.width / 2, y - sp.height / 2)
     canvas.save(REPO / "img" / name)
@@ -83,5 +101,6 @@ if __name__ == "__main__":
     # 반복된다. 낙엽을 타일당 30개 넣었더니 화면에서 색종이가 됐다(2026-09-05).
     build("snow-far.png",  "snow", 60, 1.6, 3.2)     # 화면에 약 240송이
     build("snow-near.png", "snow", 20, 3.4, 6.4)     # 약 80송이
-    build("leaf-far.png",  "leaf", 5,  9.0, 14.0)    # 약 20장
-    build("leaf-near.png", "leaf", 2,  18.0, 28.0)   # 약 8장
+    # 단풍은 갈래가 읽혀야 하므로 크게, 대신 성기게
+    build("leaf-far.png",  "leaf", 4,  22.0, 30.0)   # 화면에 약 16장
+    build("leaf-near.png", "leaf", 2,  42.0, 58.0)   # 약 8장

@@ -298,16 +298,20 @@
     0%, 100% { transform: translateX(-1.6%); }
     50%      { transform: translateX(1.6%); }
   }
-  /* 비가 올 땐 안 띄운다 — 비와 눈이 같이 내리면 이상하다 */
-  html[data-season="winter"] body:not([data-weather="rain"]) .fall,
+  /* 겨울엔 **비 대신 눈**이 온다 — 강수일 때 .rain을 숨기고 눈을 더 굵게.
+     가을 낙엽은 비가 오면 안 띄운다(둘이 같이 내리면 어수선하다) */
+  html[data-season="winter"] .fall,
   html[data-season="autumn"] body:not([data-weather="rain"]) .fall {
     visibility: visible;
     animation-play-state: running;
   }
-  html[data-season="winter"] body:not([data-weather="rain"]) .fall-far  { opacity: 0.50; }
-  html[data-season="winter"] body:not([data-weather="rain"]) .fall-near { opacity: 0.68; }
-  html[data-season="autumn"] body:not([data-weather="rain"]) .fall-far  { opacity: 0.55; }
-  html[data-season="autumn"] body:not([data-weather="rain"]) .fall-near { opacity: 0.75; }
+  html[data-season="winter"] .fall-far  { opacity: 0.42; }
+  html[data-season="winter"] .fall-near { opacity: 0.58; }
+  html[data-season="winter"] body[data-weather="rain"] .fall-far  { opacity: 0.68; }
+  html[data-season="winter"] body[data-weather="rain"] .fall-near { opacity: 0.85; }
+  html[data-season="winter"] .rain { visibility: hidden; opacity: 0; }
+  html[data-season="autumn"] body:not([data-weather="rain"]) .fall-far  { opacity: 0.45; }
+  html[data-season="autumn"] body:not([data-weather="rain"]) .fall-near { opacity: 0.62; }
 
   /* 머리 위에 잠깐 뜨는 기호(별·zzz·물음표). #naeru-act의 자식이라 폴짝·움찔을
      따라가고, #naeru-face 밖이라 좌우 뒤집기에는 안 따라간다 — 기호가 거울상이
@@ -602,13 +606,14 @@ function layoutFrameBox(el) {
      그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
      **bg-*.jpg / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
      (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
-  var ASSET_V = "20260905d";
+  var ASSET_V = "20260905e";
   function av(u) { return u + "?v=" + ASSET_V; }
   document.documentElement.dataset.av = ASSET_V;   // 혀 IIFE가 캐시 판번호를 쓴다
 
+  /* 여름도 접미사를 쓴다. 여름 -rain도 하늘을 먹구름으로 다시 칠했기 때문에
+     원본(bg-<변형>.jpg)과 다르다 — 원본은 이제 파이프라인 입력일 뿐이다 */
   function bgOf(v) {
-    var suffix = season === "summer" ? "" : "-" + season;   // 여름이 원본
-    return 'url("' + av("img/bg-" + v + suffix + ".jpg") + '")';
+    return 'url("' + av("img/bg-" + v + "-" + season + ".jpg") + '")';
   }
   function naeruStillOf(v) { return av("img/naeru-" + v + ".png"); }
   function naeruSrcOf(v, fmt) { return av("img/naeru-" + v + "." + fmt); }
