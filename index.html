@@ -965,8 +965,9 @@ function layoutFrameBox(el) {
     setTimeout(function () {
       if (document.hidden) { schedule(); return; }  // 숨은 탭에선 건너뜀
       // 폴짝·두리번 중이면 미룬다. 조준점은 던지는 순간 한 번만 읽으므로
-      // 그때 내루미가 공중이면 640ms 뒤엔 이미 내려와 있어 빗나간다
-      if (window.naeru && window.naeru.busy) { schedule(); return; }
+      // 그때 내루미가 공중이면 640ms 뒤엔 이미 내려와 있어 빗나간다.
+      // 나비가 와 있을 때도 미룬다 — 둘이 겹치면 어디를 봐야 할지 모른다
+      if (window.naeru && (window.naeru.busy || window.naeru.hold)) { schedule(); return; }
       toss();
     }, ms);
   }
@@ -1016,6 +1017,10 @@ function layoutFrameBox(el) {
 
   window.naeru = {
     busy:   false,      // 공이 날아오는 동안(또는 자체 행동 중) 새 행동 금지
+    /* 나비가 오는 동안 통째로 잡아 둔다. busy와 따로 둔 이유: 나비가 busy를
+       직접 잡으면 앉는 순간의 peek()이 자기 자신 때문에 건너뛰어진다.
+       hold는 "새 동작을 시작하지 마라"만 뜻하고, peek는 busy만 본다. */
+    hold:   false,
     flinch: flinch,
     peek:   peek,       // 나비 IIFE가 "머리에 앉았다"고 알릴 때 쓴다
     headAt: headAt,     // 머리 꼭대기 — 공의 조준점
@@ -1317,7 +1322,8 @@ function layoutFrameBox(el) {
     var ms = DEBUG ? 5000 : rand(gap[0], gap[1]);
     setTimeout(function () {
       if (document.hidden) { schedule(kind); return; }   // 숨은 탭에선 건너뜀
-      if (window.naeru.busy) { schedule(kind); return; }  // 공 날아오는 중 등
+      // 공이 날아오는 중, 자체 동작 중, 나비가 와 있는 중이면 미룬다
+      if (window.naeru.busy || window.naeru.hold) { schedule(kind); return; }
       // 무엇을 할지는 kind가 정한다. DEBUG는 빈도만 바꾼다 —
       // 여기서 DEBUG로 분기하면 상시 모드에서 look이 영영 안 돈다
       if (kind === "look") look();
@@ -1399,7 +1405,7 @@ function layoutFrameBox(el) {
     var to = [dir > 0 ? 1.15 : -0.15, rand(0.12, 0.26)];
     (function step(now) {
       var t = (now - t0) / OUT_MS;
-      if (t >= 1) { flit.style.opacity = "0"; schedule(); return; }
+      if (t >= 1) { flit.style.opacity = "0"; hold(false); schedule(); return; }
       flap(9, now);
       var e = t * t * 0.7 + t * 0.3;
       var u = from.x + (to[0] - from.x) * e;
@@ -1427,7 +1433,18 @@ function layoutFrameBox(el) {
     })(t0);
   }
 
+  var holdTimer = null;
+  function hold(on) {
+    if (!window.naeru) return;
+    window.naeru.hold = on;
+    clearTimeout(holdTimer);
+    // 안전장치: 탭이 숨는 등으로 비행 rAF가 끊기면 hold가 남아 모든 동작이
+    // 영영 멈춘다. 방문 최대 길이(약 11초)의 두 배 남짓에서 강제로 푼다
+    if (on) holdTimer = setTimeout(function () { window.naeru.hold = false; }, 25000);
+  }
+
   function arrive() {
+    hold(true);                                  // 오는 동안 다른 동작 금지
     var dir = Math.random() < 0.5 ? 1 : -1;      // 1 = 왼쪽에서 날아옴
     var p0 = [dir > 0 ? -0.15 : 1.15, rand(0.16, 0.30)];
     var t0 = performance.now();
@@ -1487,8 +1504,9 @@ function layoutFrameBox(el) {
   var REF_FRAME = 79, FPS = 24, N_FRAMES = 316;   // tongue.py의 REF와 같아야 한다
   var MARKS = [REF_FRAME / FPS, (N_FRAMES - REF_FRAME) / FPS];
   var WINDOW = 1.5 / FPS;                          // 이 안에 들어오면 그 프레임으로 본다
-  var FIRST = [25000, 60000];
-  var GAP   = [60000, 150000];
+  var FIRST = [10000, 22000];
+  var GAP   = [55000, 130000];
+  var RETRY = [7000, 14000];      // 그림이 아직이거나 다른 동작 중이라 미룰 때
   var IN_MS = 220, HOLD_MS = 420, OUT_MS = 280;
 
   var nt   = document.getElementById("naeruNt");
@@ -1501,7 +1519,19 @@ function layoutFrameBox(el) {
     return document.querySelector("#naeruA.on, #naeruB.on");
   }
 
-  function preload(variant) {                      // 미리 받아둬야 바꿔칠 때 안 깜빡인다
+  /* 미리 받아둬야 바꿔칠 때 안 깜빡인다. **src를 넣고 바로 complete를 보면
+     안 된다** — 갓 시작한 요청이라 항상 false라서 첫 시도가 늘 미뤄졌다
+     (2026-09-05 "낼름거리는 모션 안 나오는데"의 원인). onload로 기다린다. */
+  var ready = false, loadedFor = null;
+
+  function preload(variant) {
+    if (loadedFor === variant) return;
+    loadedFor = variant;
+    ready = false;
+    var left = 2;
+    function ok() { if (--left === 0) ready = true; }
+    nt.onload = tong.onload = ok;
+    nt.onerror = tong.onerror = function () { loadedFor = null; };  // 다음에 다시
     nt.src   = "img/naeru-" + variant + "-nt.png" + ver();
     tong.src = "img/tongue-" + variant + ".png" + ver();
   }
@@ -1551,8 +1581,8 @@ function layoutFrameBox(el) {
   function waitForFrame(v) {
     var giveUp = performance.now() + 16000;
     (function step(now) {
-      if (!v.isConnected || v.paused || document.hidden) { schedule(); return; }
-      if (now > giveUp) { schedule(); return; }
+      if (!v.isConnected || v.paused || document.hidden) { schedule("retry"); return; }
+      if (now > giveUp) { schedule("retry"); return; }
       var t = v.currentTime;
       for (var i = 0; i < MARKS.length; i++) {
         if (Math.abs(t - MARKS[i]) < WINDOW) { play(v); return; }
@@ -1561,19 +1591,23 @@ function layoutFrameBox(el) {
     })(performance.now());
   }
 
-  function schedule(first) {
-    var ms = DEBUG ? (first ? 2000 : 5000)
-                   : rand.apply(null, first ? FIRST : GAP);
+  function schedule(kind) {
+    var gap = kind === "first" ? FIRST : kind === "retry" ? RETRY : GAP;
+    var ms = DEBUG ? (kind === "first" ? 2000 : 5000) : rand.apply(null, gap);
     setTimeout(function () {
-      var v = activeVideo();
-      if (document.hidden || !v || v.paused || !v.getAttribute("src")) { schedule(); return; }
-      if (window.naeru && window.naeru.busy) { schedule(); return; }
       preload(document.body.dataset.variant || "dusk");
-      if (!nt.complete || !tong.complete) { schedule(); return; }
+      var v = activeVideo();
+      // 미루는 이유는 전부 잠깐짜리(그림 로딩·다른 동작 중)라 짧게 다시 온다.
+      // 여기서 GAP을 다시 잡으면 한 번 어긋날 때마다 1~2분씩 밀린다
+      if (document.hidden || !v || v.paused || !v.getAttribute("src") || !ready ||
+          (window.naeru && (window.naeru.busy || window.naeru.hold))) {
+        schedule("retry"); return;
+      }
       waitForFrame(v);
     }, ms);
   }
-  schedule(true);
+  preload(document.body.dataset.variant || "dusk");   // 첫 시도 전에 미리 받아둔다
+  schedule("first");
 })();
 </script>
 
