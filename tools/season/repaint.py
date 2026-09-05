@@ -134,13 +134,23 @@ def winter_snow(a, L, yy, tree, shape, rng):
     snow_g = ground * (0.45 + 0.55 * ramp(L, 80, 175)) * 0.86
     snow_t = (blur(tree_top, 7) * 1.7 + tree * lit * lown * 0.95) * 1.35
     snow = np.clip(snow_g + blur(snow_t, 2), 0, 1)
+
+    # 앞쪽 꽃밭은 눈이 두껍게 쌓여 **꽃이 묻힌다**. 그냥 하얗게만 하면 활짝 핀
+    # 데이지가 그대로 보여서 겨울로 안 읽힌다(2026-09-06 제보). 형태를 흐려
+    # 눈더미로 만들고 눈을 더 얹는다
+    front = ramp(yy, 1560, 1880)[..., None]
+    soft = np.asarray(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+                      .filter(ImageFilter.GaussianBlur(11)), np.float32)
+    a = a * (1 - front * 0.78) + soft * (front * 0.78)
+    snow = np.clip(snow + front[..., 0] * 0.55, 0, 1)
+
     white = np.stack([np.full((H, W), 246.0), np.full((H, W), 249.0),
                       np.full((H, W), 255.0)], -1)
     keep = L[..., None] / 255 * 0.30 + 0.70      # 원본 명암을 조금 남긴다
     return a * (1 - snow[..., None]) + white * keep * 0.93 * snow[..., None]
 
 
-def storm_sky(a, L0, yy, variant):
+def storm_sky(a, L0, yy, variant, season):
     """비·눈이 올 땐 하늘을 무겁게 내려앉은 잿빛으로 만든다.
 
     두 번 실패하고 세 번째다(전부 2026-09-05 제보):
@@ -159,7 +169,11 @@ def storm_sky(a, L0, yy, variant):
     가중치는 위에서 아래로 부드럽게 빠져 지평선을 지나 사라진다 — 여기서
     끊으면 1번의 가로 띠가 다시 생긴다. 어두운 나무(L<95)는 덜 건드려
     실루엣이 남는다."""
-    FLAT, DIM = 0.85, 0.60
+    # 겨울은 밝게 둔다. 눈 오는 낮은 흐리지만 **어둡지 않다** — 여기서 0.60을
+    # 쓰면 하늘은 110, 눈 덮인 땅은 190이 되어 화면 위아래가 딴 그림이 된다
+    # (2026-09-06 제보 "상단 60%와 하단 40%에 전혀 다른 필터").
+    FLAT = 0.85
+    DIM = 0.82 if season == "winter" else 0.60
     L = a.mean(2)
     big = np.asarray(Image.fromarray(L.astype(np.uint8))
                      .filter(ImageFilter.GaussianBlur(70)), np.float32)
@@ -167,7 +181,11 @@ def storm_sky(a, L0, yy, variant):
     gray = a * 0.25 + a.mean(2, keepdims=True) * 0.75
     stormy = np.clip(gray * (tgt / np.maximum(L, 1))[..., None], 0, 255)
     stormy[..., 2] *= 1.04                       # 살짝 푸른 잿빛
-    w = blur(np.clip(1 - ramp(yy, 1150, 1560), 0, 1) * ramp(L0, 95, 135), 14)
+    # **가중치에 바닥값을 둔다.** 0으로 떨어뜨리면 하늘만 어두워지고 땅은
+    # 그대로라 지평선에서 화면이 두 동강 난다. 폭풍 아래에선 땅도 같이 어둡다
+    FLOOR = 0.28
+    w = FLOOR + (1 - FLOOR) * np.clip(1 - ramp(yy, 1150, 1560), 0, 1)
+    w = blur(w * np.maximum(ramp(L0, 95, 135), 0.45), 14)
     return a * (1 - w[..., None]) + stormy * w[..., None]
 
 
@@ -196,7 +214,7 @@ def main():
 
             if v.endswith("-rain"):
                 b = np.asarray(Image.open(out).convert("RGB"), np.float32)
-                Image.fromarray(np.clip(storm_sky(b, L, yy, v), 0, 255).astype(np.uint8)) \
+                Image.fromarray(np.clip(storm_sky(b, L, yy, v, s), 0, 255).astype(np.uint8)) \
                      .save(out, quality=93)
         print(f"  {v} → {' '.join(SEASONS)}")
     print("=== 완료")
