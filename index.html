@@ -205,6 +205,23 @@
     50%      { opacity: 0.35; }
   }
 
+  /* 시계 아래 한 줄: 기온 · 하늘 · 다음 일출/일몰.
+     날씨 실황은 배경 변형을 고르려고 어차피 받아오는 것이라, 띄우는 데
+     추가 요청이 없다. 날짜보다 한 단계 작고 옅게 둬서 시계를 안 흐린다 */
+  .info {
+    margin-top: 0.15rem;
+    font-size: clamp(0.8rem, 1.5vw, 1rem);
+    font-weight: 400;
+    letter-spacing: 0.12em;
+    color: rgba(255, 250, 240, 0.62);
+    text-shadow: 0 1px 10px rgba(20, 25, 40, 0.6);
+    font-variant-numeric: tabular-nums;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+  }
+  .info.on { opacity: 1; }
+  .info .sep { opacity: 0.45; margin: 0 0.5em; }
+
   .date {
     font-size: clamp(1rem, 2.2vw, 1.5rem);
     font-weight: 400;
@@ -261,6 +278,19 @@
 
   #flit { position: absolute; left: 0; top: 0; opacity: 0;
           will-change: transform, opacity; }
+
+  /* 반딧불이용 두 번째 프레임 상자. #frame과 같은 사각형이지만 **변형별
+     그레이딩 필터를 안 받는다**(.graded가 아니다) — 밤 필터가 brightness .60
+     이라 그걸 먹으면 빛나야 할 것이 도로 어두워진다 */
+  #glow { position: fixed; pointer-events: none; z-index: 1; }
+  .ff {
+    position: absolute; left: 0; top: 0; border-radius: 50%;
+    background: radial-gradient(circle,
+      rgba(255, 247, 198, 0.95) 0%, rgba(255, 228, 130, 0.5) 34%,
+      rgba(255, 214, 90, 0) 70%);
+    opacity: 0;
+    will-change: transform, opacity;
+  }
   #flit svg { display: block; width: 100%; height: 100%; }
   #flit-wings { transform-box: fill-box; transform-origin: 50% 52%; }
 
@@ -272,6 +302,7 @@
     .clock-inner, .time .colon { animation: none !important; }
     .rain { display: none !important; }
     .naeru, #naeruNt, #tongue { display: none !important; }
+    #glow { display: none !important; }
     .bg-layer, #naeruStill { transition: none !important; }
     #frame { display: none !important; }
   }
@@ -303,6 +334,9 @@
 <div class="rain rain-near"></div>
 
 <div class="vignette"></div>
+
+<!-- 반딧불이. 밤에만, 비가 안 올 때만 -->
+<div id="glow"></div>
 
 <!-- 가끔 날아와 내루미 머리를 때리고 사라지는 공.
      프레임 박스 안에 비율로 배치되므로 화면비가 뭐든 머리에 맞는다 -->
@@ -338,6 +372,7 @@
   <div class="clock-inner">
     <div class="time" id="time"></div>
     <div class="date" id="date"></div>
+    <div class="info" id="info"></div>
   </div>
 </div>
 
@@ -396,6 +431,9 @@ function layoutFrameBox(el) {
      다르면 크로스페이드로 정정 */
   var WKEY    = "naeru-weather";
   var cachedW = null;
+  var temp    = null;    // 기온(°C) — 화면 표시용
+  var code    = null;    // WMO 코드 — 화면 표시용
+  var srNext  = null;    // 내일 일출(자정 기준 분) — 해 진 뒤 "다음 일출"에 쓴다
   try {
     var c = JSON.parse(localStorage.getItem(WKEY) || "null");
     if (c && Date.now() - c.t < 3 * 3600000 &&
@@ -404,6 +442,9 @@ function layoutFrameBox(el) {
       if (typeof c.sr === "number" && typeof c.ss === "number") {
         sun = { sr: c.sr, ss: c.ss };
       }
+      if (typeof c.sr2 === "number") srNext = c.sr2;
+      if (typeof c.tp === "number") temp = c.tp;
+      if (typeof c.cd === "number") code = c.cd;
     }
   } catch (e) {}
   var weather = forcedW || cachedW || "clear";
@@ -428,8 +469,8 @@ function layoutFrameBox(el) {
      일출·일몰도 같은 요청으로 받아 밴드 계산에 사용 */
   var METEO = "https://api.open-meteo.com/v1/forecast" +
               "?latitude=37.5665&longitude=126.978" +
-              "&current=weather_code" +
-              "&daily=sunrise,sunset&forecast_days=1" +
+              "&current=weather_code,temperature_2m" +
+              "&daily=sunrise,sunset&forecast_days=2" +
               "&timezone=Asia%2FSeoul";
   var RAINY = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67,
                71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99];
@@ -448,17 +489,24 @@ function layoutFrameBox(el) {
         var c = d && d.current && d.current.weather_code;
         weather   = RAINY.indexOf(c) >= 0 ? "rain" : "clear";
         lastFetch = Date.now();
+        if (typeof c === "number") code = c;
+        if (d && d.current && typeof d.current.temperature_2m === "number") {
+          temp = d.current.temperature_2m;
+        }
         if (d && d.daily) {
           var sr = minutesOf(d.daily.sunrise && d.daily.sunrise[0]);
           var ss = minutesOf(d.daily.sunset  && d.daily.sunset[0]);
           if (sr !== null && ss !== null) sun = { sr: sr, ss: ss };
+          srNext = minutesOf(d.daily.sunrise && d.daily.sunrise[1]);
         }
         try {
           localStorage.setItem(WKEY, JSON.stringify({
             w: weather, t: lastFetch,
-            sr: sun && sun.sr, ss: sun && sun.ss
+            sr: sun && sun.sr, ss: sun && sun.ss,
+            sr2: srNext, tp: temp, cd: code
           }));
         } catch (e) {}
+        renderInfo();
       })
       .catch(function () {});   // 실패 시 마지막 상태 유지
   }
@@ -702,6 +750,48 @@ function layoutFrameBox(el) {
     }, 2600);
   }
 
+  /* ── 시계 아래 한 줄: 기온 · 하늘 · 다음 일출/일몰 ──────────
+     실황은 배경 변형을 고르려고 어차피 받는 것이라 추가 요청이 없다.
+     아직 못 받았으면 아무것도 안 띄운다(빈 자리가 뜨는 것보다 낫다). */
+  function skyOf(c) {
+    if (c === 0) return "맑음";
+    if (c === 1) return "대체로 맑음";
+    if (c === 2) return "구름 조금";
+    if (c === 3) return "흐림";
+    if (c === 45 || c === 48) return "안개";
+    if (c >= 51 && c <= 57) return "이슬비";
+    if (c >= 61 && c <= 67) return "비";
+    if (c >= 71 && c <= 77) return "눈";
+    if (c >= 80 && c <= 82) return "소나기";
+    if (c === 85 || c === 86) return "진눈깨비";
+    if (c >= 95) return "뇌우";
+    return "";
+  }
+
+  function hhmm(min) {
+    var h = Math.floor(min / 60) % 24, m = min % 60;
+    return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  }
+
+  var infoEl = document.getElementById("info");
+
+  function renderInfo() {
+    var bits = [];
+    if (typeof temp === "number") bits.push(Math.round(temp) + "°");
+    var sky = code === null ? "" : skyOf(code);
+    if (sky) bits.push(sky);
+    if (sun) {
+      // 지금 기준 **다음에 올** 해를 띄운다. 해가 진 뒤엔 내일 일출
+      var now = seoulMinutes(new Date());
+      if (now < sun.sr)      bits.push("일출 " + hhmm(sun.sr));
+      else if (now < sun.ss) bits.push("일몰 " + hhmm(sun.ss));
+      else if (srNext !== null) bits.push("일출 " + hhmm(srNext));
+    }
+    if (!bits.length) { infoEl.classList.remove("on"); return; }
+    infoEl.innerHTML = bits.join('<span class="sep">·</span>');
+    infoEl.classList.add("on");
+  }
+
   /* ── 시계 ──────────────────────────────────────── */
   function render() {
     var now = new Date();
@@ -722,6 +812,8 @@ function layoutFrameBox(el) {
       new Intl.DateTimeFormat("en-US", {
         timeZone: TZ, month: "short", day: "numeric", year: "numeric"
       }).format(now);
+
+    renderInfo();
 
     // 시간대가 바뀌었으면 배경 크로스페이드
     var v = currentVariant();
@@ -1278,6 +1370,54 @@ function layoutFrameBox(el) {
     }, function () { setAct(""); window.naeru.busy = false; schedule("idle"); });
   }
 
+  /* 클릭·터치하면 화들짝 놀라 통 뛴다. 지금까지 내루미는 사용자를 전혀
+     모르는 존재였다 — 반응 하나로 "살아있다"가 크게 붙는다. */
+  function poke(dir) {
+    if (window.naeru.busy || window.naeru.hold) return;
+    window.naeru.busy = true;
+    var d = dir || 1;
+    sequence([
+      { dur: 80, fn: function (t) {                  // 움찔 웅크림
+          setAct("translateX(" + (d * 0.5 * t).toFixed(2) + "%) scale(" +
+                 (1 + 0.08 * t) + "," + (1 - 0.10 * t) + ")");
+      } },
+      { dur: 240, fn: function (t) {                 // 통 튀어오름
+          var e = 1 - Math.pow(1 - t, 2);
+          setMove("translateY(" + (-10 * e) + "%)");
+          setAct("translateX(" + (d * 0.5 * (1 - t)).toFixed(2) + "%) scale(" +
+                 (1.08 - 0.11 * t) + "," + (0.90 + 0.15 * t) + ")");
+      } },
+      { dur: 200, fn: function (t) {                 // 하강
+          var e = t * t;
+          setMove("translateY(" + (-10 * (1 - e)) + "%)");
+          setAct("scale(" + (0.97 + 0.03 * e) + "," + (1.05 - 0.05 * e) + ")");
+      } },
+      { dur: 110, fn: function (t) {
+          setAct("scale(" + (1 + 0.06 * t) + "," + (1 - 0.07 * t) + ")");
+      } },
+      { dur: 150, fn: function (t) {
+          setAct("scale(" + (1.06 - 0.06 * t) + "," + (0.93 + 0.07 * t) + ")");
+      } }
+    ], function () {
+      setMove(""); setAct(""); window.naeru.busy = false;
+    });
+  }
+
+  /* #stage가 pointer-events:none이라 히트 영역을 따로 두지 않고, 눌린 점이
+     #naeru-move 상자에서 캐릭터가 실제로 차지하는 비율 안인지 본다.
+     pointerdown이라 마우스와 터치가 한 경로로 처리된다(모바일 중복 없음). */
+  var HIT = { x0: 0.20, x1: 0.80, y0: 0.13, y1: 0.79 };
+  var lastPoke = 0;
+  addEventListener("pointerdown", function (e) {
+    var r = move.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    var u = (e.clientX - r.left) / r.width, v = (e.clientY - r.top) / r.height;
+    if (u < HIT.x0 || u > HIT.x1 || v < HIT.y0 || v > HIT.y1) return;
+    if (performance.now() - lastPoke < 500) return;      // 연타 방지
+    lastPoke = performance.now();
+    poke(u < 0.5 ? -1 : 1);                              // 눌린 쪽 반대로 움찔
+  }, { passive: true });
+
   /* 나비가 앉았을 때의 짧은 갸웃. 공 IIFE의 flinch와 달리 busy를 존중한다 —
      폴짝 중에 끼어들면 #naeru-act를 서로 덮어쓴다.
 
@@ -1528,6 +1668,101 @@ function layoutFrameBox(el) {
     }, ms);
   }
   schedule("first");
+})();
+</script>
+
+<script>
+/* ── 반딧불이 ──────────────────────────────────────────────────────
+   밤에만, 비가 안 올 때만 몇 마리가 초원 위를 천천히 떠다닌다.
+
+   #frame이 아니라 #glow에 들어간다 — #frame은 변형별 그레이딩 필터를
+   받는데(밤이면 brightness .60) 빛나야 할 것이 그걸 먹으면 도로 어두워진다.
+   좌표계는 #frame과 똑같이 layoutFrameBox로 잡으므로 화면비와 무관하다.
+
+   경로는 주기가 서로 다른 사인 둘을 겹쳐 만든다(리사주) — 난수 걸음보다
+   훨씬 부드럽고, 상태를 저장할 게 없어서 코드가 짧다. 밝기는 그와 또 다른
+   주기로 깜빡여서 규칙성이 안 느껴진다.
+
+   ?ff=0 끄기 ─────────────────────────────────────────────────── */
+(function () {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (new URLSearchParams(location.search).get("ff") === "0") return;
+
+  var N = 6;
+  var glow = document.getElementById("glow");
+  if (!glow) return;
+  var W = 0, H = 0;
+
+  function layout() {
+    var box = layoutFrameBox(glow);
+    W = box.W; H = box.H;
+    var d = 0.009 * W;                       // 빛 번짐 포함한 지름
+    for (var i = 0; i < bugs.length; i++) {
+      bugs[i].el.style.width = bugs[i].el.style.height = d + "px";
+      bugs[i].el.style.margin = (-d / 2) + "px 0 0 " + (-d / 2) + "px";
+    }
+  }
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+  // 초원 위쪽만 — 하늘로 올라가거나 발밑으로 내려가면 반딧불이로 안 보인다
+  var bugs = [];
+  for (var i = 0; i < N; i++) {
+    var el = document.createElement("div");
+    el.className = "ff";
+    glow.appendChild(el);
+    // 가로는 세로 모바일에서 보이는 구간(프레임 37~63%)을 크게 안 벗어나게,
+    // 세로는 지평선(y≈0.588) 아래 초원에 머물게 잡았다. 실측 범위는
+    // 가로 0.17~0.83, 세로 0.57~0.85
+    bugs.push({
+      el: el,
+      cx: rand(0.28, 0.72), cy: rand(0.62, 0.80),
+      ax: rand(0.05, 0.11), ay: rand(0.02, 0.045),
+      px: rand(9000, 17000), py: rand(5000, 11000),
+      ph: rand(0, 6.283),
+      blink: rand(1700, 3400), bph: rand(0, 6.283)
+    });
+  }
+  addEventListener("resize", layout);
+  layout();
+
+  function on() {
+    return (document.body.dataset.variant || "").indexOf("night") === 0 &&
+           document.body.dataset.weather !== "rain";
+  }
+
+  var running = false;
+
+  function step(now) {
+    if (!on()) {                              // 밤이 아니면 조용히 끈다
+      for (var k = 0; k < bugs.length; k++) bugs[k].el.style.opacity = "0";
+      running = false;
+      setTimeout(check, 2000);
+      return;
+    }
+    for (var j = 0; j < bugs.length; j++) {
+      var b = bugs[j];
+      var u = b.cx + Math.sin(now / b.px * 6.283 + b.ph) * b.ax
+                   + Math.sin(now / (b.px * 0.37) + b.ph) * b.ax * 0.25;
+      var v = b.cy + Math.cos(now / b.py * 6.283 + b.ph) * b.ay
+                   + Math.sin(now / (b.py * 0.53) + b.ph) * b.ay * 0.3;
+      b.el.style.transform = "translate(" + (u * W).toFixed(1) + "px," +
+                             (v * H).toFixed(1) + "px)";
+      // 깜빡임: 대체로 어둡고 가끔 밝게 — sin을 세제곱해 봉우리를 좁힌다
+      var k2 = (Math.sin(now / b.blink * 6.283 + b.bph) + 1) / 2;
+      b.el.style.opacity = (0.06 + 0.94 * k2 * k2 * k2).toFixed(3);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function check() {
+    if (running) return;
+    if (document.hidden || !on()) { setTimeout(check, 2000); return; }
+    running = true;
+    requestAnimationFrame(step);
+  }
+  check();
+  document.addEventListener("visibilitychange", check);
 })();
 </script>
 
