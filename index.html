@@ -298,18 +298,19 @@
     0%, 100% { transform: translateX(-1.6%); }
     50%      { transform: translateX(1.6%); }
   }
-  /* 내리는 것은 **겨울 눈뿐**이다. 가을 낙엽도 만들어 봤지만 2026-09-05에
-     뺐다 — 배경의 단풍만 남기고 하늘에서 내리는 잎은 안 쓴다.
-     겨울엔 비 대신 눈이 온다: 강수일 때 .rain을 숨기고 눈을 더 굵게 */
-  html[data-season="winter"] .fall {
+  /* 내리는 것은 **겨울에 강수일 때의 눈뿐**이다.
+     - 겨울엔 비 대신 눈이 온다: .rain을 숨기고 .fall을 띄운다.
+     - **맑은 겨울엔 아무것도 안 내린다.** 쌓인 눈은 배경 그림에 이미 구워져
+       있다(bg-<변형>-winter.jpg) — "눈이 올 때나 안 올 때나 상시적으로 눈이
+       쌓여있는 배경"은 그쪽 이야기지 내리는 눈이 아니다(2026-09-06 제보).
+     - 가을 낙엽도 만들어 봤지만 뺐다 — 배경의 단풍만 남긴다. */
+  html[data-season="winter"] .rain { visibility: hidden; opacity: 0; }
+  html[data-season="winter"] body[data-weather="rain"] .fall {
     visibility: visible;
     animation-play-state: running;
   }
-  html[data-season="winter"] .fall-far  { opacity: 0.42; }
-  html[data-season="winter"] .fall-near { opacity: 0.58; }
   html[data-season="winter"] body[data-weather="rain"] .fall-far  { opacity: 0.68; }
   html[data-season="winter"] body[data-weather="rain"] .fall-near { opacity: 0.85; }
-  html[data-season="winter"] .rain { visibility: hidden; opacity: 0; }
 
   /* 머리 위에 잠깐 뜨는 기호(별·zzz·물음표). #naeru-act의 자식이라 폴짝·움찔을
      따라가고, #naeru-face 밖이라 좌우 뒤집기에는 안 따라간다 — 기호가 거울상이
