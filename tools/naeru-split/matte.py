@@ -47,6 +47,15 @@ RING_LO, RING_HI  = 8, 40
 BODY_TH  = 10
 BODY_OUT = 3
 BODY_IN  = 6
+# 경계 램프를 좁힌다(50% 윤곽은 그대로, 기울기만 세운다).
+#
+# 왜 필요한가 — 알파가 0→255로 넘어가는 폭이 7~9px이나 됐다(중앙값 6, p90 14).
+# 여름 배경에선 캐릭터와 배경 톤이 비슷해 안 보이지만, **겨울 눈처럼 밝은 배경
+# 위에서는 밝은 배경이 캐릭터 가장자리로 스며들어 윤곽선이 씻겨 나간다** —
+# 몸에서 오오라가 나오는 것처럼 보인다(2026-09-06 제보). 2.2를 걸면 램프가
+# 2px로 줄어 윤곽선이 돌아온다. 대가는 알파 경계 떨림(p99 18 → 60)인데,
+# 자글거림의 주범이던 몸통 안쪽 노이즈는 색 5탭이 잡고 있으므로 감수한다.
+EDGE_GAIN = 2.2
 
 
 def silhouette(rgb_img, canvas_size):
@@ -255,6 +264,7 @@ def refine_alpha_sequence():
         lo = body.filter(ImageFilter.MinFilter(2 * BODY_IN + 1)) \
                  .filter(ImageFilter.GaussianBlur(2.0))
         out = ImageChops.lighter(ImageChops.darker(out, hi), lo)
+        out = out.point(lambda v: max(0, min(255, round(128 + (v - 128) * EDGE_GAIN))))
         out.save(out_dir / fp.name)
     print(f"alpha2: {N_FRAMES}프레임 -> {out_dir}")
 
