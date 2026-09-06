@@ -113,7 +113,24 @@ def autumn_leaves(a, tree, shape, rng):
     return hsv_recolor(a, tree * 0.92, hue, 2.1, 1.03)
 
 
-def winter_snow(a, L, yy, tree, shape, rng):
+def snow_white(a, sky, shape):
+    """이 변형에서 눈이 어떤 색이어야 하는가.
+
+    **고정된 흰색으로 칠하면 안 된다** — 밤인데 땅만 대낮처럼 하얘진다
+    (2026-09-06 제보 "위만 밤이고 아래는 낮이야?"). 눈은 스스로 빛나지 않고
+    하늘빛을 받아 보이므로, 그 변형의 **하늘 밝기와 색조**에서 끌어온다.
+    하늘보다 45는 밝게 두는 하한이 있어야 달빛 눈이 어둠에 묻히지 않는다."""
+    H, W = shape
+    core = sky > 0.6
+    m = a[core].mean(0) if core.any() else np.array([180.0, 180.0, 190.0])
+    level = float(np.clip(max(m.mean() * 1.35, m.mean() + 45), 60, 252))
+    tint = m / max(m.mean(), 1.0)
+    col = np.clip(tint * level, 0, 255)
+    col[2] = min(255.0, col[2] * 1.03)        # 눈 그늘은 살짝 푸르다
+    return np.broadcast_to(col, (H, W, 3)).copy()
+
+
+def winter_snow(a, L, yy, tree, shape, rng, sky):
     """들판·나무에 눈을 얹는다.
 
     나무 눈을 무작위 잡음으로 뿌리면 잔모래처럼 보인다 — **원화에서 밝게
@@ -144,8 +161,7 @@ def winter_snow(a, L, yy, tree, shape, rng):
     a = a * (1 - front * 0.78) + soft * (front * 0.78)
     snow = np.clip(snow + front[..., 0] * 0.55, 0, 1)
 
-    white = np.stack([np.full((H, W), 246.0), np.full((H, W), 249.0),
-                      np.full((H, W), 255.0)], -1)
+    white = snow_white(a, sky, (H, W))
     keep = L[..., None] / 255 * 0.30 + 0.70      # 원본 명암을 조금 남긴다
     return a * (1 - snow[..., None]) + white * keep * 0.93 * snow[..., None]
 
@@ -200,7 +216,7 @@ def main():
             if s == "autumn":
                 a = autumn_leaves(a, tree, shape, rng)
             elif s == "winter":
-                a = winter_snow(a, L, yy, tree, shape, rng)
+                a = winter_snow(a, L, yy, tree, shape, rng, sky)
 
             src = tmp / "in.png"
             Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)).save(src)
