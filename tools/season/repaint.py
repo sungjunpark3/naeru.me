@@ -46,11 +46,17 @@ CHAINS = {
     "autumn": "selectivecolor=greens=-0.85 0.34 0.95 0.05:"
               "yellows=-0.22 0.18 0.45 0.02,"
               "colortemperature=4400:mix=.28,eq=saturation=1.10:gamma=1.01",
+    # 밝기 리프트를 낮췄다(.045→.02, 커브 0.57→0.53). 눈을 얹은 위에 체인까지
+    # 들어올리니 새벽·낮이 눈부셨다
     "winter": "selectivecolor=greens=-0.06 0.02 -0.10 0.06:"
               "yellows=-0.08 0 -0.12 0.05,"
-              "eq=saturation=.42:brightness=.045:contrast=.94,"
+              "eq=saturation=.42:brightness=.02:contrast=.94,"
               "colorbalance=bs=.10:bm=.07:bh=.05:rs=-.05:rm=-.04:rh=-.03,"
-              "curves=all='0/0.07 0.5/0.57 1/1'",
+              "curves=all='0/0.10 0.5/0.50 1/0.97'",
+    # 커브는 **검정만 살짝** 들어올린다. 중간톤까지 0.57로 올리던 원래 커브가
+    # 눈부심의 큰 몫이었지만, 통째로 빼면 밤이 81→55로 같이 어두워진다
+    # (검정 리프트는 어두운 변형에 훨씬 크게 작용한다). 밤은 그대로 두라는
+    # 제보였으므로 검정 리프트만 남긴다
 }
 
 
@@ -123,7 +129,10 @@ def snow_white(a, sky, shape):
     H, W = shape
     core = sky > 0.6
     m = a[core].mean(0) if core.any() else np.array([180.0, 180.0, 190.0])
-    level = float(np.clip(max(m.mean() * 1.35, m.mean() + 45), 60, 252))
+    # 배수는 1.35 → 1.18로 낮췄다. 하한(+45)이 밤을 붙잡고 있으므로 이 변화는
+    # **밝은 시간대에만** 듣는다 — 새벽·낮이 눈부시다는 제보(2026-09-06)에 대한
+    # 조정이고, 노을·밤은 거의 그대로다
+    level = float(np.clip(max(m.mean() * 1.18, m.mean() + 45), 60, 246))
     tint = m / max(m.mean(), 1.0)
     col = np.clip(tint * level, 0, 255)
     col[2] = min(255.0, col[2] * 1.03)        # 눈 그늘은 살짝 푸르다
