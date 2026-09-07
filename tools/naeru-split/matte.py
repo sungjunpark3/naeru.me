@@ -64,11 +64,33 @@ FEET_TOP_GLOBAL  = 1680
 # 초원으로 열린 주머니만 배경으로 남는다.
 GREEN_VETO       = 38
 GROUND_FADE      = (310, 350)   # 크롭 y. 이 위에서는 상한을 부풀려 안 걸리게 한다
+# 상한 평활. 분홍기 ∪ 흰 발 마스크는 접지밴드에서 너덜너덜해서 발가락 사이를
+# 톱니처럼 물어뜯는다(2026-09-07 제보). **상한을 푸는 걸로 고치면 안 된다** —
+# 풀었더니 배 아래 밝은 잔디 띠가 통째로 딸려 들어왔다. 316프레임에 걸친
+# 화소 변동으로 판정했다: 그 띠는 표준편차 1.08로 확실한 배경(1.79)과 같은
+# 수준이다(캐릭터 경계는 13.79). 닫기+평활로 톱니만 없앤다.
+CAP_CLOSE        = 13
+CAP_SMOOTH       = 3
 GROUND_DILATE    = 2       # 접지밴드에서 남기는 여유
 GROUND_LOOSE     = 5       # 그 위에서의 여유 — 사실상 상한이 안 걸린다
 FEET_LO, FEET_HI = 25, 70  # 흰 발 색거리 램프 (분홍기가 0을 주는 구간)
 # 시간축 저역통과가 벌려 놓은 램프를 되세운다. 예전(2.2)만큼 셀 필요가 없다 —
 # 8px 오오라의 주범은 키가 아니라 refine의 hi/lo 강제였고 그건 통째로 뺐다(§5)
+# 피복률 알파 — 이진 실루엣의 "치마"를 없앤다.
+#
+# 원화는 윤곽선이 배경으로 6px에 걸쳐 부드럽게 번져 있다. 특히 등·귀 뒤쪽은
+# 언덕도 회색이고 윤곽선도 회색이라 |O-P|가 14~22밖에 안 나서 경계가 뭉개진다.
+# 이진 임계는 그 6px을 통째로 불투명으로 만들어, 검은 바탕에 얹으면
+# **#AFA39B짜리 회색 치마**가 실루엣을 두른다(2026-09-07 제보).
+#
+# diff = 피복률 × |캐릭터색 - 배경색| 이므로, 경계 화소의 diff를 **바로 안쪽
+# 몸의 diff**로 나누면 피복률이 그대로 나온다. 나누는 값(D)은 경계에서
+# COV_IN px 안쪽 화소의 diff만 모아 COV_R px 팽창해 만든다 — 경계 밴드의
+# 값이 섞이면 안 되기 때문. 국소 최대를 그냥 쓰면 몸 안쪽까지 무너진다(실측:
+# 불투명 화소가 74,389 → 1,139).
+COV_IN           = 4
+COV_R            = 7
+COV_FLOOR        = 30      # 대비가 없는 자리에서 나눗셈이 폭주하지 않게
 EDGE_GAIN        = 1.5
 
 
@@ -167,6 +189,21 @@ def fill_holes(mask):
     return ImageChops.lighter(closed, hole)
 
 
+def close_holes(mask, thresh=HOLE_THRESH):
+    """몸에 둘러싸인 투명 구멍만 메운다(닫기 연산 없이 flood fill만).
+
+    ground_cap은 바깥 경계를 조이려고 씌우는 상한인데, 몸 **안쪽**의 어두운
+    주름(배 아래 그늘)까지 같이 깎아서 구멍을 냈다 — 316프레임 중 29장에
+    y344~365 / x222~272 자리에 최대 260화소짜리 구멍이 생겼다(2026-09-07 제보,
+    검은 바탕 대조판에서 f128~f140·f177~f186에서 보임). 몸에 둘러싸인 자리는
+    무조건 몸이므로 상한을 씌운 뒤 되메운다. fill_holes와 달리 닫기(9px)를
+    안 하므로 윤곽이 둥글어지지 않는다."""
+    cand = mask.point(lambda v: 255 if v < thresh else 0)
+    filled = cand.copy()
+    ImageDraw.floodfill(filled, (0, 0), 128, thresh=0)
+    return ImageChops.lighter(mask, filled.point(lambda v: 255 if v == 255 else 0))
+
+
 def keep_main_component(mask, seed):
     """캐릭터와 이어지지 않은 덩어리를 버린다.
 
@@ -195,6 +232,11 @@ def ground_cap(rgb_img, diff, plate_alpha, canvas_size):
     feet = ImageChops.multiply(ImageChops.darker(diff.point(ramp), plate_alpha),
                                band).point(lambda v: 255 if v > 128 else 0)
     tight = ImageChops.lighter(pink, feet)
+    # 톱니 제거: 닫기로 오목한 흠집을 메우고 블러→재이진화로 계단을 편다
+    tight = tight.filter(ImageFilter.MaxFilter(CAP_CLOSE)) \
+                 .filter(ImageFilter.MinFilter(CAP_CLOSE)) \
+                 .filter(ImageFilter.GaussianBlur(CAP_SMOOTH)) \
+                 .point(lambda v: 255 if v > 128 else 0)
 
     # 위쪽은 넉넉하게, 접지밴드는 딱 맞게 — 세로 램프로 부드럽게 넘긴다
     y0 = GROUND_FADE[0] + CROP_ORIGIN[1] - WORK_ORIGIN[1]
@@ -210,6 +252,23 @@ def ground_cap(rgb_img, diff, plate_alpha, canvas_size):
     # 딱 붙이면 발가락이 잘린다(실측: y390 폭 40 → 8)
     return ImageChops.lighter(
         tight.filter(ImageFilter.MaxFilter(2 * GROUND_DILATE + 1)), loose)
+
+
+def coverage_alpha(binary, diff):
+    """이진 실루엣의 경계 밴드만 피복률로 다시 칠한다 (COV_* 주석 참고).
+
+    안쪽 COV_IN px부터는 무조건 불투명으로 두므로 몸통은 안 건드린다."""
+    inner = binary.filter(ImageFilter.MinFilter(2 * COV_IN + 1)) \
+                  .point(lambda v: 255 if v > 128 else 0)
+    core = ImageChops.multiply(diff, inner)          # 완전 피복 구간의 diff만
+    D = core.filter(ImageFilter.MaxFilter(2 * COV_R + 1)) \
+            .filter(ImageFilter.GaussianBlur(COV_R / 2)) \
+            .point(lambda v: max(v, COV_FLOOR))
+    cov = ImageMath.lambda_eval(
+        lambda x: x["convert"](
+            x["min"](x["float"](x["d"]) * 255.0 / x["float"](x["D"]), 255.0), "L"),
+        d=diff, D=D, min=lambda p, q: p * (p < q) + q * (q <= p))
+    return ImageChops.lighter(ImageChops.darker(binary, cov), inner)
 
 
 def build_alpha_sequence():
@@ -240,10 +299,13 @@ def build_alpha_sequence():
         a = fill_holes(a)
         a = keep_main_component(a, BODY_SEED)
         a = ImageChops.darker(a, ground_cap(im, diff, p_alpha, canvas_size))
+        a = close_holes(a)          # 상한이 몸 안쪽에 낸 구멍을 되메운다
         # 윤곽 평활: 블러 → 재이진화. 임계가 노이즈 위에서 갈리며 만든 톱니를
         # 편다. 닫기(9px)는 그 톱니를 4px 블록으로 뭉치게 할 뿐이라 이게 필요하다
         a = a.filter(ImageFilter.GaussianBlur(SMOOTH_R)).point(
             lambda v: 255 if v > 128 else 0)
+        a = coverage_alpha(a, diff)     # 경계 밴드를 피복률로 (회색 치마 제거)
+        a = close_holes(a)              # 피복률이 다시 뚫은 자리도 되메운다
         a = a.filter(ImageFilter.GaussianBlur(BLUR_PX))
         a_crop = a.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1]))
         a_crop.save(out_dir / fp.name)
@@ -301,6 +363,12 @@ def refine_alpha_sequence():
                    med[(i + 1) % N_FRAMES], med[(i + 2) % N_FRAMES])
         # 저역통과가 벌려 놓은 램프를 되세운다(50% 윤곽 위치는 그대로)
         out = out.point(lambda v: max(0, min(255, round(128 + (v - 128) * EDGE_GAIN))))
+        # 시간축 필터도 구멍을 다시 뚫는다(이웃 프레임의 구멍이 섞여 들어온다).
+        # 몸에 둘러싸인 자리는 무조건 몸이므로 마지막에 한 번 더 되메운다 —
+        # 29프레임 → 5프레임까지만 줄었던 이유가 이것이다(2026-09-07 실측).
+        # 임계를 128로 낮춰 부른다 — 기본값(180)이면 알파 128~180짜리 좁은
+        # 목으로 바깥과 이어져 있다고 봐서 안 메운다(f186에 143화소가 남았다).
+        out = close_holes(out, 128)
         out.save(out_dir / fp.name)
     print(f"alpha2: {N_FRAMES}프레임 -> {out_dir}")
 
