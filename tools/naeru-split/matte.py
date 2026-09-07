@@ -15,6 +15,7 @@
 #   img/plate-<v>.png       plate.py 산출물 — 언프리멀티플라이의 P
 import sys
 from pathlib import Path
+import numpy as np
 from PIL import Image, ImageChops, ImageFilter, ImageDraw, ImageMath
 
 HERE = Path(__file__).resolve().parent
@@ -91,6 +92,32 @@ FEET_LO, FEET_HI = 25, 70  # 흰 발 색거리 램프 (분홍기가 0을 주는 
 COV_IN           = 4
 COV_R            = 7
 COV_FLOOR        = 30      # 대비가 없는 자리에서 나눗셈이 폭주하지 않게
+# 접지부 바닥선 (CROP 좌표) — 알파의 상한. 이 선 아래는 캐릭터가 아니다.
+#
+# 왜 손으로 긋나 — 접지부는 plate가 확산으로 채워져 순수 잔디에서도 |O-P|가
+# 20~50 뜨고, 캐릭터의 밝은 발가락과 밝은 잔디가 모든 신호에서 겹친다:
+#   |O-plate| 잔디 27~37 / 발가락 40~107  (임계를 올리면 발가락이 먼저 사라짐)
+#   분홍기 R-max(G,B) 잔디 35 (임계 30을 넘김)
+#   초록기 G-B 둘 다 낮음 / 시간축 σ 잔디 3.9~4.2 · 발가락 4.8~9.1
+#   조각이 몸에 붙어 있어 연결성분으로도 못 뗀다
+# 그래서 사람이 프레임을 보고 긋는 게 맞다(혀 다각형과 같은 이유).
+#
+# **plate의 덮개에 두면 안 된다** — 그러면 plate가 발을 못 지워서 발이 배경
+# 정지이미지에 구워지고, 폴짝 뛸 때 바닥에 발 한 쌍이 남는다(2026-09-08 제보).
+# 덮개는 캐릭터를 남김없이 덮고, 자르는 건 여기서 한다.
+#
+# 긋는 법: 열별 스캔라인에서 어두운 밑동이 끝나는 y를 읽는다(x240→367,
+# x265→363, x285→363). **시간축 최소 지도로 그으면 안 된다** — 접지 그림자가
+# 같이 어두워서 9px 낮게 잡게 된다. 잔디와 발가락이 대각선으로 붙은 왼쪽 발은
+# R-G로 갈린다(분홍 몸 30~45 / 베이지 잔디 2~20) — 쐐기(x148~166)와 발가락
+# (x168~184)이 이웃한 열이라 x166→x168에서 366→384로 급강하시켜야 한다.
+GROUND_LINE      = [(0, 352), (138, 352), (144, 358), (150, 359), (156, 361),
+                    (162, 363), (166, 364), (168, 384), (184, 384), (190, 376),
+                    (240, 367), (266, 363), (288, 364), (293, 390), (312, 390),
+                    (324, 386), (344, 393), (358, 381), (374, 378), (394, 366),
+                    (420, 356), (575, 356)]
+GROUND_SOFT      = 2       # 선 아래로 0까지 떨어지는 램프
+
 EDGE_GAIN        = 1.5
 
 
@@ -153,6 +180,8 @@ def bootstrap_alpha_sequence():
         a = a.filter(ImageFilter.GaussianBlur(3.5)).point(
             lambda v: 255 if v > 128 else 0)
         a = a.filter(ImageFilter.GaussianBlur(BLUR_PX))
+        # 여기엔 GROUND_LINE을 걸지 않는다 — plate의 덮개는 캐릭터를 남김없이
+        # 덮어야 한다(안 그러면 발이 배경에 구워진다)
         a_crop = a.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1]))
         a_crop.save(out_dir / fp.name)
         if (i + 1) % 79 == 0:
@@ -271,6 +300,16 @@ def coverage_alpha(binary, diff):
     return ImageChops.lighter(ImageChops.darker(binary, cov), inner)
 
 
+def ground_mask():
+    """GROUND_LINE 아래를 0으로 만드는 알파 상한 (CROP 크기, 한 번만 만든다)."""
+    xs = [x for x, _ in GROUND_LINE]
+    ys = [y for _, y in GROUND_LINE]
+    limit = np.interp(np.arange(CROP_SIZE[0]), xs, ys)
+    rows = np.arange(CROP_SIZE[1])[:, None]
+    keep = np.clip((limit[None, :] + GROUND_SOFT - rows) / GROUND_SOFT, 0, 1)
+    return Image.fromarray((keep * 255).astype(np.uint8))
+
+
 def build_alpha_sequence():
     frames = sorted((B / "dusk-work").glob("*.png"))
     assert len(frames) == N_FRAMES, \
@@ -286,6 +325,7 @@ def build_alpha_sequence():
 
     out_dir = B / "alpha"
     out_dir.mkdir(exist_ok=True)
+    gmask = ground_mask()
     ox = CROP_ORIGIN[0] - WORK_ORIGIN[0]
     oy = CROP_ORIGIN[1] - WORK_ORIGIN[1]
 
@@ -307,7 +347,8 @@ def build_alpha_sequence():
         a = coverage_alpha(a, diff)     # 경계 밴드를 피복률로 (회색 치마 제거)
         a = close_holes(a)              # 피복률이 다시 뚫은 자리도 되메운다
         a = a.filter(ImageFilter.GaussianBlur(BLUR_PX))
-        a_crop = a.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1]))
+        a_crop = ImageChops.darker(
+            a.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1])), gmask)
         a_crop.save(out_dir / fp.name)
         if (i + 1) % 79 == 0:
             print(f"  alpha {i + 1}/{N_FRAMES}")
