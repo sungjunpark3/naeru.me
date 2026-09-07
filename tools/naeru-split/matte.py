@@ -5,6 +5,10 @@
 # 확인됨). 색은 변형별 O(그 변형의 원본 프레임)와 공용 plate P를 언프리멀티플라이
 # 해서 뽑는다 — 배경 스필이 빠지고, P 위에 다시 얹으면 O가 그대로 복원된다.
 #
+# **실루엣은 plate와의 차이로 뜬다.** plate가 캐릭터를 지운 그림이므로
+# |O - (O 위에 plate 얹은 것)|이 곧 캐릭터다. 색이 뭐든(흰 발, 어두운 갈색
+# 윤곽선) 배경과 다르기만 하면 잡힌다. 분홍기 키는 2026-09-06에 버렸다.
+#
 # 입력 (build.sh가 미리 ffmpeg로 잘라둔 것):
 #   dusk-work/%04d.png     dusk WORK 크롭 — 알파 계산용 여유 영역
 #   O/<v>/%04d.png          변형별 CROP 크롭 — 언프리멀티플라이의 O
@@ -17,48 +21,69 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 B = HERE / "build"
 sys.path.insert(0, str(HERE))
-from coords import (WORK_ORIGIN, CROP_ORIGIN, CROP_SIZE, N_FRAMES,
+from coords import (WORK_ORIGIN, WORK_SIZE, CROP_ORIGIN, CROP_SIZE, N_FRAMES,
                      VARIANTS, KEY_RECT_GLOBAL)
 
-KEY_THRESH       = 30       # 분홍기 이진 임계 — 아래 주석의 실측값에서 나온 것
+# 실루엣은 **plate와의 차이**로 뜬다: plate가 캐릭터를 지운 그림이므로
+# |원본 - plate 얹은 것|이 곧 캐릭터다. 분홍기 키(R-max(G,B))를 2026-09-06에
+# 버렸다 — §5 참고. 임계는 실측으로 정했다(dusk 316프레임):
+#   캐릭터에서 12px 이상 떨어진 배경   p50 3   p99 9   최대 14
+#   윤곽선 등고선 10/14/20이 전부 어두운 테두리 바깥 끝에 1px 안쪽으로 겹침
+# 즉 이 키는 경계가 원래 선명해서 임계에 둔감하다. 6은 배경으로 삐져나간다.
+DIFF_THRESH      = 12
+KEY_THRESH       = 30       # 부트스트랩(분홍기) 전용 — plate.py만 쓴다
 HOLE_THRESH      = 180      # 이 미만은 flood-fill 후보(배 크림 줄무늬까지 걸리게 넉넉히)
 BLUR_PX          = 1.4
 ALPHA_FLOOR      = 38       # ≈0.15*255 — 언프리멀티플라이 나눗셈 클램프 하한
 # 316프레임 실루엣 교집합의 무게중심(WORK-local). 모든 프레임에서 몸 안이라는
 # 걸 확인했다 — keep_main_component의 flood fill 시드. global (2025,1563)
 BODY_SEED        = (375, 313)
-SMOOTH_R         = 3.5      # 윤곽 평활 반경 — 이진 임계가 만드는 톱니를 편다
-# 발 되살리기: 발은 희어서 분홍기가 0에 가깝고(실측 알파 0이 7525/10500 화소),
-# plate가 발을 지우면 스프라이트가 다시 그리질 못한다. 이 구간에서만은 배경과의
-# 색거리가 잘 듣는다(p90=62) — 흰 발 vs 초록 잔디라서.
+# 윤곽 평활 반경. 차이 키는 분홍기와 달리 톱니가 거의 없어서 3.5 → 2.0으로
+# 줄였다 — 3.5는 발가락처럼 작은 돌출부를 뭉갠다
+SMOOTH_R         = 2.0
+# 접지선. plate는 여기 아래를 일부러 안 지운다(그림자를 남기려고)
 FEET_TOP_GLOBAL  = 1680
-FEET_LO, FEET_HI = 25, 70
-# 경계 링 복원: 실루엣 바로 바깥 몇 px에서 plate는 **진짜 배경**이다(시간축
-# 채우기가 그 자리 원본 화소를 그대로 쓴다 — 링 0~4px와 14~22px 평균밝기가
-# 126.7/126.6으로 평탄한 걸로 확인). 그러니 그 좁은 링에서는 |O-P|가 곧
-# "전경이 얼마나 섞였나"다. 이진 키는 어두운 외곽선을 조금 잘라내는데(브라우저
-# 실측: 실루엣 밖 0~2px가 원본보다 +2.9 밝음 = 옅은 후광), 링에서만 알파를
-# **보태면**(max) 배경은 |O-P|≈0이라 안 딸려온다.
-RING_OUT, RING_IN = 6, 2
-RING_LO, RING_HI  = 8, 40
-# 의도 강제(전 프레임 감사, 2026-09-05): |원본 - plate 얹은 것|이 이 값을 넘으면
-# 캐릭터가 있는 화소. 바깥으로 BODY_OUT px까지는 알파를 허용하고, 안쪽
-# BODY_IN px부터는 반드시 불투명이어야 한다
-BODY_TH  = 10
-BODY_OUT = 3
-BODY_IN  = 6
-# 경계 램프를 좁힌다(50% 윤곽은 그대로, 기울기만 세운다).
+# 접지밴드 상한 — 여기서만 분홍기 키를 다시 쓴다.
 #
-# 왜 필요한가 — 알파가 0→255로 넘어가는 폭이 7~9px이나 됐다(중앙값 6, p90 14).
-# 여름 배경에선 캐릭터와 배경 톤이 비슷해 안 보이지만, **겨울 눈처럼 밝은 배경
-# 위에서는 밝은 배경이 캐릭터 가장자리로 스며들어 윤곽선이 씻겨 나간다** —
-# 몸에서 오오라가 나오는 것처럼 보인다(2026-09-06 제보). 2.2를 걸면 램프가
-# 2px로 줄어 윤곽선이 돌아온다. 대가는 알파 경계 떨림(p99 18 → 60)인데,
-# 자글거림의 주범이던 몸통 안쪽 노이즈는 색 5탭이 잡고 있으므로 감수한다.
-EDGE_GAIN = 2.2
+# plate는 접지 그림자를 남기려고 발밑을 도너로 안 채우고 **주변에서 확산**시킨다
+# (plate.py inpaint_core). 그래서 그 구간의 plate는 실제 잔디의 밝기·붓질을
+# 재현하지 못하고, 순수 잔디에서도 |O-P|가 20~52까지 뜬다. 반대로 캐릭터의
+# 어두운 윤곽선은 plate 쪽도 어두워서 차이가 12~18밖에 안 난다 —
+# **잔디의 오차가 캐릭터의 신호보다 크다.** 임계를 어디에 둬도 못 가른다
+# (2026-09-06 실측, dusk f79 y372 스캔라인).
+#
+# 그래서 이 구간에서만 분홍기 키(+흰 발 색거리 복원)를 **상한**으로 씌운다.
+# 위쪽에서는 상한을 넉넉히 부풀려 안 걸리게 한다 — 거기선 차이 키가 분홍기보다
+# 2~9px 넓은 게 맞다(분홍기가 못 잡는 어두운 윤곽선).
+# 초원의 초록기 거부. plate가 국소적으로 잘못 복원한 자리(캐릭터 바로 아래
+# 18px 띠에서 원본 194,159,119 vs plate 167,139,97 — 밝은 잔디를 30~40 어둡게
+# 그렸다)는 차이 키도 분홍기 키도 캐릭터로 오인한다(그 잔디는 R-max(G,B)=35라
+# 분홍기 임계 30도 넘긴다). 초록기 G-B로는 갈린다 — 캐릭터 안쪽이 p50 9 p99 36,
+# 그 잔디가 38~61이다. 흰 발(+5)·크림 배(+10)·어두운 윤곽선(+17)은 안전하다.
+# **거부는 fill_holes 앞에서 한다** — 몸 안에 갇힌 초록 화소는 되살아나고,
+# 초원으로 열린 주머니만 배경으로 남는다.
+GREEN_VETO       = 38
+GROUND_FADE      = (310, 350)   # 크롭 y. 이 위에서는 상한을 부풀려 안 걸리게 한다
+GROUND_DILATE    = 2       # 접지밴드에서 남기는 여유
+GROUND_LOOSE     = 5       # 그 위에서의 여유 — 사실상 상한이 안 걸린다
+FEET_LO, FEET_HI = 25, 70  # 흰 발 색거리 램프 (분홍기가 0을 주는 구간)
+# 시간축 저역통과가 벌려 놓은 램프를 되세운다. 예전(2.2)만큼 셀 필요가 없다 —
+# 8px 오오라의 주범은 키가 아니라 refine의 hi/lo 강제였고 그건 통째로 뺐다(§5)
+EDGE_GAIN        = 1.5
 
 
-def silhouette(rgb_img, canvas_size):
+# ── 부트스트랩 키 (plate.py 전용) ──────────────────────────────────────────
+#
+# 닭과 달걀: 최종 알파는 plate와의 차이로 뜨는데, 그 plate를 만들려면 먼저
+# 캐릭터가 어디 있는지 알아야 한다. 그래서 plate.py는 아래 분홍기 키로 대충
+# 실루엣을 잡아 덮개 마스크를 만들고(넉넉히 팽창하므로 정밀할 필요 없다),
+# matte.py는 완성된 plate로 정밀한 알파를 다시 뜬다.
+#
+# **최종 알파에는 절대 쓰지 말 것.** 분홍기는 흰 발(알파의 72%가 0)과 어두운
+# 갈색 윤곽선을 놓친다 — 2026-09-06까지 하체가 파먹혀 있던 원인이다.
+
+
+def pink_silhouette(rgb_img, canvas_size):
     """분홍기 p = R-max(G,B)의 이진 실루엣. 신뢰 키잉창 밖은 강제 0
     (하늘·언덕도 분홍이라 그 밖에서는 키가 무의미, PLAN §8 부록 B).
 
@@ -84,6 +109,53 @@ def silhouette(rgb_img, canvas_size):
     return canvas
 
 
+def bootstrap_alpha_sequence():
+    frames = sorted((B / "dusk-work").glob("*.png"))
+    assert len(frames) == N_FRAMES, \
+        f"dusk-work에 {len(frames)}프레임, {N_FRAMES}장 기대"
+    canvas_size = Image.open(frames[0]).size
+
+    out_dir = B / "alpha-boot"
+    out_dir.mkdir(exist_ok=True)
+    ox = CROP_ORIGIN[0] - WORK_ORIGIN[0]
+    oy = CROP_ORIGIN[1] - WORK_ORIGIN[1]
+
+    for i, fp in enumerate(frames):
+        im = Image.open(fp).convert("RGB")
+        a = pink_silhouette(im, canvas_size)
+        a = fill_holes(a)
+        a = keep_main_component(a, BODY_SEED)
+        # 윤곽 평활: 블러 → 재이진화. 분홍기 임계가 노이즈 위에서 갈리며 만든
+        # ±2px 톱니를 펴준다. 닫기(9px)는 그 톱니를 4px 블록으로 뭉치게 할 뿐이라
+        # 이게 필요하다 — 확대해보면 머리 위 계단이 사라진다
+        a = a.filter(ImageFilter.GaussianBlur(3.5)).point(
+            lambda v: 255 if v > 128 else 0)
+        a = a.filter(ImageFilter.GaussianBlur(BLUR_PX))
+        a_crop = a.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1]))
+        a_crop.save(out_dir / fp.name)
+        if (i + 1) % 79 == 0:
+            print(f"  boot {i + 1}/{N_FRAMES}")
+    print(f"부트스트랩 알파: {N_FRAMES}프레임 -> {out_dir}")
+
+
+# ── 최종 매트 ─────────────────────────────────────────────────────────────
+
+
+def diff_map(rgb_img, plate_work):
+    """|원본 - plate 얹은 것| 의 채널별 최대. plate가 캐릭터를 지웠으므로
+    이 값이 곧 "그 화소에 캐릭터가 얼마나 있나"다(= a·|C-bg|).
+
+    분홍기 키(R-max(G,B))를 버린 이유 — 그건 **분홍인 것**을 찾지 캐릭터를
+    찾지 않는다. 흰 발은 분홍기가 0이라 통째로 빠지고(발 알파의 72%가 0이었다),
+    어두운 갈색 윤곽선도 분홍기가 낮아 잘려나가서 하체가 파먹혔다. 잘린 자리는
+    언프리멀티플라이가 배경색을 크게 외삽해 채우므로 여름 잔디 위에선 안
+    보이지만 겨울 눈 위에선 초록 잔디 얼룩으로 드러난다(2026-09-06 제보).
+    차이 키는 흰 발·어두운 윤곽선 둘 다 배경과 크게 달라서 한 번에 잡힌다."""
+    bg = Image.alpha_composite(rgb_img.convert("RGBA"), plate_work).convert("RGB")
+    d = ImageChops.difference(rgb_img, bg).split()
+    return ImageChops.lighter(ImageChops.lighter(d[0], d[1]), d[2])
+
+
 def fill_holes(mask):
     """닫기로 잡티 정리 후, 캔버스 바깥(=크롭 바깥)에서 flood fill해서 배경과
     안 이어진 내부 저알파 영역(배 크림색 줄무늬 등)을 실루엣에 편입한다."""
@@ -107,10 +179,50 @@ def keep_main_component(mask, seed):
     return m.point(lambda v: 255 if v == 128 else 0)
 
 
+def ground_cap(rgb_img, diff, plate_alpha, canvas_size):
+    """접지밴드에서 차이 키가 잔디로 번지는 걸 막는 상한 마스크.
+
+    분홍기 키 ∪ 흰 발(색거리 25~70 램프, plate가 지운 만큼을 상한으로) 이고,
+    GROUND_FADE 위쪽에서는 GROUND_DILATE만큼 부풀려 안 걸리게 한다."""
+    pink = keep_main_component(fill_holes(pink_silhouette(rgb_img, canvas_size)),
+                               BODY_SEED)
+    scale = 255.0 / (FEET_HI - FEET_LO)
+    ramp = [max(0, min(255, round((v - FEET_LO) * scale))) for v in range(256)]
+    band = Image.new("L", canvas_size, 0)
+    ImageDraw.Draw(band).rectangle(
+        [0, FEET_TOP_GLOBAL - WORK_ORIGIN[1], canvas_size[0], canvas_size[1]],
+        fill=255)
+    feet = ImageChops.multiply(ImageChops.darker(diff.point(ramp), plate_alpha),
+                               band).point(lambda v: 255 if v > 128 else 0)
+    tight = ImageChops.lighter(pink, feet)
+
+    # 위쪽은 넉넉하게, 접지밴드는 딱 맞게 — 세로 램프로 부드럽게 넘긴다
+    y0 = GROUND_FADE[0] + CROP_ORIGIN[1] - WORK_ORIGIN[1]
+    y1 = GROUND_FADE[1] + CROP_ORIGIN[1] - WORK_ORIGIN[1]
+    up = Image.linear_gradient("L").resize((canvas_size[0], y1 - y0)) \
+              .point(lambda v: 255 - v)
+    above = Image.new("L", canvas_size, 255)
+    above.paste(up, (0, y0))
+    above.paste(Image.new("L", (canvas_size[0], canvas_size[1] - y1), 0), (0, y1))
+    loose = ImageChops.multiply(
+        tight.filter(ImageFilter.MaxFilter(2 * GROUND_LOOSE + 1)), above)
+    # 접지밴드에서도 2px는 남긴다 — 분홍기가 발가락 윤곽을 한 겹 깎기 때문에
+    # 딱 붙이면 발가락이 잘린다(실측: y390 폭 40 → 8)
+    return ImageChops.lighter(
+        tight.filter(ImageFilter.MaxFilter(2 * GROUND_DILATE + 1)), loose)
+
+
 def build_alpha_sequence():
     frames = sorted((B / "dusk-work").glob("*.png"))
     assert len(frames) == N_FRAMES, \
         f"dusk-work에 {len(frames)}프레임, {N_FRAMES}장 기대"
+
+    # plate를 WORK 크롭으로 잘라 둔다. 알파 계산은 WORK 공간에서 하고(경계
+    # 연산이 크롭 가장자리에 물리지 않게) 마지막에 CROP으로 잘라 낸다
+    plate = Image.open(REPO / "img" / "plate-dusk.png").convert("RGBA").crop(
+        (WORK_ORIGIN[0], WORK_ORIGIN[1],
+         WORK_ORIGIN[0] + WORK_SIZE[0], WORK_ORIGIN[1] + WORK_SIZE[1]))
+    p_alpha = plate.getchannel("A")
     canvas_size = Image.open(frames[0]).size
 
     out_dir = B / "alpha"
@@ -120,12 +232,16 @@ def build_alpha_sequence():
 
     for i, fp in enumerate(frames):
         im = Image.open(fp).convert("RGB")
-        a = silhouette(im, canvas_size)
+        diff = diff_map(im, plate)
+        a = diff.point(lambda v: 255 if v > DIFF_THRESH else 0)
+        g, b = im.split()[1], im.split()[2]
+        a = ImageChops.darker(a, ImageChops.subtract(g, b).point(
+            lambda v: 0 if v > GREEN_VETO else 255))
         a = fill_holes(a)
         a = keep_main_component(a, BODY_SEED)
-        # 윤곽 평활: 블러 → 재이진화. 분홍기 임계가 노이즈 위에서 갈리며 만든
-        # ±2px 톱니를 펴준다. 닫기(9px)는 그 톱니를 4px 블록으로 뭉치게 할 뿐이라
-        # 이게 필요하다 — 확대해보면 머리 위 계단이 사라진다
+        a = ImageChops.darker(a, ground_cap(im, diff, p_alpha, canvas_size))
+        # 윤곽 평활: 블러 → 재이진화. 임계가 노이즈 위에서 갈리며 만든 톱니를
+        # 편다. 닫기(9px)는 그 톱니를 4px 블록으로 뭉치게 할 뿐이라 이게 필요하다
         a = a.filter(ImageFilter.GaussianBlur(SMOOTH_R)).point(
             lambda v: 255 if v > 128 else 0)
         a = a.filter(ImageFilter.GaussianBlur(BLUR_PX))
@@ -157,113 +273,33 @@ def median3(a, b, c):
 
 
 def refine_alpha_sequence():
-    """build/alpha → build/alpha2: 시간축 3프레임 중앙값으로 안정화.
+    """build/alpha → build/alpha2: 시간축으로만 안정화한다.
 
     프레임마다 독립으로 키를 뜨면 경계가 지글거린다(boiling). 제자리에 서 있을
     땐 plate가 그 오차를 상쇄해 안 보이지만, 움직이면 테두리가 들끓는 것처럼
-    보인다 — 누끼가 더러워졌다는 제보의 절반이 이것이다. 캐릭터 움직임이 느려서
-    3프레임 중앙값으로도 모션은 안 뭉개진다(실측: 프레임간 평균차 3.8 유지).
+    보인다. 3프레임 중앙값이 한 프레임짜리 튐을 없애고, 5탭 저역통과가 매
+    프레임 ±1px씩 떠는 자글거림을 없앤다. 캐릭터 움직임이 느려서 모션은
+    안 뭉개진다(실측: 프레임간 평균차 3.8 유지).
 
-    (배경과의 색거리로 알파를 뽑는 difference matting도 해봤는데, 어두운 외곽선이
-     어두운 언덕과 색이 비슷해 거기서 알파가 무너졌다 — 머리 위쪽이 반투명해진다.
-     전경 거리 p50=61이라 몸통 절반도 램프 안에 들어간다. 그래서 폐기.)"""
+    **예전에 여기 있던 세 가지(발 되살리기·경계 링 복원·plate 강제)는
+    2026-09-06에 전부 뺐다.** 셋 다 분홍기 키가 흰 발과 어두운 윤곽선을 놓치는
+    걸 나중에 기워 붙이는 장치였는데, 키 자체를 plate 차이로 바꾸니 놓치는 게
+    없어져서 할 일이 없다. 특히 plate 강제의 깃털 먹인 상한/하한(hi/lo)이
+    알파 램프를 8px로 벌려 놓은 주범이었다 — 겨울 눈 위에서 "몸에서 오오라가
+    나온다"던 게 이것이다(실측: 경계에서 -6px까지 가야 알파 230)."""
     a_frames = sorted((B / "alpha").glob("*.png"))
-    o_frames = sorted((B / "O" / "dusk").glob("*.png"))
-    assert len(a_frames) == len(o_frames) == N_FRAMES
-    plate = Image.open(REPO / "img" / "plate-dusk.png").convert("RGBA").crop(
-        (CROP_ORIGIN[0], CROP_ORIGIN[1],
-         CROP_ORIGIN[0] + CROP_SIZE[0], CROP_ORIGIN[1] + CROP_SIZE[1]))
-    p_alpha = plate.getchannel("A")
+    assert len(a_frames) == N_FRAMES
 
-    # 발 구간에서만 색거리로 알파를 보탠다. "plate가 지운 만큼"(p_alpha)을 상한으로
-    # 두면 지운 자리만 되살리게 되고, 그 아래 그림자는 건드리지 않는다
-    scale = 255.0 / (FEET_HI - FEET_LO)
-    ramp = [max(0, min(255, round((v - FEET_LO) * scale))) for v in range(256)]
-    rscale = 255.0 / (RING_HI - RING_LO)
-    ring_ramp = [max(0, min(255, round((v - RING_LO) * rscale))) for v in range(256)]
-    band = Image.new("L", CROP_SIZE, 0)
-    ImageDraw.Draw(band).rectangle(
-        [0, FEET_TOP_GLOBAL - CROP_ORIGIN[1], CROP_SIZE[0], CROP_SIZE[1]], fill=255)
+    raw = [Image.open(fp).convert("L") for fp in a_frames]
+    med = [median3(raw[(i - 1) % N_FRAMES], raw[i], raw[(i + 1) % N_FRAMES])
+           for i in range(N_FRAMES)]     # 핑퐁 루프라 양 끝은 순환으로 잇는다
 
-    med, raw = [], []
-    for a_fp, o_fp in zip(a_frames, o_frames):
-        key = Image.open(a_fp).convert("L")
-        o = Image.open(o_fp).convert("RGBA")
-        bg = Image.alpha_composite(o, plate).convert("RGB")   # plate가 지운 뒤의 배경
-        d = ImageChops.difference(o.convert("RGB"), bg).split()
-        dmax = ImageChops.lighter(ImageChops.lighter(d[0], d[1]), d[2])
-        d = dmax.point(ramp)
-        d_ring = dmax.point(ring_ramp)
-        feet = ImageChops.multiply(ImageChops.darker(d, p_alpha), band)
-
-        # 경계 링에서 잘려나간 외곽선을 되찾는다 (보태기만 — 빼지 않는다)
-        sil = key.point(lambda v: 255 if v > 128 else 0)
-        ring = ImageChops.subtract(sil.filter(ImageFilter.MaxFilter(2 * RING_OUT + 1)),
-                                   sil.filter(ImageFilter.MinFilter(2 * RING_IN + 1)))
-        edge = ImageChops.multiply(ImageChops.darker(d_ring, p_alpha), ring)
-        feet = ImageChops.lighter(feet, edge)
-        # 발을 보탠 뒤 윤곽을 다시 편다 — 색거리 램프는 거칠어서 그대로 두면
-        # 발끝만 너덜너덜하게 남는다(키 쪽은 이미 평활을 거쳤다)
-        a = ImageChops.lighter(key, feet)
-        a = a.filter(ImageFilter.GaussianBlur(SMOOTH_R)).point(
-            lambda v: 255 if v > 128 else 0).filter(ImageFilter.GaussianBlur(BLUR_PX))
-        raw.append(a)
     out_dir = B / "alpha2"
     out_dir.mkdir(exist_ok=True)
-    for i in range(N_FRAMES):
-        med.append(median3(raw[max(0, i - 1)], raw[i], raw[min(N_FRAMES - 1, i + 1)]))
-
-    # 중앙값만으로는 한 프레임짜리 튐만 없어지고, 경계가 매 프레임 ±1px씩
-    # 흔들리는 자글거림은 남는다(시간축 라플라시안 중앙값 8.4 — 눈에 보인다).
-    # 5탭 저역통과를 한 번 더 건다 — 경계 라플라시안 p99가 26.5 → 12.6.
-    # 마지막으로 **프레임마다** 의도를 강제한다. 캐릭터가 어디 있는지는
-    # 스프라이트를 안 믿고 plate로 독립 판정한다 — plate가 지운 자리가 곧
-    # 캐릭터다(|원본 - plate 얹은 것|). 전 프레임 감사(2026-09-05)에서 정수리
-    # 바깥으로 알파가 새어나가고(51,658화소) 발밑에 구멍이 남는 게(123,943화소)
-    # 잡혔다. 둘 다 화면에서 프레임마다 깜빡인다.
-    #
-    # 자르고 채우는 건 **깃털을 먹인 상한/하한**으로 한다. 딱 잘라 0/255로
-    # 만들면 경계에 계단이 생겨 오히려 더 눈에 띈다.
-    #
-    # 접지선(FEET_TOP_GLOBAL) 아래는 건드리지 않는다 — 거기는 plate가 일부러
-    # 안 지우므로(그림자를 남기려고) body 판정이 false가 되고, 그대로 자르면
-    # 발이 사라진다.
-    ground = FEET_TOP_GLOBAL - CROP_ORIGIN[1]
-    below = Image.new("L", CROP_SIZE, 0)
-    ImageDraw.Draw(below).rectangle([0, ground, CROP_SIZE[0], CROP_SIZE[1]], fill=255)
-
-    def m(i):
-        return med[i % N_FRAMES]          # 핑퐁 루프라 양 끝은 순환으로 잇는다
-
-    # **몸 마스크를 시간축으로 먼저 안정화한다.** |원본-plate|는 경계에서 노이즈에
-    # 민감해 프레임마다 1~2px씩 흔들리는데, 그대로 강제에 쓰면 마스크의 떨림이
-    # 알파로 옮겨온다 — 실측(2026-09-05): 강제를 세게 걸었더니 구멍은 113,878 →
-    # 742로 잡혔지만 알파 떨림이 181 → 549로 뛰고 PSNR도 기준 미달이 됐다.
-    bodies = []
-    for o_fp in o_frames:
-        o = Image.open(o_fp).convert("RGB")
-        bg = Image.alpha_composite(o.convert("RGBA"), plate).convert("RGB")
-        dd = ImageChops.difference(o, bg).split()
-        dmax = ImageChops.lighter(ImageChops.lighter(dd[0], dd[1]), dd[2])
-        bodies.append(dmax.point(lambda v: 255 if v > BODY_TH else 0))
-    bodies = [median3(bodies[(i - 1) % N_FRAMES], bodies[i], bodies[(i + 1) % N_FRAMES])
-              for i in range(N_FRAMES)]
-
     for i, fp in enumerate(a_frames):
-        out = tap5(m(i - 2), m(i - 1), m(i), m(i + 1), m(i + 2))
-
-        body = bodies[i]
-        # **깃털은 넓게(2.0) 두는 게 맞다.** 좁혀서 강제를 세게 걸면 몸 안 구멍은
-        # 113,878 → 742로 사라지지만 알파 경사가 가팔라져서 같은 이동에도
-        # 프레임간 변화가 커진다 — 떨림 181 → 535, PSNR도 기준 미달(2026-09-05
-        # 실측). 몸 마스크를 시간축 안정화해도 535 → 그대로였다. 남는 "구멍"은
-        # 알파 중앙값 212짜리 완만한 안쪽 경사라 화면에서 안 보인다.
-        hi = ImageChops.lighter(
-            body.filter(ImageFilter.MaxFilter(2 * BODY_OUT + 1)), below) \
-            .filter(ImageFilter.GaussianBlur(2.0))
-        lo = body.filter(ImageFilter.MinFilter(2 * BODY_IN + 1)) \
-                 .filter(ImageFilter.GaussianBlur(2.0))
-        out = ImageChops.lighter(ImageChops.darker(out, hi), lo)
+        out = tap5(med[(i - 2) % N_FRAMES], med[(i - 1) % N_FRAMES], med[i],
+                   med[(i + 1) % N_FRAMES], med[(i + 2) % N_FRAMES])
+        # 저역통과가 벌려 놓은 램프를 되세운다(50% 윤곽 위치는 그대로)
         out = out.point(lambda v: max(0, min(255, round(128 + (v - 128) * EDGE_GAIN))))
         out.save(out_dir / fp.name)
     print(f"alpha2: {N_FRAMES}프레임 -> {out_dir}")
@@ -363,8 +399,8 @@ def build_variant(variant):
 
 
 def main():
-    build_alpha_sequence()      # 1단계: 이진 키 (plate.py도 이걸 쓴다)
-    refine_alpha_sequence()     # 2단계: plate와의 색거리로 경계를 다듬는다
+    build_alpha_sequence()      # 1단계: plate 차이로 실루엣
+    refine_alpha_sequence()     # 2단계: 시간축 안정화
     for v in VARIANTS:
         build_variant(v)
 

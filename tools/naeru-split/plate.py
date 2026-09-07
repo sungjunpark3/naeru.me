@@ -28,7 +28,7 @@ B = HERE / "build"
 sys.path.insert(0, str(HERE))
 from coords import (WORK_ORIGIN, WORK_SIZE, CROP_ORIGIN, CROP_SIZE, CTX_ORIGIN,
                      FRAME_SIZE, N_FRAMES, VARIANTS, KEY_RECT_GLOBAL)
-from matte import build_alpha_sequence, keep_main_component, BODY_SEED
+from matte import bootstrap_alpha_sequence, keep_main_component, BODY_SEED
 
 THRESH          = 32     # 분홍기 R-max(G,B) 임계, punch.py와 동일
 # 접지 페이드 시작선. 발끝은 y1720인데 여기를 1720으로 두면 페이드가 y1694에서
@@ -46,7 +46,8 @@ HOLE_FEATHER    = 12
 # 제자리에선 스프라이트 머리가 덮어 안 보이지만, 점프하면 머리가 있던 자리에
 # 분홍 조각이 남는다(2026-09-01 제보: "점프할 때 머리쪽 누끼가 깨진다").
 # 이 구간을 통째로 합성해두면 조각이 사라지고, 스프라이트 쪽 머리 꼭대기는
-# matte.py의 링 복원이 되찾아온다(그 자리 plate가 깨끗해야 링이 작동한다).
+# matte.py가 이 plate와의 차이로 실루엣을 다시 뜬다 — 그래서 plate 쪽이
+# 깨끗할수록(캐릭터가 안 남을수록) 알파가 정확해진다.
 HEAD_BAND_BOT   = 1400
 
 
@@ -168,7 +169,7 @@ def temporal_fill(variant):
 
     한 번도 안 드러난 화소는 표본이 0개다 → 그 자리는 inpaint_core가 채운다."""
     o_frames = sorted((B / "O" / variant).glob("*.png"))
-    a_frames = sorted((B / "alpha").glob("*.png"))
+    a_frames = sorted((B / "alpha-boot").glob("*.png"))
     assert len(o_frames) == len(a_frames) == N_FRAMES, f"O/{variant} 프레임 수"
 
     W, H = CROP_SIZE
@@ -193,7 +194,7 @@ def temporal_fill(variant):
 def min_alpha_map():
     """화소별 최소 알파 = 그 자리가 316프레임 내내 얼마나 가려졌나."""
     best = None
-    for fp in sorted((B / "alpha").glob("*.png")):
+    for fp in sorted((B / "alpha-boot").glob("*.png")):
         a = Image.open(fp).convert("L")
         best = a if best is None else ImageChops.darker(best, a)
     return best
@@ -218,7 +219,7 @@ def save_variant(variant, crop_mask, min_alpha):
 
 
 def main():
-    build_alpha_sequence()   # build/alpha/ 채움 — matte.py와 공유하는 계산
+    bootstrap_alpha_sequence()   # build/alpha-boot/ — 덮개 마스크용 거친 실루엣
     crop_mask = build_crop_mask()
     crop_mask.save(B / "plate-alpha-debug.png")
     run_lama()                  # 덮개 마스크를 읽어 build/lama/를 채운다

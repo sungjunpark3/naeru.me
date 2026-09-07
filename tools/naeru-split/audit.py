@@ -26,7 +26,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 B = HERE / "build"
 sys.path.insert(0, str(HERE))
-from coords import CROP_ORIGIN, CROP_SIZE, N_FRAMES, VARIANTS
+from coords import (CROP_ORIGIN, CROP_SIZE, N_FRAMES, VARIANTS,
+                     WORK_ORIGIN, WORK_SIZE)
 
 BODY_TH   = 10     # |원본-plate| 이 값을 넘으면 캐릭터가 있는 화소
 STRAY_TH  = 8      # 이 알파를 넘으면 "흘러나온" 것으로 센다
@@ -61,17 +62,36 @@ def body_masks():
     8변형은 같은 푸티지의 색보정본이라 캐릭터 위치가 픽셀 단위로 같은데,
     밤 변형은 대비가 낮아 |원본-plate|가 p50 8.8~11까지 떨어진다(dusk는 30).
     변형마다 따로 재면 임계 10에서 몸 마스크가 무너져 "흘러나온 알파"가
-    253만 화소로 뻥튀기된다 — 2026-09-05에 실제로 그렇게 잘못 읽었다."""
+    253만 화소로 뻥튀기된다 — 2026-09-05에 실제로 그렇게 잘못 읽었다.
+
+    **접지밴드에서는 |원본-plate|만으로 몸을 정의하면 안 된다.** plate가 그
+    구간을 확산으로 채워서 순수 잔디에서도 차이가 20~52까지 뜬다(§5). 그대로
+    쓰면 잔디가 "몸"이 되어 구멍으로 세어진다 — 2026-09-06에 구멍이 38k → 100k로
+    늘어난 것처럼 보였는데 60%가 접지밴드의 잔디였고, 실제 내부 구멍은
+    5프레임에 139화소뿐이었다. matte.py와 같은 상한(ground_cap)을 씌운다."""
     plate = np.asarray(Image.open(REPO / "img" / f"plate-{BODY_REF}.png").convert("RGBA")
                        .crop((CROP_ORIGIN[0], CROP_ORIGIN[1],
                               CROP_ORIGIN[0] + CROP_SIZE[0],
                               CROP_ORIGIN[1] + CROP_SIZE[1])), np.int16)
     pa = plate[..., 3:4] / 255.0
+    import matte as M
+    wplate = Image.open(REPO / "img" / f"plate-{BODY_REF}.png").convert("RGBA").crop(
+        (WORK_ORIGIN[0], WORK_ORIGIN[1],
+         WORK_ORIGIN[0] + WORK_SIZE[0], WORK_ORIGIN[1] + WORK_SIZE[1]))
+    wpa = wplate.getchannel("A")
+    wox = CROP_ORIGIN[0] - WORK_ORIGIN[0]
+    woy = CROP_ORIGIN[1] - WORK_ORIGIN[1]
+    wbox = (wox, woy, wox + CROP_SIZE[0], woy + CROP_SIZE[1])
+    wfps = sorted((B / f"{BODY_REF}-work").glob("*.png"))
+
     ds, es = [], []
-    for f in sorted((B / "O" / BODY_REF).glob("*.png")):
+    for f, wf in zip(sorted((B / "O" / BODY_REF).glob("*.png")), wfps):
         O = np.asarray(Image.open(f).convert("RGB"), np.int16)
         bg = O * (1 - pa) + plate[..., :3] * pa
         body = (np.abs(O.astype(np.int32) - bg).max(2) > BODY_TH)
+        wim = Image.open(wf).convert("RGB")
+        cap = M.ground_cap(wim, M.diff_map(wim, wplate), wpa, wim.size).crop(wbox)
+        body &= np.asarray(cap, np.uint8) > 128
         b8 = Image.fromarray((body * 255).astype(np.uint8))
         ds.append(np.asarray(b8.filter(ImageFilter.MaxFilter(7)), np.uint8) > 0)
         es.append(np.asarray(b8.filter(ImageFilter.MinFilter(13)), np.uint8) > 0)
