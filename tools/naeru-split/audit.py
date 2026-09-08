@@ -78,7 +78,6 @@ def body_masks():
     wplate = Image.open(REPO / "img" / f"plate-{BODY_REF}.png").convert("RGBA").crop(
         (WORK_ORIGIN[0], WORK_ORIGIN[1],
          WORK_ORIGIN[0] + WORK_SIZE[0], WORK_ORIGIN[1] + WORK_SIZE[1]))
-    wpa = wplate.getchannel("A")
     wox = CROP_ORIGIN[0] - WORK_ORIGIN[0]
     woy = CROP_ORIGIN[1] - WORK_ORIGIN[1]
     wbox = (wox, woy, wox + CROP_SIZE[0], woy + CROP_SIZE[1])
@@ -90,7 +89,7 @@ def body_masks():
         bg = O * (1 - pa) + plate[..., :3] * pa
         body = (np.abs(O.astype(np.int32) - bg).max(2) > BODY_TH)
         wim = Image.open(wf).convert("RGB")
-        cap = M.ground_cap(wim, M.diff_map(wim, wplate), wpa, wim.size).crop(wbox)
+        cap = M.ground_cap(wim, wim.size).crop(wbox)
         body &= np.asarray(cap, np.uint8) > 128
         b8 = Image.fromarray((body * 255).astype(np.uint8))
         ds.append(np.asarray(b8.filter(ImageFilter.MaxFilter(7)), np.uint8) > 0)

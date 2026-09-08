@@ -15,7 +15,6 @@
 #   img/plate-<v>.png       plate.py 산출물 — 언프리멀티플라이의 P
 import sys
 from pathlib import Path
-import numpy as np
 from PIL import Image, ImageChops, ImageFilter, ImageDraw, ImageMath
 
 HERE = Path(__file__).resolve().parent
@@ -42,20 +41,6 @@ BODY_SEED        = (375, 313)
 # 윤곽 평활 반경. 차이 키는 분홍기와 달리 톱니가 거의 없어서 3.5 → 2.0으로
 # 줄였다 — 3.5는 발가락처럼 작은 돌출부를 뭉갠다
 SMOOTH_R         = 2.0
-# 접지선. plate는 여기 아래를 일부러 안 지운다(그림자를 남기려고)
-FEET_TOP_GLOBAL  = 1680
-# 접지밴드 상한 — 여기서만 분홍기 키를 다시 쓴다.
-#
-# plate는 접지 그림자를 남기려고 발밑을 도너로 안 채우고 **주변에서 확산**시킨다
-# (plate.py inpaint_core). 그래서 그 구간의 plate는 실제 잔디의 밝기·붓질을
-# 재현하지 못하고, 순수 잔디에서도 |O-P|가 20~52까지 뜬다. 반대로 캐릭터의
-# 어두운 윤곽선은 plate 쪽도 어두워서 차이가 12~18밖에 안 난다 —
-# **잔디의 오차가 캐릭터의 신호보다 크다.** 임계를 어디에 둬도 못 가른다
-# (2026-09-06 실측, dusk f79 y372 스캔라인).
-#
-# 그래서 이 구간에서만 분홍기 키(+흰 발 색거리 복원)를 **상한**으로 씌운다.
-# 위쪽에서는 상한을 넉넉히 부풀려 안 걸리게 한다 — 거기선 차이 키가 분홍기보다
-# 2~9px 넓은 게 맞다(분홍기가 못 잡는 어두운 윤곽선).
 # 초원의 초록기 거부. plate가 국소적으로 잘못 복원한 자리(캐릭터 바로 아래
 # 18px 띠에서 원본 194,159,119 vs plate 167,139,97 — 밝은 잔디를 30~40 어둡게
 # 그렸다)는 차이 키도 분홍기 키도 캐릭터로 오인한다(그 잔디는 R-max(G,B)=35라
@@ -64,17 +49,40 @@ FEET_TOP_GLOBAL  = 1680
 # **거부는 fill_holes 앞에서 한다** — 몸 안에 갇힌 초록 화소는 되살아나고,
 # 초원으로 열린 주머니만 배경으로 남는다.
 GREEN_VETO       = 38
-GROUND_FADE      = (310, 350)   # 크롭 y. 이 위에서는 상한을 부풀려 안 걸리게 한다
-# 상한 평활. 분홍기 ∪ 흰 발 마스크는 접지밴드에서 너덜너덜해서 발가락 사이를
-# 톱니처럼 물어뜯는다(2026-09-07 제보). **상한을 푸는 걸로 고치면 안 된다** —
-# 풀었더니 배 아래 밝은 잔디 띠가 통째로 딸려 들어왔다. 316프레임에 걸친
-# 화소 변동으로 판정했다: 그 띠는 표준편차 1.08로 확실한 배경(1.79)과 같은
-# 수준이다(캐릭터 경계는 13.79). 닫기+평활로 톱니만 없앤다.
+# 알파 상한(ground_cap)이 갈아타는 구간. 위쪽은 분홍기, 아래는 잔디 색.
+GROUND_FADE      = (310, 350)   # 크롭 y
+# 분홍기 상한의 톱니 제거. 분홍기 마스크는 가장자리가 너덜너덜해서 그냥 쓰면
+# 실루엣을 물어뜯는다(2026-09-07 제보). 닫기+평활로 계단만 편다.
 CAP_CLOSE        = 13
 CAP_SMOOTH       = 3
-GROUND_DILATE    = 2       # 접지밴드에서 남기는 여유
-GROUND_LOOSE     = 5       # 그 위에서의 여유 — 사실상 상한이 안 걸린다
-FEET_LO, FEET_HI = 25, 70  # 흰 발 색거리 램프 (분홍기가 0을 주는 구간)
+GROUND_LOOSE     = 5       # 분홍기 상한의 여유 — 사실상 상한이 안 걸린다
+# 접지밴드 상한 — **잔디 색**으로 가른다.
+#
+# 접지밴드에서는 차이 키를 못 쓴다. plate가 그 구간을 통째로 다시 그려서
+# (plate.py inpaint_core의 LaMa 영역이 몸 핵심부에서 20+12px 더 번진다)
+# 순수 잔디에서도 |O-P|가 p95 23~35 · 최대 82까지 뜨는데, 캐릭터의 어두운
+# 윤곽선은 plate 쪽도 어두워서 12~18밖에 안 난다 — **잔디의 오차가 캐릭터의
+# 신호보다 크다.** 임계를 어디에 둬도 못 가른다. 시간축 중앙값으로 바람을
+# 지워도 마찬가지라(p95 23~35) 바람 탓이 아니라 plate가 딴 잔디를 그린 탓이다.
+#
+# 갈라주는 건 색이다. score = R − 2G + B = (R−G) − (G−B): 잔디는 노랑초록이라
+# G가 R·B보다 크고, 캐릭터는 분홍·크림·흰 발·갈색 윤곽선이라 R이 앞선다.
+# dusk 316프레임 중앙값 실측 —
+#   밝은 잔디 −28~−42   어두운 초록 잔디 −23   발밑 햇빛 잔디띠 −12~+2
+#   몸통(분홍) +17~+42  흰 발 +6   어두운 갈색 윤곽선 +4
+# 0 근처에서 갈리므로 ±8 램프로 소프트하게 자른다. 프레임마다 다시 재므로
+# 캐릭터가 ±3.6px 오르내리는 것도 따라간다(위상상관 실측).
+#
+# **이걸로 손으로 그은 바닥선(GROUND_LINE, 22점 꺾은선)을 대체했다**
+# (2026-09-08). 꺾은선은 열별 상수라 (1) 발가락 사이 굴곡을 못 따라가 바닥이
+# 각진 다각형으로 잘리고, (2) 정지선이라 프레임별 오르내림을 못 따라가서
+# 어떤 프레임은 발가락을 5~13px 자르고 어떤 프레임은 잔디를 물고 왔다
+# (제보: "발쪽이 울퉁불퉁하고 배에 구멍이 나. 프레임마다 달라").
+# 배포본 316프레임 접지밴드(y345~404) 전수 측정 — 확실한 잔디(G-B>30)인데
+# 알파>128인 화소 13,438 -> 2,348, 확실한 캐릭터(R-max(G,B)>30)인데
+# 알파<128인 화소 50,204 -> 26,056.
+GRASS_LO, GRASS_HI = -8, 8
+GRASS_BLUR       = 1.0     # 프레임 노이즈에서 임계가 갈리며 생기는 톱니 방지
 # 시간축 저역통과가 벌려 놓은 램프를 되세운다. 예전(2.2)만큼 셀 필요가 없다 —
 # 8px 오오라의 주범은 키가 아니라 refine의 hi/lo 강제였고 그건 통째로 뺐다(§5)
 # 피복률 알파 — 이진 실루엣의 "치마"를 없앤다.
@@ -92,31 +100,6 @@ FEET_LO, FEET_HI = 25, 70  # 흰 발 색거리 램프 (분홍기가 0을 주는 
 COV_IN           = 4
 COV_R            = 7
 COV_FLOOR        = 30      # 대비가 없는 자리에서 나눗셈이 폭주하지 않게
-# 접지부 바닥선 (CROP 좌표) — 알파의 상한. 이 선 아래는 캐릭터가 아니다.
-#
-# 왜 손으로 긋나 — 접지부는 plate가 확산으로 채워져 순수 잔디에서도 |O-P|가
-# 20~50 뜨고, 캐릭터의 밝은 발가락과 밝은 잔디가 모든 신호에서 겹친다:
-#   |O-plate| 잔디 27~37 / 발가락 40~107  (임계를 올리면 발가락이 먼저 사라짐)
-#   분홍기 R-max(G,B) 잔디 35 (임계 30을 넘김)
-#   초록기 G-B 둘 다 낮음 / 시간축 σ 잔디 3.9~4.2 · 발가락 4.8~9.1
-#   조각이 몸에 붙어 있어 연결성분으로도 못 뗀다
-# 그래서 사람이 프레임을 보고 긋는 게 맞다(혀 다각형과 같은 이유).
-#
-# **plate의 덮개에 두면 안 된다** — 그러면 plate가 발을 못 지워서 발이 배경
-# 정지이미지에 구워지고, 폴짝 뛸 때 바닥에 발 한 쌍이 남는다(2026-09-08 제보).
-# 덮개는 캐릭터를 남김없이 덮고, 자르는 건 여기서 한다.
-#
-# 긋는 법: 열별 스캔라인에서 어두운 밑동이 끝나는 y를 읽는다(x240→367,
-# x265→363, x285→363). **시간축 최소 지도로 그으면 안 된다** — 접지 그림자가
-# 같이 어두워서 9px 낮게 잡게 된다. 잔디와 발가락이 대각선으로 붙은 왼쪽 발은
-# R-G로 갈린다(분홍 몸 30~45 / 베이지 잔디 2~20) — 쐐기(x148~166)와 발가락
-# (x168~184)이 이웃한 열이라 x166→x168에서 366→384로 급강하시켜야 한다.
-GROUND_LINE      = [(0, 352), (138, 352), (144, 358), (150, 359), (156, 361),
-                    (162, 363), (166, 364), (168, 384), (184, 384), (190, 376),
-                    (240, 367), (266, 363), (288, 364), (293, 390), (312, 390),
-                    (324, 386), (344, 393), (358, 381), (374, 378), (394, 366),
-                    (420, 356), (575, 356)]
-GROUND_SOFT      = 2       # 선 아래로 0까지 떨어지는 램프
 
 EDGE_GAIN        = 1.5
 
@@ -180,8 +163,8 @@ def bootstrap_alpha_sequence():
         a = a.filter(ImageFilter.GaussianBlur(3.5)).point(
             lambda v: 255 if v > 128 else 0)
         a = a.filter(ImageFilter.GaussianBlur(BLUR_PX))
-        # 여기엔 GROUND_LINE을 걸지 않는다 — plate의 덮개는 캐릭터를 남김없이
-        # 덮어야 한다(안 그러면 발이 배경에 구워진다)
+        # 여기엔 접지 상한을 걸지 않는다 — plate의 덮개는 캐릭터를 남김없이
+        # 덮어야 한다(안 그러면 발이 배경 정지이미지에 구워진다)
         a_crop = a.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1]))
         a_crop.save(out_dir / fp.name)
         if (i + 1) % 79 == 0:
@@ -245,42 +228,49 @@ def keep_main_component(mask, seed):
     return m.point(lambda v: 255 if v == 128 else 0)
 
 
-def ground_cap(rgb_img, diff, plate_alpha, canvas_size):
-    """접지밴드에서 차이 키가 잔디로 번지는 걸 막는 상한 마스크.
+def grass_cap(rgb_img):
+    """잔디를 0, 캐릭터를 255로 만드는 소프트 상한 (GRASS_* 주석 참고).
 
-    분홍기 키 ∪ 흰 발(색거리 25~70 램프, plate가 지운 만큼을 상한으로) 이고,
-    GROUND_FADE 위쪽에서는 GROUND_DILATE만큼 부풀려 안 걸리게 한다."""
-    pink = keep_main_component(fill_holes(pink_silhouette(rgb_img, canvas_size)),
-                               BODY_SEED)
-    scale = 255.0 / (FEET_HI - FEET_LO)
-    ramp = [max(0, min(255, round((v - FEET_LO) * scale))) for v in range(256)]
-    band = Image.new("L", canvas_size, 0)
-    ImageDraw.Draw(band).rectangle(
-        [0, FEET_TOP_GLOBAL - WORK_ORIGIN[1], canvas_size[0], canvas_size[1]],
-        fill=255)
-    feet = ImageChops.multiply(ImageChops.darker(diff.point(ramp), plate_alpha),
-                               band).point(lambda v: 255 if v > 128 else 0)
-    tight = ImageChops.lighter(pink, feet)
-    # 톱니 제거: 닫기로 오목한 흠집을 메우고 블러→재이진화로 계단을 편다
-    tight = tight.filter(ImageFilter.MaxFilter(CAP_CLOSE)) \
-                 .filter(ImageFilter.MinFilter(CAP_CLOSE)) \
-                 .filter(ImageFilter.GaussianBlur(CAP_SMOOTH)) \
-                 .point(lambda v: 255 if v > 128 else 0)
+    score = R - 2G + B. 노랑초록인 잔디는 음수, 분홍·크림·흰 발·갈색 윤곽선인
+    캐릭터는 양수다. 128을 더해 8비트에 담고(음수는 convert가 클램프한다)
+    ±GRASS_* 램프로 자른다."""
+    r, g, b = rgb_img.split()
+    score = ImageMath.lambda_eval(
+        lambda x: x["convert"](x["R"] - 2 * x["G"] + x["B"] + 128, "L"),
+        R=r, G=g, B=b).filter(ImageFilter.GaussianBlur(GRASS_BLUR))
+    lo, hi = 128 + GRASS_LO, 128 + GRASS_HI
+    return score.point(
+        [max(0, min(255, round((v - lo) * 255 / (hi - lo)))) for v in range(256)])
 
-    # 위쪽은 넉넉하게, 접지밴드는 딱 맞게 — 세로 램프로 부드럽게 넘긴다
+
+def band_weight(canvas_size):
+    """GROUND_FADE 구간에서 0(위) → 255(접지밴드)로 넘어가는 세로 램프."""
     y0 = GROUND_FADE[0] + CROP_ORIGIN[1] - WORK_ORIGIN[1]
     y1 = GROUND_FADE[1] + CROP_ORIGIN[1] - WORK_ORIGIN[1]
-    up = Image.linear_gradient("L").resize((canvas_size[0], y1 - y0)) \
-              .point(lambda v: 255 - v)
-    above = Image.new("L", canvas_size, 255)
-    above.paste(up, (0, y0))
-    above.paste(Image.new("L", (canvas_size[0], canvas_size[1] - y1), 0), (0, y1))
-    loose = ImageChops.multiply(
-        tight.filter(ImageFilter.MaxFilter(2 * GROUND_LOOSE + 1)), above)
-    # 접지밴드에서도 2px는 남긴다 — 분홍기가 발가락 윤곽을 한 겹 깎기 때문에
-    # 딱 붙이면 발가락이 잘린다(실측: y390 폭 40 → 8)
-    return ImageChops.lighter(
-        tight.filter(ImageFilter.MaxFilter(2 * GROUND_DILATE + 1)), loose)
+    m = Image.new("L", canvas_size, 0)
+    m.paste(Image.linear_gradient("L").resize((canvas_size[0], y1 - y0)), (0, y0))
+    m.paste(Image.new("L", (canvas_size[0], canvas_size[1] - y1), 255), (0, y1))
+    return m
+
+
+def ground_cap(rgb_img, canvas_size):
+    """알파의 상한. 위쪽과 접지밴드가 서로 다른 근거를 쓰고 세로로 이어 붙인다.
+
+    위쪽 — 분홍기 실루엣 + GROUND_LOOSE px. 등·귀 뒤는 언덕도 회색이고 윤곽선도
+    회색이라 차이 키가 언덕 조각을 물고 늘어진다. 여기서는 상한이 사실상
+    안 걸린다(차이 키가 분홍기보다 2~9px 넓은 게 맞다).
+
+    접지밴드 — 잔디 색(grass_cap). 여기서는 분홍기가 흰 발을 놓치고(알파의
+    72%가 0) 차이 키는 잔디를 문다."""
+    pink = keep_main_component(fill_holes(pink_silhouette(rgb_img, canvas_size)),
+                               BODY_SEED)
+    # 톱니 제거: 닫기로 오목한 흠집을 메우고 블러→재이진화로 계단을 편다
+    pink = pink.filter(ImageFilter.MaxFilter(CAP_CLOSE)) \
+               .filter(ImageFilter.MinFilter(CAP_CLOSE)) \
+               .filter(ImageFilter.GaussianBlur(CAP_SMOOTH)) \
+               .point(lambda v: 255 if v > 128 else 0) \
+               .filter(ImageFilter.MaxFilter(2 * GROUND_LOOSE + 1))
+    return Image.composite(grass_cap(rgb_img), pink, band_weight(canvas_size))
 
 
 def coverage_alpha(binary, diff):
@@ -300,16 +290,6 @@ def coverage_alpha(binary, diff):
     return ImageChops.lighter(ImageChops.darker(binary, cov), inner)
 
 
-def ground_mask():
-    """GROUND_LINE 아래를 0으로 만드는 알파 상한 (CROP 크기, 한 번만 만든다)."""
-    xs = [x for x, _ in GROUND_LINE]
-    ys = [y for _, y in GROUND_LINE]
-    limit = np.interp(np.arange(CROP_SIZE[0]), xs, ys)
-    rows = np.arange(CROP_SIZE[1])[:, None]
-    keep = np.clip((limit[None, :] + GROUND_SOFT - rows) / GROUND_SOFT, 0, 1)
-    return Image.fromarray((keep * 255).astype(np.uint8))
-
-
 def build_alpha_sequence():
     frames = sorted((B / "dusk-work").glob("*.png"))
     assert len(frames) == N_FRAMES, \
@@ -320,12 +300,10 @@ def build_alpha_sequence():
     plate = Image.open(REPO / "img" / "plate-dusk.png").convert("RGBA").crop(
         (WORK_ORIGIN[0], WORK_ORIGIN[1],
          WORK_ORIGIN[0] + WORK_SIZE[0], WORK_ORIGIN[1] + WORK_SIZE[1]))
-    p_alpha = plate.getchannel("A")
     canvas_size = Image.open(frames[0]).size
 
     out_dir = B / "alpha"
     out_dir.mkdir(exist_ok=True)
-    gmask = ground_mask()
     ox = CROP_ORIGIN[0] - WORK_ORIGIN[0]
     oy = CROP_ORIGIN[1] - WORK_ORIGIN[1]
 
@@ -338,7 +316,7 @@ def build_alpha_sequence():
             lambda v: 0 if v > GREEN_VETO else 255))
         a = fill_holes(a)
         a = keep_main_component(a, BODY_SEED)
-        a = ImageChops.darker(a, ground_cap(im, diff, p_alpha, canvas_size))
+        a = ImageChops.darker(a, ground_cap(im, canvas_size))
         a = close_holes(a)          # 상한이 몸 안쪽에 낸 구멍을 되메운다
         # 윤곽 평활: 블러 → 재이진화. 임계가 노이즈 위에서 갈리며 만든 톱니를
         # 편다. 닫기(9px)는 그 톱니를 4px 블록으로 뭉치게 할 뿐이라 이게 필요하다
@@ -347,8 +325,7 @@ def build_alpha_sequence():
         a = coverage_alpha(a, diff)     # 경계 밴드를 피복률로 (회색 치마 제거)
         a = close_holes(a)              # 피복률이 다시 뚫은 자리도 되메운다
         a = a.filter(ImageFilter.GaussianBlur(BLUR_PX))
-        a_crop = ImageChops.darker(
-            a.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1])), gmask)
+        a_crop = a.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1]))
         a_crop.save(out_dir / fp.name)
         if (i + 1) % 79 == 0:
             print(f"  alpha {i + 1}/{N_FRAMES}")
