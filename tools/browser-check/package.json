@@ -1,0 +1,6 @@
+{
+  "name": "naeru-browser-check",
+  "private": true,
+  "scripts": { "test": "node check.cjs" },
+  "devDependencies": { "playwright": "1.48.2" }
+}

@@ -235,8 +235,14 @@ def grass_cap(rgb_img):
     캐릭터는 양수다. 128을 더해 8비트에 담고(음수는 convert가 클램프한다)
     ±GRASS_* 램프로 자른다."""
     r, g, b = rgb_img.split()
+    # 밝은 발톱은 잔디가 비쳐 score가 0 근처까지 내려간다. 전체 임계를 낮추면
+    # 배 아래의 잔디도 따라오므로 밝고 중성인 화소만 최대 4만큼 보완한다.
+    # G-B 16~24, G 96~120에서 부드럽게 줄여 프레임별 색 잡음에도 튀지 않는다.
     score = ImageMath.lambda_eval(
-        lambda x: x["convert"](x["R"] - 2 * x["G"] + x["B"] + 128, "L"),
+        lambda x: x["convert"](
+            x["R"] - 2 * x["G"] + x["B"] + 128 +
+            x["min"](x["max"](24 - x["G"] + x["B"], 0), 8) *
+            x["min"](x["max"](x["G"] - 96, 0), 24) / 48, "L"),
         R=r, G=g, B=b).filter(ImageFilter.GaussianBlur(GRASS_BLUR))
     lo, hi = 128 + GRASS_LO, 128 + GRASS_HI
     return score.point(
@@ -322,7 +328,11 @@ def build_alpha_sequence():
         # 편다. 닫기(9px)는 그 톱니를 4px 블록으로 뭉치게 할 뿐이라 이게 필요하다
         a = a.filter(ImageFilter.GaussianBlur(SMOOTH_R)).point(
             lambda v: 255 if v > 128 else 0)
-        a = coverage_alpha(a, diff)     # 경계 밴드를 피복률로 (회색 치마 제거)
+        covered = coverage_alpha(a, diff)
+        # 발밑 plate는 재생성된 잔디라 diff를 피복률로 쓰면 발톱이 반투명해진다.
+        # 접지부는 앞서 잔디 색으로 구분한 실루엣을 쓰고, 위쪽은 피복률을 유지한다.
+        # 같은 세로 램프로 이어 붙인 뒤 아래의 블러·시간축 처리로 경계를 다듬는다.
+        a = Image.composite(a, covered, band_weight(canvas_size))
         a = close_holes(a)              # 피복률이 다시 뚫은 자리도 되메운다
         a = a.filter(ImageFilter.GaussianBlur(BLUR_PX))
         a_crop = a.crop((ox, oy, ox + CROP_SIZE[0], oy + CROP_SIZE[1]))

@@ -15,6 +15,13 @@ set -e
 HERE=${0:A:h}
 REPO=${HERE:h:h}
 B=$HERE/build
+PYTHON_BIN=${NAERU_PYTHON:-$HERE/.venv/bin/python}
+# 무거운 프레임 추출 전에 제작 환경부터 확인한다.
+[[ -x $PYTHON_BIN ]] || { echo "Python 환경이 없습니다: $PYTHON_BIN" >&2; exit 1; }
+"$PYTHON_BIN" -c 'import numpy; from PIL import Image'
+for dependency in ffmpeg ffprobe pngquant; do
+  command -v "$dependency" >/dev/null || { echo "필요한 도구: $dependency" >&2; exit 1; }
+done
 mkdir -p $B
 cd $REPO
 
@@ -44,12 +51,12 @@ done
 
 
 # 2-3. 패치 + 매트 --------------------------------------------------------
-python3 $HERE/plate.py
-python3 $HERE/matte.py
+"$PYTHON_BIN" $HERE/plate.py
+"$PYTHON_BIN" $HERE/matte.py
 
 
 # 4. PNG 시퀀스 단계 검증 --------------------------------------------------
-python3 $HERE/verify.py --pass1
+"$PYTHON_BIN" $HERE/verify.py --pass1
 
 
 # 5. 인코딩 ---------------------------------------------------------------
@@ -81,7 +88,7 @@ done
 # 16x16 완전 투명 1프레임 — 알파 지원 판정용(Safari가 VP9 알파를 무시하고
 # 검은 사각형으로 그리는 걸 본편 받기 전에 걸러내는 프로브)
 mkdir -p $B/alpha-probe-src
-python3 -c "
+"$PYTHON_BIN" -c "
 from PIL import Image
 Image.new('RGBA', (16, 16), (0, 0, 0, 0)).save('$B/alpha-probe-src/0001.png')
 "
@@ -93,7 +100,13 @@ ffmpeg -v error -y -framerate 24 -i $B/alpha-probe-src/%04d.png \
 # 6. 인코딩 결과 검증 -------------------------------------------------------
 # VP9 알파는 디코딩 시 -vcodec libvpx-vp9를 명시해야 한다(기본 vp9 디코더는
 # 알파 블록을 안 읽음 — 실측으로 발견). verify.py의 decode_webm이 이미 반영.
-python3 $HERE/verify.py --pass2
+"$PYTHON_BIN" $HERE/verify.py --pass2
+
+# 런타임은 plate가 아니라 계절 배경을 읽는다. 같은 세대로 끝까지 생성한다.
+"$PYTHON_BIN" $HERE/bgstill.py
+"$PYTHON_BIN" $REPO/tools/season/repaint.py
+"$PYTHON_BIN" $HERE/tongue.py
+"$PYTHON_BIN" $REPO/tools/check-assets.py --videos --update-version
 
 
 echo "=== DONE $(date +%T)"

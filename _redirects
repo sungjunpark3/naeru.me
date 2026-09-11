@@ -1,0 +1,53 @@
+# 빌드 없는 정적 배포에서도 개발 자료는 웹으로 제공하지 않는다.
+# !가 있어야 실제 파일이 존재할 때도 Netlify의 file shadowing보다 우선한다.
+/CLAUDE.md  /404.html  404!
+/AGENTS.md  /404.html  404!
+/README.md  /404.html  404!
+/docs      /404.html  404!
+/docs/*    /404.html  404!
+/tools     /404.html  404!
+/tools/*   /404.html  404!
+/package.json       /404.html  404!
+/package-lock.json  /404.html  404!
+
+# 과거 배경 영상과 재생성 입력. 런타임은 계절 접미사가 있는 bg JPG를 쓴다.
+/img/meadow-dawn.mp4             /404.html  404!
+/img/meadow-day.mp4              /404.html  404!
+/img/meadow-dusk.mp4             /404.html  404!
+/img/meadow-night.mp4            /404.html  404!
+/img/meadow-dawn-rain.mp4        /404.html  404!
+/img/meadow-day-rain.mp4         /404.html  404!
+/img/meadow-dusk-rain.mp4        /404.html  404!
+/img/meadow-night-rain.mp4       /404.html  404!
+/img/meadow-dawn.hevc.mp4        /404.html  404!
+/img/meadow-day.hevc.mp4         /404.html  404!
+/img/meadow-dusk.hevc.mp4        /404.html  404!
+/img/meadow-night.hevc.mp4       /404.html  404!
+/img/meadow-dawn-rain.hevc.mp4   /404.html  404!
+/img/meadow-day-rain.hevc.mp4    /404.html  404!
+/img/meadow-dusk-rain.hevc.mp4   /404.html  404!
+/img/meadow-night-rain.hevc.mp4  /404.html  404!
+/img/sky-dawn.jpg        /404.html  404!
+/img/sky-day.jpg         /404.html  404!
+/img/sky-dusk.jpg        /404.html  404!
+/img/sky-night.jpg       /404.html  404!
+/img/sky-dawn-rain.jpg   /404.html  404!
+/img/sky-day-rain.jpg    /404.html  404!
+/img/sky-dusk-rain.jpg   /404.html  404!
+/img/sky-night-rain.jpg  /404.html  404!
+/img/plate-dawn.png        /404.html  404!
+/img/plate-day.png         /404.html  404!
+/img/plate-dusk.png        /404.html  404!
+/img/plate-night.png       /404.html  404!
+/img/plate-dawn-rain.png   /404.html  404!
+/img/plate-day-rain.png    /404.html  404!
+/img/plate-dusk-rain.png   /404.html  404!
+/img/plate-night-rain.png  /404.html  404!
+/img/bg-dawn.jpg        /404.html  404!
+/img/bg-day.jpg         /404.html  404!
+/img/bg-dusk.jpg        /404.html  404!
+/img/bg-night.jpg       /404.html  404!
+/img/bg-dawn-rain.jpg   /404.html  404!
+/img/bg-day-rain.jpg    /404.html  404!
+/img/bg-dusk-rain.jpg   /404.html  404!
+/img/bg-night-rain.jpg  /404.html  404!

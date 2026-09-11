@@ -17,6 +17,7 @@
 # 마스크는 **bg-day.jpg 한 장에서만** 만들어 8변형이 공유한다. 8변형은 같은
 # 그림의 색보정본이라 형태가 픽셀 단위로 같고, 밤 변형은 대비가 낮아 따로
 # 만들면 마스크가 무너진다(누끼 감사에서 겪은 것과 같은 함정).
+import argparse
 import subprocess
 import sys
 import tempfile
@@ -147,7 +148,12 @@ def winter_snow(a, L, yy, tree, shape, rng, sky):
     거기에 수관의 위쪽 실루엣을 더한다."""
     H, W = shape
     def shift_down(m, k):
-        out = np.zeros_like(m); out[k:] = m[:-k]; return out
+        # 이미지 바깥을 0으로 채우면 맨 위 16px가 나무의 윗면으로 오인된다.
+        # 경계의 실제 값을 연장해 화면 상단을 가로지르던 흰 띠를 없앤다.
+        out = np.empty_like(m)
+        out[:k] = m[:1]
+        out[k:] = m[:-k]
+        return out
     def noise(cells):
         n = rng.random((cells, int(cells * W / H) + 1))
         return np.asarray(Image.fromarray((n * 255).astype(np.uint8))
@@ -215,11 +221,18 @@ def storm_sky(a, L0, yy, variant, season):
 
 
 def main():
-    L, yy, sky, tree, shape = build_masks()   # sky는 지금 안 쓴다(하늘은 통째 교체)
-    tmp = Path(tempfile.mkdtemp())
+    parser = argparse.ArgumentParser(description="선택한 계절의 배경을 재생성합니다.")
+    parser.add_argument("--seasons", nargs="+", choices=SEASONS, default=SEASONS)
+    args = parser.parse_args()
+    L, yy, sky, tree, shape = build_masks()
+    with tempfile.TemporaryDirectory(prefix="naeru-season-") as work:
+        repaint_seasons(args.seasons, Path(work), L, yy, sky, tree, shape)
+
+
+def repaint_seasons(selected, tmp, L, yy, sky, tree, shape):
     for v in VARIANTS:
         base = np.asarray(Image.open(IMG / f"bg-{v}.jpg").convert("RGB"), np.float32)
-        for s in SEASONS:
+        for s in selected:
             rng = np.random.default_rng(20260905)   # 계절마다 같은 얼룩을 쓴다
             a = base
             if s == "autumn":
@@ -241,7 +254,7 @@ def main():
                 b = np.asarray(Image.open(out).convert("RGB"), np.float32)
                 Image.fromarray(np.clip(storm_sky(b, L, yy, v, s), 0, 255).astype(np.uint8)) \
                      .save(out, quality=93)
-        print(f"  {v} → {' '.join(SEASONS)}")
+        print(f"  {v} → {' '.join(selected)}")
     print("=== 완료")
 
 

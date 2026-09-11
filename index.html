@@ -5,11 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1a1f2e">
 <meta name="robots" content="noindex, nofollow">
-<title>Naerum Naerum</title>
+<title>내루미</title>
+<meta name="description" content="서울의 시간과 계절을 함께하는 내루미.">
 <link rel="icon" type="image/png" href="img/favicon.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:title" content="내루미">
+<meta property="og:description" content="서울의 시간과 계절을 함께하는 내루미.">
 <meta property="og:url" content="https://naeru.me/">
 <meta property="og:image" content="https://naeru.me/img/og.jpg">
 <meta property="og:image:width" content="1200">
@@ -20,6 +22,40 @@
 <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600&display=swap"
       rel="stylesheet">
+<script>
+/* ── 환경설정: 첫 그림부터 저장한 취향을 적용한다 ──────────────── */
+window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
+                         clock: true, date: "en" };
+(function () {
+  var choices = {
+    season: ["auto", "spring", "summer", "autumn", "winter"],
+    band: ["auto", "dawn", "day", "dusk", "night"],
+    motion: ["auto", "still"], date: ["en", "ko"], clock: [true, false]
+  };
+  try {
+    var saved = JSON.parse(localStorage.getItem("naeru-settings") || "null");
+    Object.keys(choices).forEach(function (key) {
+      if (saved && choices[key].indexOf(saved[key]) >= 0) {
+        window.naeruSettings[key] = saved[key];
+      }
+    });
+  } catch (e) {}
+  var media = matchMedia("(prefers-reduced-motion: reduce)");
+  window.naeruReduced = function () {
+    return new URLSearchParams(location.search).get("still") === "1" ||
+           media.matches || window.naeruSettings.motion === "still";
+  };
+  function reflect() {
+    document.documentElement.dataset.motion = window.naeruReduced() ? "still" : "on";
+    document.documentElement.dataset.clock = String(window.naeruSettings.clock);
+  }
+  reflect();
+  document.addEventListener("naeru:settings", reflect);
+  media.addEventListener("change", function () {
+    document.dispatchEvent(new Event("naeru:settings"));
+  });
+})();
+</script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -87,11 +123,36 @@
     position: absolute;
     left: 45.4167%; top: 61.4815%; width: 15%; height: 22.9630%;
   }
-  #naeru-act, #naeru-face { position: absolute; inset: 0; }
+  #naeru-approach, #naeru-stride, #naeru-act, #naeru-face {
+    position: absolute; inset: 0;
+  }
   /* 회전·스쿼시의 기준점은 발끝이다. 크롭 상단이 y1328, 발끝이 y1720이므로
      세로 (1720-1328)/496 = 79.03%, 가로는 몸 중심 x2020 →
      (2020-1744)/576 = 47.92%. 틀리면 기울일 때 발이 지면에서 뜬다 */
-  #naeru-act, #naeru-face { transform-origin: 47.9167% 79.0323%; }
+  #naeru-approach, #naeru-stride, #naeru-act, #naeru-face {
+    transform-origin: 47.9167% 79.0323%;
+  }
+  /* 다가오기는 바깥 겹의 원근 이동 + 안쪽 겹의 보폭으로 나눈다.
+     기존 폴짝·인사와 transform을 공유하지 않는다. */
+  html[data-approach] #naeru-approach,
+  html[data-approach] #naeru-stride { will-change: transform; }
+  #approach-ground, #approach-flowers {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; opacity: 0;
+  }
+  #approach-shadow {
+    position: absolute; left: 17%; top: 75%; width: 62%; height: 11%;
+    border-radius: 50%; opacity: 0;
+    background: radial-gradient(ellipse, rgba(43, 42, 26, .3), transparent 70%);
+  }
+  html[data-approach] #approach-flowers { opacity: 1; }
+  html[data-approach] .clock-wrap { opacity: .22; transition: opacity .6s; }
+  #approach-return {
+    left: 50%; top: max(20px, env(safe-area-inset-top)); transform: translateX(-50%);
+    padding: 10px 18px; border: 1px solid rgba(255, 249, 237, .45);
+    border-radius: 24px; color: #fff9ed; background: rgba(28, 35, 38, .65);
+    cursor: pointer; font-size: .85rem;
+  }
   .naeru, #naeruStill {
     position: absolute; inset: 0; width: 100%; height: 100%;
     opacity: 0; transition: opacity 2.5s ease;
@@ -174,6 +235,7 @@
     justify-content: flex-start;
     padding-top: 8vh;
     user-select: none;
+    pointer-events: none;
   }
 
   .clock-inner {
@@ -218,6 +280,8 @@
     font-variant-numeric: tabular-nums;
     opacity: 0;
     transition: opacity 1.2s ease;
+    max-width: calc(100vw - 32px);
+    text-align: center;
   }
   .info.on { opacity: 1; }
   .info .sep { opacity: 0.45; margin: 0 0.5em; }
@@ -260,7 +324,11 @@
      `$="-rain"`이 night-rain도 잡으므로 night-rain 규칙을 뒤에 둔다(같은 우선순위) */
   /* 변형(시간대·날씨) 보정과 계절 보정을 **곱해서** 건다. 각각 따로
      filter를 쓰면 나중 규칙이 앞을 덮어써서 하나만 남는다 */
-  .graded { filter: var(--grade, none) var(--season, none); transition: filter 2.5s ease; }
+  /* none은 다른 필터 함수와 함께 쓸 수 없으므로 중립 함수를 기본값으로 둔다. */
+  .graded {
+    filter: var(--grade, brightness(1)) var(--season, brightness(1));
+    transition: filter 2.5s ease;
+  }
   body[data-variant="dawn"]       .graded { --grade: brightness(1.04) saturate(.93); }
   body[data-variant="day"]        .graded { --grade: brightness(1.08) saturate(1.06); }
   body[data-variant="night"]      .graded { --grade: brightness(.60)  saturate(.45); }
@@ -271,7 +339,7 @@
      배경은 계절별로 따로 구워서(bg-<변형>-<계절>.jpg) 화질이 좋다.
      내루미·공·나비는 한 벌뿐이라 여기서 델타만 입힌다 — 안 그러면 겨울 배경
      위에 여름 톤 캐릭터가 혼자 떠 있는다. 여름은 원본이라 필터 없음 */
-  :root { --season: none; }
+  :root { --season: brightness(1); }
   html[data-season="spring"] { --season: saturate(1.05); }
   html[data-season="autumn"] { --season: sepia(.12) saturate(1.06); }
   /* 겨울은 .55까지 빼면 캐릭터가 배경에 묻혀 초점이 사라진다 — 배경보다는
@@ -306,7 +374,9 @@
        있다(bg-<변형>-winter.jpg) — "눈이 올 때나 안 올 때나 상시적으로 눈이
        쌓여있는 배경"은 그쪽 이야기지 내리는 눈이 아니다(2026-09-06 제보).
      - 가을 낙엽도 만들어 봤지만 뺐다 — 배경의 단풍만 남긴다. */
-  html[data-season="winter"] .rain { visibility: hidden; opacity: 0; }
+  html[data-season="winter"] .rain {
+    visibility: hidden; opacity: 0; animation-play-state: paused;
+  }
   html[data-season="winter"] body[data-weather="rain"] .fall {
     visibility: visible;
     animation-play-state: running;
@@ -345,6 +415,84 @@
 
   .clock-wrap { z-index: 2; }
 
+  /* 조작 영역도 같은 프레임 안에 둔다. 투명한 버튼이 키보드 초점을 받는다. */
+  #naeru-touch {
+    position: absolute; left: 20%; top: 13%; width: 60%; height: 66%;
+    pointer-events: auto; border: 0; border-radius: 35%;
+    background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  button, select { font: inherit; }
+  button:focus-visible, select:focus-visible, a:focus-visible {
+    outline: 2px solid #ffe5ad; outline-offset: 4px;
+  }
+  [hidden] { display: none !important; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+  html[data-clock="false"] .clock-wrap { display: none; }
+  .scene-ui {
+    position: fixed; z-index: 3; color: #fff9ed;
+    text-shadow: 0 1px 8px rgba(10, 14, 25, .75);
+  }
+  #settings-open {
+    right: max(18px, env(safe-area-inset-right));
+    bottom: max(18px, env(safe-area-inset-bottom));
+    width: 44px; height: 44px; border: 1px solid rgba(255, 249, 237, .35);
+    border-radius: 50%; background: rgba(24, 30, 33, .55); cursor: pointer;
+  }
+  #settings-open svg { width: 21px; height: 21px; vertical-align: middle; }
+  #greeting, #focus-strip {
+    bottom: max(25px, env(safe-area-inset-bottom)); left: 50%;
+    transform: translateX(-50%); max-width: calc(100% - 140px);
+    font-size: .8rem; line-height: 1.5; text-align: center;
+  }
+  #greeting { pointer-events: none; }
+  #focus-strip button {
+    color: inherit; background: transparent; border: 0;
+    text-decoration: underline; cursor: pointer; margin-left: .7em;
+    min-height: 44px;
+  }
+  #settings-panel {
+    margin: auto 18px 76px auto; padding: 24px; width: 340px;
+    max-width: calc(100vw - 32px); max-height: calc(100dvh - 108px);
+    overflow-y: auto; border: 1px solid rgba(255, 249, 237, .25);
+    border-radius: 18px; color: #fff9ed; background: rgba(28, 35, 38, .97);
+    box-shadow: 0 12px 45px rgba(0, 0, 0, .25);
+    font-family: "Apple SD Gothic Neo", -apple-system, sans-serif;
+  }
+  #settings-panel::backdrop { background: rgba(12, 20, 26, .18); }
+  .settings-heading { display: flex; justify-content: space-between; align-items: center; }
+  .settings-heading h2 { font-size: 1.1rem; font-weight: 600; }
+  .settings-heading button {
+    width: 44px; height: 44px; border: 0; background: transparent;
+    color: inherit; cursor: pointer; font-size: 1.4rem;
+  }
+  .setting-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; margin-top: 16px; font-size: .9rem;
+  }
+  .setting-row select {
+    color-scheme: dark; width: 148px; padding: 10px; border-radius: 8px;
+    color: inherit; background: #333e40; border: 1px solid #6a7675;
+  }
+  .setting-row input { width: 20px; height: 20px; accent-color: #e8d6ad; }
+  .settings-note { font-size: .78rem; line-height: 1.6; color: #c1c8c3; margin-top: 16px; }
+  .settings-note a { color: inherit; }
+  #focus-start, #approach-preview {
+    padding: 10px 14px; color: #242d2d; background: #eddfbf;
+    border: 0; border-radius: 8px; cursor: pointer;
+  }
+  #settings-panel fieldset { border: 0; border-top: 1px solid #52615f; margin-top: 22px; }
+  #settings-panel legend { padding: 0 8px 0 0; font-size: .9rem; }
+
+  html[data-motion="still"] :is(.clock-inner, .time .colon) { animation: none; }
+  html[data-motion="still"] :is(.rain, .fall, .naeru, #naeruNt, #tongue, #glow, #frame) {
+    display: none !important;
+  }
+  html[data-motion="still"] :is(.bg-layer, #stage, #naeruStill) { transition: none; }
+  html[data-motion="still"] #naeruStill.on { opacity: 1; }
+
   /* 움직임 최소화 설정 존중: 영상 없이 정지 프레임만 표시
      (JS도 이 경우 영상을 아예 로드하지 않음) */
   @media (prefers-reduced-motion: reduce) {
@@ -358,6 +506,7 @@
 </style>
 </head>
 <body>
+<main aria-label="내루미와 함께하는 서울의 시간">
 
 <div class="bg-still"></div>
 
@@ -368,15 +517,89 @@
      배경 위, .rain/.vignette 아래 — 구워져 있던 내루미 위로 비·비네트가
      얹혀 있었으므로 그래야 지금과 톤이 같다 -->
 <div id="stage">
-  <div id="naeru-move"><div id="naeru-act"><div id="naeru-face">
-    <video id="naeruA" class="naeru" muted loop playsinline preload="auto"></video>
-    <video id="naeruB" class="naeru" muted loop playsinline preload="none"></video>
+  <!-- 가까운 잔디를 부드러운 마스크로 옮겨, 떠난 자리에 구워진 그림자를 가린다.
+       원본 배경을 참조하므로 새 풍경 파일이나 색이 다른 패치가 필요 없다. -->
+  <svg id="approach-ground" viewBox="0 0 3840 2160" aria-hidden="true">
+    <defs>
+      <radialGradient id="ground-feather">
+        <stop offset=".65" stop-color="white"/>
+        <stop offset="1" stop-color="black"/>
+      </radialGradient>
+      <mask id="ground-mask" maskUnits="userSpaceOnUse" x="1500" y="1600"
+            width="700" height="230">
+        <ellipse cx="1860" cy="1720" rx="340" ry="94" fill="url(#ground-feather)"/>
+      </mask>
+    </defs>
+    <image id="approach-grass-image" x="0" y="155" width="3840" height="2160"
+           mask="url(#ground-mask)"/>
+  </svg>
+  <div id="naeru-move"><div id="naeru-approach">
+  <div id="approach-shadow" aria-hidden="true"></div>
+  <div id="naeru-stride"><div id="naeru-act"><div id="naeru-face">
+    <video id="naeruA" class="naeru" aria-hidden="true" muted loop playsinline preload="auto"></video>
+    <video id="naeruB" class="naeru" aria-hidden="true" muted loop playsinline preload="none"></video>
     <img id="naeruStill" alt="">
     <img id="naeruNt" alt="">
     <img id="tongue" alt="">
     <div id="naeru-head"></div>
     <div id="naeru-brow"></div>
-  </div><div id="emote" class="graded"></div></div></div>
+  </div><div id="emote" class="graded" aria-hidden="true"></div></div></div>
+  <button id="naeru-touch" type="button" aria-label="내루미에게 인사하기"></button>
+  </div></div>
+  <!-- 앞꽃은 같은 배경의 픽셀을 SVG 색상 마스크로 다시 보여준다.
+       R-2G+B로 분홍·보라·흰 꽃잎과 잔디를 구분해 붓질 경계를 보존한다.
+       꽃술·줄기는 좌표로 보완하고 가장 아래 풀은 부드럽게 연결한다. -->
+  <svg id="approach-flowers" viewBox="0 0 2048 1152" aria-hidden="true">
+    <defs>
+      <filter id="flower-ink" color-interpolation-filters="sRGB">
+        <feColorMatrix in="SourceGraphic" type="matrix" result="pink"
+          values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  12 -24 12 0 -.1"/>
+        <feColorMatrix in="SourceGraphic" type="matrix" result="white"
+          values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  6 6 6 0 -10"/>
+        <feComposite in="pink" in2="white" operator="arithmetic" k2="1" k3="1"
+                     result="petals"/>
+        <feColorMatrix in="SourceGraphic" type="matrix" result="no-brown"
+          values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  -10 0 10 0 1.6"/>
+        <feComposite in="petals" in2="no-brown" operator="in"/>
+        <feComponentTransfer><feFuncA type="linear" slope="1.5" intercept="-.1"/></feComponentTransfer>
+        <feMorphology operator="erode" radius=".3"/>
+        <feGaussianBlur stdDeviation=".45"/>
+      </filter>
+      <clipPath id="flower-area">
+        <ellipse cx="538" cy="1026" rx="67" ry="42"/>
+        <ellipse cx="390" cy="1090" rx="61" ry="27"/>
+        <ellipse cx="135" cy="1131" rx="74" ry="43"/>
+        <ellipse cx="888" cy="1090" rx="67" ry="43"/>
+        <ellipse cx="1874" cy="938" rx="74" ry="40"/>
+        <ellipse cx="1778" cy="997" rx="59" ry="40"/>
+        <ellipse cx="1937" cy="1047" rx="91" ry="64"/>
+      </clipPath>
+      <radialGradient id="front-grass-fade">
+        <stop offset=".35" stop-color="white"/>
+        <stop offset="1" stop-color="black"/>
+      </radialGradient>
+      <mask id="front-flowers" maskUnits="userSpaceOnUse" x="0" y="0"
+            width="2048" height="1152">
+        <g fill="url(#front-grass-fade)">
+          <ellipse cx="100" cy="1240" rx="1000" ry="170"/>
+          <ellipse cx="2048" cy="1230" rx="780" ry="170"/>
+        </g>
+        <image id="approach-flower-mask" width="2048" height="1152"
+               filter="url(#flower-ink)" clip-path="url(#flower-area)"/>
+        <g fill="white">
+          <ellipse cx="532" cy="1030" rx="12" ry="6"/>
+          <ellipse cx="386" cy="1090" rx="15" ry="7"/>
+          <ellipse cx="1848" cy="935" rx="9" ry="7"/>
+          <ellipse cx="1938" cy="1045" rx="19" ry="11"/>
+        </g>
+        <path d="M537 1037Q563 1097 564 1152M388 1093l-10 59
+          M886 1098l-8 54M1937 1053l26 99M1849 942q-19 85-17 210
+          M1776 999q-38 65-54 153" fill="none" stroke="white" stroke-width="4"/>
+      </mask>
+    </defs>
+    <image id="approach-flower-image" width="2048" height="1152"
+           mask="url(#front-flowers)"/>
+  </svg>
 </div>
 
 <div class="rain rain-far"></div>
@@ -389,11 +612,11 @@
 <div class="vignette"></div>
 
 <!-- 반딧불이. 밤에만, 비가 안 올 때만 -->
-<div id="glow"></div>
+<div id="glow" aria-hidden="true"></div>
 
 <!-- 가끔 날아와 내루미 머리를 때리고 사라지는 공.
      프레임 박스 안에 비율로 배치되므로 화면비가 뭐든 머리에 맞는다 -->
-<div id="frame" class="graded">
+<div id="frame" class="graded" aria-hidden="true">
   <div id="ball">
     <!-- 애플뮤직 앱아이콘 빨강(2026-09-04 지정). 아이콘의 그러데이션은
          #FA233B~#FB5C74인데, 붉은 끝값을 그대로 쓰면 이 회화풍 배경 위에서
@@ -423,11 +646,88 @@
 
 <div class="clock-wrap">
   <div class="clock-inner">
-    <div class="time" id="time"></div>
-    <div class="date" id="date"></div>
-    <div class="info" id="info"></div>
+    <time class="time" id="time" aria-label="서울 시각"></time>
+    <time class="date" id="date"></time>
+    <div class="info" id="info" title="서울 날씨"></div>
   </div>
 </div>
+</main>
+<p id="greeting" class="scene-ui" hidden>내루미를 살짝 눌러보세요</p>
+<p id="scene-message" class="sr-only" role="status"></p>
+<button id="approach-return" class="scene-ui" type="button" hidden>돌아가기</button>
+<div id="focus-strip" class="scene-ui" hidden>
+  <span id="focus-label"></span><button id="focus-stop" type="button">종료</button>
+</div>
+<button id="settings-open" class="scene-ui" type="button"
+        aria-label="화면 설정 열기" aria-haspopup="dialog">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+       stroke-linecap="round" aria-hidden="true">
+    <path d="M4 6h16M4 12h16M4 18h16"/>
+    <circle cx="9" cy="6" r="2.3" fill="#303a3b"/>
+    <circle cx="16" cy="12" r="2.3" fill="#303a3b"/>
+    <circle cx="8" cy="18" r="2.3" fill="#303a3b"/>
+  </svg>
+</button>
+<dialog id="settings-panel" aria-labelledby="settings-title">
+  <div class="settings-heading">
+    <h2 id="settings-title">나의 작은 초원</h2>
+    <button id="settings-close" type="button" aria-label="설정 닫기">×</button>
+  </div>
+  <label class="setting-row">계절
+    <select id="setting-season">
+      <option value="auto">서울의 계절</option><option value="spring">봄</option>
+      <option value="summer">여름</option><option value="autumn">가을</option>
+      <option value="winter">겨울</option>
+    </select>
+  </label>
+  <label class="setting-row">풍경의 시간
+    <select id="setting-band">
+      <option value="auto">서울의 시간</option><option value="dawn">새벽</option>
+      <option value="day">낮</option><option value="dusk">노을</option>
+      <option value="night">밤</option>
+    </select>
+  </label>
+  <label class="setting-row">움직임
+    <select id="setting-motion">
+      <option value="auto">기기 설정에 맞춤</option><option value="still">쉬어가기</option>
+    </select>
+  </label>
+  <label class="setting-row">날짜 형식
+    <select id="setting-date">
+      <option value="en">영문 날짜</option><option value="ko">한글 날짜·요일</option>
+    </select>
+  </label>
+  <label class="setting-row">시계와 날씨 표시
+    <input id="setting-clock" type="checkbox" checked>
+  </label>
+  <p class="settings-note">시계와 날씨는 서울 기준이에요.
+    풍경을 골라도 실제 시각은 그대로 표시돼요.</p>
+  <fieldset id="approach-setting" hidden>
+    <legend>내루미와 눈 맞추기</legend>
+    <div class="setting-row">
+      <span>가까이서 인사할까요?</span>
+      <button id="approach-preview" type="button">가까이 와줘</button>
+    </div>
+    <p class="settings-note">5분마다 놀러 오고, 집중을 마치면 쉬어갈 시간을 알려줘요.</p>
+  </fieldset>
+  <fieldset>
+    <legend>잠깐 집중하기</legend>
+    <div class="setting-row">
+      <select id="focus-duration" aria-label="집중 시간">
+        <option value="25">25분</option><option value="50">50분</option>
+      </select>
+      <button id="focus-start" type="button">시작</button>
+    </div>
+    <p class="settings-note" id="focus-note">끝나면 내루미가 쉬어갈 시간을 알려줘요.</p>
+  </fieldset>
+  <p class="settings-note" id="weather-status"></p>
+  <p class="settings-note">날씨: <a href="https://open-meteo.com/"
+    target="_blank" rel="noopener noreferrer">Open-Meteo</a></p>
+</dialog>
+<noscript><style>
+  .bg-still { background-image: url("img/og.jpg"); }
+  #settings-open, #naeru-touch { display: none; }
+</style><p class="scene-ui" style="top:24px;left:24px">시계와 날씨를 보려면 JavaScript를 켜주세요.</p></noscript>
 
 <script>
 /* ── 프레임 사각형 계산: 배경 영상이 cover로 차지하는 16:9 상자.
@@ -443,399 +743,141 @@ function layoutFrameBox(el) {
   el.style.top    = ((vh - H) / 2) + "px";
   return { W: W, H: H };
 }
+
+/* ── 장면 동작의 수명 ──────────────────────────────────────────
+   시간대 전환·탭 숨김·동작 줄이기에서 각 IIFE의 타이머와 rAF를 함께 취소한다.
+   예전 콜백이 뒤늦게 돌아와 새 장면의 transform·busy를 덮어쓰지 않게 한다. */
+function sceneMotionAllowed() {
+  var root = document.documentElement, reduced = window.naeruReduced();
+  // 실행 중인 rAF가 media change 이벤트보다 먼저 새 설정을 읽을 수 있다.
+  // 콜백만 버리면 확대·busy가 남으므로 플레이어와 모든 동작을 함께 갱신한다.
+  if (root.dataset.motion !== (reduced ? "still" : "on")) {
+    document.dispatchEvent(new Event("naeru:settings"));
+  }
+  return !reduced && !document.hidden && root.dataset.sceneReady === "true";
+}
+function createSceneMotion(restart, cleanup) {
+  var frames = new Set(), timers = new Set();
+  function stop() {
+    frames.forEach(function (id) { window.cancelAnimationFrame(id); });
+    timers.forEach(function (id) { window.clearTimeout(id); });
+    frames.clear(); timers.clear();
+    cleanup();
+  }
+  function start() { stop(); if (sceneMotionAllowed()) restart(); }
+  document.addEventListener("naeru:scene", start);
+  document.addEventListener("visibilitychange", start);
+  return {
+    start: start,
+    frame: function (fn) {
+      if (!sceneMotionAllowed()) return 0;
+      var id = window.requestAnimationFrame(function (now) {
+        frames.delete(id);
+        if (sceneMotionAllowed()) fn(now);
+      });
+      frames.add(id); return id;
+    },
+    later: function (fn, ms) {
+      if (!sceneMotionAllowed()) return 0;
+      var id = window.setTimeout(function () {
+        timers.delete(id);
+        if (sceneMotionAllowed()) fn();
+      }, ms);
+      timers.add(id); return id;
+    }
+  };
+}
 </script>
 
 <script>
 (function () {
-  var TZ = "Asia/Seoul";
+  var TZ = "Asia/Seoul", WKEY = "naeru-weather";
+  var ASSET_V = "3cd0c6104366";
+  var root = document.documentElement;
+  root.dataset.av = ASSET_V;
+  var params = new URLSearchParams(location.search);
+  var bands = ["dawn", "day", "dusk", "night"];
+  var seasons = ["spring", "summer", "autumn", "winter"];
+  var rainy = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67,
+               71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99];
+  var codes = [0, 1, 2, 3, 45, 48].concat(rainy);
+  var weather = null, fetching = null, fetchFailed = false;
+  var timeEl = document.getElementById("time");
+  var dateEl = document.getElementById("date");
+  var infoEl = document.getElementById("info");
+  var statusEl = document.getElementById("weather-status");
 
-  /* ── 시간대 → 배경 밴드 ──────────────────────────
-     서울의 실제 일출·일몰(Open-Meteo daily) 기준:
-     dawn = 일출−40분~+50분, dusk = 일몰−50분~+40분,
-     그 사이가 day, 나머지가 night. 실황을 아직 못 받았으면
-     고정 밴드(05–08/08–17/17–20/20–05)로 폴백.
-     서울에 비가 오면 "-rain" 변형(흐린 그레이딩+비 레이어).
-     URL 강제: ?v=dawn|day|dusk|night, ?h=22, ?w=rain|clear */
-  var sun = null;                    // {sr, ss} 자정 기준 분 단위
-
-  function bandFor(min) {
-    if (sun) {
-      if (min >= sun.sr - 40 && min < sun.sr + 50) return "dawn";
-      if (min >= sun.sr + 50 && min < sun.ss - 50) return "day";
-      if (min >= sun.ss - 50 && min < sun.ss + 40) return "dusk";
-      return "night";
-    }
-    var h = Math.floor(min / 60);
-    if (h >= 5 && h < 8)   return "dawn";
-    if (h >= 8 && h < 17)  return "day";
-    if (h >= 17 && h < 20) return "dusk";
-    return "night";
+  function seoulDate(now) {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit"
+    }).format(now);
   }
-
-  var params  = new URLSearchParams(location.search);
-  var forced  = params.get("v");
-  var fakeH   = params.get("h");
-  var forcedW = params.get("w");
-  if (["dawn", "day", "dusk", "night"].indexOf(forced) < 0) forced = null;
-  if (["rain", "clear"].indexOf(forcedW) < 0) forcedW = null;
-
-  /* 직전 방문에서 저장한 날씨·일출일몰(3시간 이내)로 즉시
-     시작해서 첫 화면부터 정확한 변형을 띄우고, 실황 도착 후
-     다르면 크로스페이드로 정정 */
-  var WKEY    = "naeru-weather";
-  var cachedW = null;
-  var temp    = null;    // 기온(°C) — 화면 표시용
-  var code    = null;    // WMO 코드 — 화면 표시용
-  var srNext  = null;    // 내일 일출(자정 기준 분) — 해 진 뒤 "다음 일출"에 쓴다
-  try {
-    var c = JSON.parse(localStorage.getItem(WKEY) || "null");
-    if (c && Date.now() - c.t < 3 * 3600000 &&
-        (c.w === "rain" || c.w === "clear")) {
-      cachedW = c.w;
-      if (typeof c.sr === "number" && typeof c.ss === "number") {
-        sun = { sr: c.sr, ss: c.ss };
-      }
-      if (typeof c.sr2 === "number") srNext = c.sr2;
-      if (typeof c.tp === "number") temp = c.tp;
-      if (typeof c.cd === "number") code = c.cd;
-    }
-  } catch (e) {}
-  var weather = forcedW || cachedW || "clear";
-
   function seoulMinutes(now) {
-    if (fakeH !== null) return (parseInt(fakeH, 10) % 24) * 60;
-    var t = new Intl.DateTimeFormat("en-GB", {
-      timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false
+    var parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23"
     }).formatToParts(now);
     var p = {};
-    t.forEach(function (x) { p[x.type] = x.value; });
-    return (parseInt(p.hour, 10) % 24) * 60 + parseInt(p.minute, 10);
+    parts.forEach(function (x) { p[x.type] = x.value; });
+    return Number(p.hour) * 60 + Number(p.minute);
   }
+  function minutesOf(iso) {
+    var m = /^\d{4}-\d{2}-\d{2}T(\d\d):(\d\d)/.exec(iso || "");
+    return m && Number(m[1]) < 24 && Number(m[2]) < 60
+      ? Number(m[1]) * 60 + Number(m[2]) : null;
+  }
+  function hhmm(min) {
+    return String(Math.floor(min / 60) % 24).padStart(2, "0") + ":" +
+           String(min % 60).padStart(2, "0");
+  }
+  function validSun(min) { return Number.isInteger(min) && min >= 0 && min < 1440; }
+  try {
+    var cached = JSON.parse(localStorage.getItem(WKEY) || "null");
+    var age = cached && Date.now() - cached.t;
+    if (cached && Number.isFinite(cached.t) && age >= 0 && age < 3 * 3600000 &&
+        codes.indexOf(cached.cd) >= 0 && Number.isFinite(cached.tp)) {
+      weather = cached;
+      // 이전 캐시는 조회 시각에서 날짜를 복원한다. 전날의 일출은 쓰지 않는다.
+      weather.day = cached.day || seoulDate(new Date(cached.t));
+    }
+  } catch (e) {}
 
-  /* ── 계절 (기상학적 4계절: 3~5 봄, 6~8 여름, 9~11 가을, 12~2 겨울) ──
-     여름이 원본 톤이라 여름만 접미사가 없다. `?s=` 로 강제 가능 */
-  var forcedS = params.get("s");
-  if (["spring", "summer", "autumn", "winter"].indexOf(forcedS) < 0) forcedS = null;
-
-  function seasonOf(now) {
-    if (forcedS) return forcedS;
-    var m = parseInt(new Intl.DateTimeFormat("en-GB", {
+  function forcedWeather() {
+    var w = params.get("w");
+    return w === "rain" || w === "clear" ? w : null;
+  }
+  function currentWeather() {
+    return forcedWeather() || (weather && rainy.indexOf(weather.cd) >= 0 ? "rain" : "clear");
+  }
+  function todaySun() {
+    if (!weather || weather.day !== seoulDate(new Date()) ||
+        !validSun(weather.sr) || !validSun(weather.ss)) return null;
+    return { sr: weather.sr, ss: weather.ss };
+  }
+  function seasonOf() {
+    var chosen = params.get("s") || window.naeruSettings.season;
+    if (seasons.indexOf(chosen) >= 0) return chosen;
+    var m = Number(new Intl.DateTimeFormat("en-GB", {
       timeZone: TZ, month: "numeric"
-    }).format(now), 10);
-    return (m === 12 || m <= 2) ? "winter"
-         : m <= 5 ? "spring"
-         : m <= 8 ? "summer" : "autumn";
+    }).format(new Date()));
+    return m === 12 || m <= 2 ? "winter" : m <= 5 ? "spring" : m <= 8 ? "summer" : "autumn";
   }
-
-  var season = seasonOf(new Date());
-
   function currentVariant() {
-    var band = forced || bandFor(seoulMinutes(new Date()));
-    return band + (weather === "rain" ? "-rain" : "");
-  }
-
-  /* ── 서울 실황 (Open-Meteo, 키 불필요·CORS 허용) ──
-     WMO 코드가 강수(이슬비·비·눈·소나기·뇌우)면 rain.
-     일출·일몰도 같은 요청으로 받아 밴드 계산에 사용 */
-  var METEO = "https://api.open-meteo.com/v1/forecast" +
-              "?latitude=37.5665&longitude=126.978" +
-              "&current=weather_code,temperature_2m" +
-              "&daily=sunrise,sunset&forecast_days=2" +
-              "&timezone=Asia%2FSeoul";
-  var RAINY = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67,
-               71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99];
-
-  function minutesOf(iso) {     // "2026-07-10T05:17" → 317
-    var m = /T(\d\d):(\d\d)/.exec(iso || "");
-    return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
-  }
-
-  var lastFetch = 0;
-  function fetchWeather() {
-    if (forcedW) return Promise.resolve();
-    return fetch(METEO)
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        var c = d && d.current && d.current.weather_code;
-        weather   = RAINY.indexOf(c) >= 0 ? "rain" : "clear";
-        lastFetch = Date.now();
-        if (typeof c === "number") code = c;
-        if (d && d.current && typeof d.current.temperature_2m === "number") {
-          temp = d.current.temperature_2m;
-        }
-        if (d && d.daily) {
-          var sr = minutesOf(d.daily.sunrise && d.daily.sunrise[0]);
-          var ss = minutesOf(d.daily.sunset  && d.daily.sunset[0]);
-          if (sr !== null && ss !== null) sun = { sr: sr, ss: ss };
-          srNext = minutesOf(d.daily.sunrise && d.daily.sunrise[1]);
-        }
-        try {
-          localStorage.setItem(WKEY, JSON.stringify({
-            w: weather, t: lastFetch,
-            sr: sun && sun.sr, ss: sun && sun.ss,
-            sr2: srNext, tp: temp, cd: code
-          }));
-        } catch (e) {}
-        renderInfo();
-      })
-      .catch(function () {});   // 실패 시 마지막 상태 유지
-  }
-
-  /* ── A/B 비디오 + 하늘 프리즈 크로스페이드 ────── */
-  var slot    = 0;          // 현재 활성 슬롯 (0=A, 1=B) — 배경·naeru가 같이 씀
-  var active  = null;       // 현재 변형 이름
-  var root    = document.documentElement;
-  var noMotion =
-    params.get("still") === "1" ||    // ?still=1 — 브라우저 픽셀 diff용 강제
-    matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  /* ── 배경 + 내루미 ─────────────────────────────
-     배경은 cover 그대로라 좌표 계산이 없다.
-     내루미는 #stage(아래 layoutStage) 안에서 % 좌표만 쓴다 ── */
-  var bgs         = [document.getElementById("bgA"), document.getElementById("bgB")];
-  var naeruVideos = [document.getElementById("naeruA"), document.getElementById("naeruB")];
-  var naeruStill  = document.getElementById("naeruStill");
-  var stage       = document.getElementById("stage");
-  function layoutStage() { layoutFrameBox(stage); }
-  addEventListener("resize", layoutStage);
-  layoutStage();
-
-  /* 분리 자산(배경·내루미)은 **한 벌로 맞아야** 한다. 서로 다른 배포본이
-     섞이면 실루엣을 두르는 테두리가 생긴다. _headers가 /img/*에
-     stale-while-revalidate=604800을 주므로 브라우저는 max-age가 지나도 이번
-     방문엔 옛 파일을 그대로 쓴다 — 하루에 여러 번 배포하면 세대가 섞인다.
-     그래서 URL에 판번호를 붙여 한 벌로 받게 한다.
-     **bg-*.jpg / naeru-*.* 를 다시 구우면 이 값을 반드시 올릴 것.**
-     (배경 영상 meadow-*는 안 바뀌므로 그대로 둔다) */
-  var ASSET_V = "20260908c";
-  function av(u) { return u + "?v=" + ASSET_V; }
-  document.documentElement.dataset.av = ASSET_V;   // 혀 IIFE가 캐시 판번호를 쓴다
-
-  /* 여름도 접미사를 쓴다. 여름 -rain도 하늘을 먹구름으로 다시 칠했기 때문에
-     원본(bg-<변형>.jpg)과 다르다 — 원본은 이제 파이프라인 입력일 뿐이다 */
-  function bgOf(v) {
-    return 'url("' + av("img/bg-" + v + "-" + season + ".jpg") + '")';
-  }
-  function naeruStillOf(v) { return av("img/naeru-" + v + ".png"); }
-  function naeruSrcOf(v, fmt) { return av("img/naeru-" + v + "." + fmt); }
-
-  /* Safari는 VP9 webm을 재생은 하되 알파를 무시해 검은 사각형으로 그린다.
-     canPlayType으로는 구분이 안 되므로, 16×16 완전 투명 프로브를 캔버스에
-     그려 실제 알파를 읽는다. 본편을 받기 전에 판정해야 검은 사각형이 안 뜬다.
-     noMotion이면 영상 자체를 안 쓰므로 프로브도 건너뛴다 */
-  var naeruFormat = null;             // "webm" | "mp4" — 판정 후 확정
-  var naeruStillFallback = false;     // mp4마저 실패하면 영구히 정지본으로
-  var naeruFormatReady = noMotion ? Promise.resolve("still") : new Promise(function (resolve) {
-    var probe = document.createElement("video");
-    probe.muted = true; probe.playsInline = true;
-    var done = false;
-    function finish(fmt) {
-      if (done) return;
-      done = true;
-      naeruFormat = fmt;
-      resolve(fmt);
-    }
-    probe.addEventListener("loadeddata", function () {
-      try {
-        var c = document.createElement("canvas");
-        c.width = c.height = 2;
-        var ctx = c.getContext("2d");
-        ctx.drawImage(probe, 0, 0, 2, 2);
-        finish(ctx.getImageData(0, 0, 1, 1).data[3] === 0 ? "webm" : "mp4");
-      } catch (e) { finish("mp4"); }
-    });
-    probe.addEventListener("error", function () { finish("mp4"); });
-    probe.src = av("img/alpha-probe.webm");
-    probe.load();
-    // 숨은 탭에서는 프로브도 안 받아지므로(크롬 실측) 시간초과로 mp4를 확정하면
-    // 안 된다 — 크롬에 HEVC 알파를 물리게 된다. 보일 때까지 판정을 미룬다.
-    // 그동안 배경은 --still 바닥이 이미 같은 그림을 칠하고 있어 티가 안 난다
-    (function tmo() {
-      setTimeout(function () {
-        if (document.hidden) { tmo(); return; }
-        finish("mp4");
-      }, 1200);
-    })();
-  });
-
-  naeruVideos.forEach(function (v) {
-    v.addEventListener("error", function () {
-      if (naeruStillFallback || !v.getAttribute("src")) return;
-      if (naeruFormat === "webm") {          // webm이 깨졌으면 mp4로
-        naeruFormat = "mp4";
-        v.src = naeruSrcOf(active, "mp4");
-        v.play().catch(function () {});
-      } else {                               // mp4마저 실패 → 정지본 후퇴
-        naeruStillFallback = true;
-        naeruVideos.forEach(function (x) { x.classList.remove("on"); });
-        naeruStill.src = naeruStillOf(active);
-        naeruStill.classList.add("on");
+    var band = params.get("v") || window.naeruSettings.band;
+    if (bands.indexOf(band) < 0) {
+      var min = seoulMinutes(new Date()), fake = params.get("h");
+      if (fake !== null && /^\d{1,2}$/.test(fake) && Number(fake) < 24) min = Number(fake) * 60;
+      var sun = todaySun();
+      if (sun) {
+        band = min >= sun.sr - 40 && min < sun.sr + 50 ? "dawn"
+             : min >= sun.sr + 50 && min < sun.ss - 50 ? "day"
+             : min >= sun.ss - 50 && min < sun.ss + 40 ? "dusk" : "night";
+      } else {
+        band = min >= 300 && min < 480 ? "dawn" : min >= 480 && min < 1020 ? "day"
+             : min >= 1020 && min < 1200 ? "dusk" : "night";
       }
-    });
-  });
-
-  /* 배경과 내루미는 **반드시 같은 프레임에** 켠다. 따로 켜지면 둘 중 하나가
-     눈에 보인다: 배경만 먼저 = 내루미가 지워진 빈 초원,
-     내루미만 먼저 = 구워진 것과 DOM 것이 겹쳐 이중노출. 첫 접속에서 오류처럼
-     보이던 게 이것이다. 둘 다 준비된 뒤 함께 켜면, 켜지기 전 화면은 예전
-     사이트와 똑같은 (내루미가 구워진) 배경이라 아무 일도 안 일어나 보인다.
-     페이드 중에도 안전하다 — 배경이 지운 양과 스프라이트가 그리는 양이
-     같은 불투명도로 상쇄돼서 합이 원본과 같다. */
-  function whenDecoded(url) {                    // 이미지 1장이 그려질 준비가 될 때까지
-    return new Promise(function (resolve) {
-      var img = new Image();
-      img.onload = img.onerror = function () { resolve(); };
-      img.src = url;
-    });
-  }
-
-  function firstFrameReady(v) {                  // 영상의 첫 프레임이 디코드될 때까지
-    return new Promise(function (resolve) {
-      if (v.readyState >= 2) { resolve(); return; }
-      var done = false;
-      function go() { if (!done) { done = true; resolve(); } }
-      v.addEventListener("loadeddata", go, { once: true });
-      v.addEventListener("error", go, { once: true });
-      setTimeout(go, 4000);                      // 느린 회선에서 영원히 안 켜지는 것 방지
-    });
-  }
-
-  /* 영상이 실제로 흐르는지 감시한다. poster가 깔려 있어서 재생이 막혀도
-     "정지한 내루미"로 그럴듯하게 보이기 때문에, 안 도는 걸 눈으로는 못 잡는다
-     (숨쉬는 모션이 사라졌다는 제보가 이것이었다). 안 흐르면 다시 play(),
-     그래도 안 되면 다른 코덱으로, 마지막엔 정지본으로 내린다.
-
-     **숨은 탭에서는 판정하지 않는다.** 우리가 visibilitychange에서 일부러
-     멈춰 뒀고, 크롬은 숨은 탭의 영상을 아예 안 받기도 한다(실측: localhost
-     webm이 90초 넘게 readyState 0). 그 상태를 "재생 실패"로 읽으면 코덱을
-     바꿨다가 정지본으로 내려앉고, 그게 영구 래치라 탭으로 돌아와도 영영 안
-     돈다 — "몇 분 움직이다 이후로 정지"의 정체가 이것이다(2026-09-04 제보,
-     retried=1 + still=on 상태로 재현).
-
-     진행 판정은 currentTime 비교가 아니라 timeupdate 이벤트로 한다. 이 영상은
-     13.17초 핑퐁 루프라 1.8초 창에서 루프를 넘기면 currentTime이 **작아진다**
-     — `> t0`로 재면 정상 재생을 정지로 오판한다(t0가 11.4초 이후면 항상). */
-  var naeruGaveUp = 0;                           // 복구를 몇 번이나 시도했나
-
-  function watchPlayback(v, variant, fmt) {
-    var moved = false;
-    function mark() { moved = true; }
-    v.addEventListener("timeupdate", mark);
-    function stop() { v.removeEventListener("timeupdate", mark); }
-
-    function judge(second) {
-      moved = false;
-      setTimeout(function () {
-        if (!v.isConnected || naeruStillFallback) { stop(); return; }
-        if (document.hidden) { judge(second); return; }   // 숨은 동안은 보류
-        if (moved) { stop(); return; }                    // 잘 돌고 있다
-        if (!second) {                                    // 한 번은 다시 눌러본다
-          v.play().catch(function () {});
-          judge(true);
-          return;
-        }
-        stop();
-        var alt = fmt === "webm" ? "mp4" : "webm";
-        if (!v.dataset.retried) {              // 코덱 한 번만 바꿔본다
-          v.dataset.retried = "1";
-          naeruFormat = alt;
-          v.src = naeruSrcOf(variant, alt);
-          v.play().catch(function () {});
-          watchPlayback(v, variant, alt);
-          return;
-        }
-        naeruStillFallback = true;             // 둘 다 안 돌면 정지본
-        naeruVideos.forEach(function (x) { x.classList.remove("on"); });
-        naeruStill.src = naeruStillOf(variant);
-        naeruStill.classList.add("on");
-      }, 1800);
     }
-    judge(false);
+    return band + (currentWeather() === "rain" ? "-rain" : "");
   }
-
-  /* 정지본으로 내려앉은 걸 되돌린다. 위 판정이 아무리 조심해도 한 번 틀리면
-     그 세션 내내 멈춘 채로 남는 게 더 나쁘므로, 탭이 다시 보일 때 한 번씩
-     되살려 본다. 진짜로 못 트는 환경(코덱 미지원 등)에서 정지본↔영상이
-     깜빡이지 않게 3번까지만. */
-  function recoverNaeru() {
-    if (noMotion || !naeruStillFallback || naeruGaveUp >= 3) return;
-    naeruGaveUp++;
-    naeruStillFallback = false;
-    naeruVideos.forEach(function (x) { delete x.dataset.retried; });
-    // 정지본은 여기서 내리지 않는다 — setNaeru가 영상을 켜는 순간에 내린다.
-    // 먼저 지우면 영상이 준비될 때까지(최대 4초) 내루미가 통째로 사라진다
-    setNaeru(slot, active);
-  }
-
-  function setNaeru(targetSlot, variant) {
-    naeruStill.src = naeruStillOf(variant);      // reduced-motion·최종 폴백 둘 다 이걸 씀
-    if (noMotion || naeruStillFallback) {
-      whenDecoded(naeruStillOf(variant)).then(function () {
-        naeruStill.classList.add("on");
-        bgs[targetSlot].classList.add("on");
-        bgs[1 - targetSlot].classList.remove("on");
-      });
-      return;
-    }
-    naeruFormatReady.then(function (fmt) {
-      if (naeruStillFallback) return;            // 기다리는 사이 폴백 확정된 경우
-      var vNew = naeruVideos[targetSlot], vOld = naeruVideos[1 - targetSlot];
-      vNew.poster = naeruStillOf(variant);
-      vNew.src = naeruSrcOf(variant, fmt);
-      try { vNew.currentTime = 0; } catch (e) {}
-      vNew.play().catch(function () {});
-      Promise.all([firstFrameReady(vNew),
-                   whenDecoded(bgOf(variant).replace(/^url\("|"\)$/g, ""))
-      ]).then(function () {
-        vNew.classList.add("on");
-        naeruStill.classList.remove("on");   // 영상이 뜨는 바로 그 순간에 내린다
-        bgs[targetSlot].classList.add("on");  // ← 배경은 여기서만 켠다
-        bgs[1 - targetSlot].classList.remove("on");
-        vOld.classList.remove("on");
-        watchPlayback(vNew, variant, fmt);
-      });
-      setTimeout(function () {
-        vOld.pause();
-        vOld.removeAttribute("src");
-        vOld.load();
-      }, 3000);
-    });
-  }
-
-  /* 계절을 문서에 반영한다. CSS는 html[data-season]으로 보정 필터와 눈·낙엽
-     표시를 고르고, 텍스처 경로는 판번호가 붙어야 해서 JS가 꽂는다 */
-  function applySeason() {
-    root.dataset.season = season;
-    var tex = season === "winter" ? ["snow-far", "snow-near"] : null;
-    root.style.setProperty("--fall-far",  tex ? 'url("' + av("img/" + tex[0] + ".png") + '")' : "none");
-    root.style.setProperty("--fall-near", tex ? 'url("' + av("img/" + tex[1] + ".png") + '")' : "none");
-  }
-
-  function show(variant) {           // 최초 로드: 즉시 표시
-    active = variant;
-    document.body.dataset.variant = variant;
-    document.body.dataset.weather = weather;
-    root.style.setProperty("--still", bgOf(variant));   // 즉시 칠할 바닥
-    root.style.setProperty("--bg-a", bgOf(variant));
-    setNaeru(slot, variant);           // 배경은 내루미와 같이 켜진다
-  }
-
-  function crossfadeTo(variant) {    // 시간대·날씨 변경: 부드럽게 전환
-    active = variant;
-    document.body.dataset.variant = variant;
-    document.body.dataset.weather = weather;
-    var newSlot = 1 - slot;
-    slot = newSlot;
-    root.style.setProperty(newSlot === 0 ? "--bg-a" : "--bg-b", bgOf(variant));
-    setNaeru(newSlot, variant);        // 배경·내루미가 같은 프레임에 교체된다
-    setTimeout(function () {           // 페이드가 끝나면 바닥도 현재 변형으로
-      root.style.setProperty("--still", bgOf(variant));
-    }, 2600);
-  }
-
-  /* ── 시계 아래 한 줄: 기온 · 하늘 · 다음 일출/일몰 ──────────
-     실황은 배경 변형을 고르려고 어차피 받는 것이라 추가 요청이 없다.
-     아직 못 받았으면 아무것도 안 띄운다(빈 자리가 뜨는 것보다 낫다). */
   function skyOf(c) {
     if (c === 0) return "맑음";
     if (c === 1) return "대체로 맑음";
@@ -846,115 +888,265 @@ function layoutFrameBox(el) {
     if (c >= 61 && c <= 67) return "비";
     if (c >= 71 && c <= 77) return "눈";
     if (c >= 80 && c <= 82) return "소나기";
-    if (c === 85 || c === 86) return "진눈깨비";
-    if (c >= 95) return "뇌우";
-    return "";
+    if (c === 85 || c === 86) return "소낙눈";
+    return "뇌우";
   }
-
-  function hhmm(min) {
-    var h = Math.floor(min / 60) % 24, m = min % 60;
-    return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
-  }
-
-  var infoEl = document.getElementById("info");
-
   function renderInfo() {
-    var bits = [];
-    if (typeof temp === "number") bits.push(Math.round(temp) + "°");
-    var sky = code === null ? "" : skyOf(code);
-    if (sky) bits.push(sky);
-    if (sun) {
-      // 지금 기준 **다음에 올** 해를 띄운다. 해가 진 뒤엔 내일 일출
-      var now = seoulMinutes(new Date());
-      if (now < sun.sr)      bits.push("일출 " + hhmm(sun.sr));
-      else if (now < sun.ss) bits.push("일몰 " + hhmm(sun.ss));
-      else if (srNext !== null) bits.push("일출 " + hhmm(srNext));
+    var bits = ["서울"], sun = todaySun(), min = seoulMinutes(new Date());
+    var stale = weather && (fetchFailed || Date.now() - weather.t > 15 * 60000);
+    if (weather && !forcedWeather()) {
+      bits.push(Math.round(weather.tp) + "°", skyOf(weather.cd));
+      if (sun) {
+        if (min < sun.sr) bits.push("일출 " + hhmm(sun.sr));
+        else if (min < sun.ss) bits.push("일몰 " + hhmm(sun.ss));
+        else if (validSun(weather.sr2)) bits.push("일출 " + hhmm(weather.sr2));
+      }
+      if (stale) bits.push("갱신 지연");
     }
-    if (!bits.length) { infoEl.classList.remove("on"); return; }
     infoEl.innerHTML = bits.join('<span class="sep">·</span>');
     infoEl.classList.add("on");
+    statusEl.textContent = forcedWeather() ? "날씨 풍경을 미리 보고 있어요."
+      : weather ? "날씨 확인 " + hhmm(seoulMinutes(new Date(weather.t))) +
+        (stale ? " · 연결되면 다시 갱신해요." : " · 5분마다 갱신해요.")
+      : fetchFailed ? "날씨를 불러오지 못했어요. 잠시 뒤 다시 확인할게요."
+      : "서울 날씨를 확인하고 있어요.";
   }
 
-  /* ── 시계 ──────────────────────────────────────── */
-  function render() {
-    var now = new Date();
-
-    // 서울 시각 HH:MM
-    var t = new Intl.DateTimeFormat("en-GB", {
-      timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false
-    }).formatToParts(now);
-    var parts = {};
-    t.forEach(function (p) { parts[p.type] = p.value; });
-    var hour = String(parseInt(parts.hour, 10) % 24).padStart(2, "0");
-
-    document.getElementById("time").innerHTML =
-      hour + '<span class="colon">:</span>' + parts.minute;
-
-    // Jul 3, 2026 형태
-    document.getElementById("date").textContent =
-      new Intl.DateTimeFormat("en-US", {
-        timeZone: TZ, month: "short", day: "numeric", year: "numeric"
-      }).format(now);
-
-    renderInfo();
-
-    // 시간대나 계절이 바뀌었으면 배경 크로스페이드.
-    // 계절은 변형 이름에 안 들어가므로 따로 비교해야 한다
-    var v = currentVariant();
-    var s2 = seasonOf(new Date());
-    if (s2 !== season) { season = s2; applySeason(); crossfadeTo(v); }
-    else if (v !== active) crossfadeTo(v);
+  /* 응답을 모두 검증한 다음 한 번에 교체한다. 오류 JSON과 이전 성공 시각을
+     섞으면 비 문구 아래 맑은 배경이 생기고 캐시 수명도 잘못 늘어난다. */
+  function fetchWeather() {
+    if (forcedWeather()) return Promise.resolve();
+    if (fetching) return fetching;
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 8000);
+    var url = "https://api.open-meteo.com/v1/forecast" +
+      "?latitude=37.5665&longitude=126.978&current=weather_code,temperature_2m" +
+      "&daily=sunrise,sunset&forecast_days=2&timezone=Asia%2FSeoul";
+    fetching = fetch(url, { signal: controller.signal })
+      .then(function (r) {
+        if (!r.ok) throw new Error("날씨 HTTP " + r.status);
+        return r.json();
+      }).then(function (d) {
+        var c = d && d.current, daily = d && d.daily;
+        if (!c || !daily || codes.indexOf(c.weather_code) < 0 ||
+            !Number.isFinite(c.temperature_2m)) throw new Error("날씨 응답 형식");
+        var rises = daily.sunrise || [], sets = daily.sunset || [];
+        var sr = minutesOf(rises[0]), ss = minutesOf(sets[0]);
+        var sr2 = minutesOf(rises[1]);
+        if (sr === null || ss === null || sr >= ss || sr2 === null ||
+            rises[0].slice(0, 10) !== seoulDate(new Date())) throw new Error("일출 날짜");
+        var next = { cd: c.weather_code, tp: c.temperature_2m, sr: sr, ss: ss,
+          sr2: sr2, day: rises[0].slice(0, 10), t: Date.now(),
+          w: rainy.indexOf(c.weather_code) >= 0 ? "rain" : "clear" };
+        weather = next; fetchFailed = false;
+        try { localStorage.setItem(WKEY, JSON.stringify(next)); } catch (e) {}
+      }).catch(function () { fetchFailed = true; })
+      .finally(function () {
+        clearTimeout(timeout); fetching = null; render();
+      });
+    return fetching;
   }
 
-  /* ── 시작: 캐시·강제값이 있으면 대기 없이 즉시 표시,
-     캐시 없는 첫 방문만 실황을 최대 900ms 기다림
-     (지연·실패 시 일단 맑음으로 시작, 도착하면 전환) ── */
-  function sync() {
-    var v = currentVariant();
-    if (v !== active) crossfadeTo(v);
-  }
-  var booted = false;
-  function boot() {
-    if (booted) { sync(); return; }
-    booted = true;
-    applySeason();
-    show(currentVariant());
-    render();
-    setInterval(function () {        // 날씨 실황 5분 주기 갱신
-      if (document.hidden) return;   // 복귀 시 아래 핸들러가 재조회
-      fetchWeather().then(sync);
-    }, 300000);
-  }
-  fetchWeather().then(boot);
-  if (forcedW || cachedW) boot();
-  else setTimeout(boot, 900);
+  /* ── 배경과 내루미를 같은 세대로 표시 ───────────────────────── */
+  var bgs = [document.getElementById("bgA"), document.getElementById("bgB")];
+  var videos = [document.getElementById("naeruA"), document.getElementById("naeruB")];
+  var still = document.getElementById("naeruStill");
+  var stage = document.getElementById("stage");
+  var slot = 0, active = null, activeSeason = null, requested = null;
+  var generation = 0, noMotion = window.naeruReduced(), fallback = false, retries = 0;
+  var format = null, formatPromise = null, stopWatch = function () {};
+  function av(file) { return "img/" + file + "?v=" + ASSET_V; }
+  function bgOf(v, s) { return av("bg-" + v + "-" + s + ".jpg"); }
+  function stillOf(v) { return av("naeru-" + v + ".png"); }
+  function layout() { layoutFrameBox(stage); }
+  addEventListener("resize", layout); layout();
 
-  // 탭이 숨겨지면 영상을 멈춰 배터리 절약, 다시 보이면
-  // 영상 재개 + 시계·배경 즉시 갱신 + 날씨 재확인
-  // (백그라운드에선 타이머가 제한돼 실황이 밀릴 수 있음)
-  document.addEventListener("visibilitychange", function () {
-    if (document.hidden) {
-      naeruVideos[0].pause();                    // 숨은 탭에서 디코딩 낭비 방지
-      naeruVideos[1].pause();
-      return;
+  function sceneReady(ready) {
+    root.dataset.sceneReady = String(ready);
+    document.dispatchEvent(new Event("naeru:scene"));
+  }
+  function decodeImage(url) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () { resolve(); };
+      img.onerror = function () { reject(new Error("그림 로딩 실패")); };
+      img.src = url;
+    });
+  }
+  function firstFrame(v) {
+    return new Promise(function (resolve) {
+      var timeout;
+      function done() {
+        clearTimeout(timeout);
+        v.removeEventListener("loadeddata", done); v.removeEventListener("error", done);
+        resolve(v.readyState >= 2 && !v.error);
+      }
+      v.addEventListener("loadeddata", done); v.addEventListener("error", done);
+      timeout = setTimeout(done, 4000);
+      if (v.readyState >= 2 || v.error) done();
+    });
+  }
+  // Safari는 VP9를 재생해도 알파를 버릴 수 있다. 투명 프로브를 직접 그려 판정한다.
+  // 정지 모드에서는 프로브도 요청하지 않고, 움직임이 필요할 때 처음 판정한다.
+  function getFormat() {
+    if (format) return Promise.resolve(format);
+    if (formatPromise) return formatPromise;
+    formatPromise = new Promise(function (resolve) {
+      var probe = document.createElement("video"), done = false, timeout;
+      probe.muted = true; probe.playsInline = true;
+      function finish(fmt) {
+        if (done) return;
+        done = true; clearTimeout(timeout); format = fmt;
+        probe.pause(); probe.removeAttribute("src"); probe.load(); resolve(fmt);
+      }
+      probe.addEventListener("loadeddata", function () {
+        try {
+          var canvas = document.createElement("canvas"); canvas.width = canvas.height = 2;
+          var ctx = canvas.getContext("2d"); ctx.drawImage(probe, 0, 0, 2, 2);
+          finish(ctx.getImageData(0, 0, 1, 1).data[3] === 0 ? "webm" : "mp4");
+        } catch (e) { finish("mp4"); }
+      });
+      probe.addEventListener("error", function () { finish("mp4"); });
+      function check() {
+        timeout = setTimeout(function () {
+          if (document.hidden) { check(); return; }
+          finish("mp4");
+        }, 2500);
+      }
+      probe.src = av("alpha-probe.webm"); probe.load(); check();
+    });
+    return formatPromise;
+  }
+  function watchPlayback(v, token) {
+    var moved = false, retried = false, timer;
+    function mark() { moved = true; }
+    v.addEventListener("timeupdate", mark);
+    stopWatch = function () { clearTimeout(timer); v.removeEventListener("timeupdate", mark); };
+    function judge() {
+      timer = setTimeout(function () {
+        if (token !== generation || noMotion) { stopWatch(); return; }
+        if (document.hidden || v.dataset.pauseOwner) { moved = false; judge(); return; }
+        if (moved) { stopWatch(); return; }
+        if (!retried) {
+          retried = true; v.play().catch(function () {}); judge(); return;
+        }
+        stopWatch(); fallback = true;
+        videos.forEach(function (x) { x.pause(); x.classList.remove("on"); });
+        still.src = stillOf(active); still.classList.add("on");
+      }, 1800);
     }
-    if (!booted) return;
-    // 내루미 재개가 빠져 있어서, 한 번 멈추면 poster만 남아 "숨쉬는 모션이
-    // 사라진" 것처럼 보였다
-    if (!noMotion && !naeruStillFallback && naeruVideos[slot].src) {
-      naeruVideos[slot].play().catch(function () {});
+    judge();
+  }
+
+  function showScene(variant, season) {
+    var token = ++generation, nextSlot = active ? 1 - slot : slot;
+    var key = variant + "/" + season, url = bgOf(variant, season);
+    requested = key; stopWatch(); sceneReady(false);
+    // 첫 화면의 시계와 배경은 날씨 요청을 기다리지 않는다.
+    if (!active) {
+      root.style.setProperty("--still", 'url("' + url + '")');
+      still.src = stillOf(variant); still.classList.add("on");
     }
-    recoverNaeru();                              // 숨은 사이 정지본으로 내려앉았으면 복구
-    render();
-    if (Date.now() - lastFetch > 60000) fetchWeather().then(sync);
+    function commit(video) {
+      if (token !== generation) return;
+      var oldSlot = 1 - nextSlot;
+      active = variant; activeSeason = season; slot = nextSlot;
+      root.dataset.season = season;
+      document.body.dataset.variant = variant;
+      document.body.dataset.weather = variant.endsWith("-rain") ? "rain" : "clear";
+      root.style.setProperty("--fall-far", season === "winter"
+        ? 'url("' + av("snow-far.png") + '")' : "none");
+      root.style.setProperty("--fall-near", season === "winter"
+        ? 'url("' + av("snow-near.png") + '")' : "none");
+      bgs[nextSlot].style.backgroundImage = 'url("' + url + '")';
+      bgs[nextSlot].classList.add("on"); bgs[oldSlot].classList.remove("on");
+      still.src = stillOf(variant);
+      still.classList.toggle("on", !video);
+      videos.forEach(function (v) {
+        v.classList.toggle("on", v === video);
+        if (v !== video && !video) v.pause();
+      });
+      sceneReady(true);
+      if (video) watchPlayback(video, token);
+      setTimeout(function () {
+        if (token !== generation) return;
+        root.style.setProperty("--still", 'url("' + url + '")');
+        var old = videos[oldSlot]; old.pause(); old.removeAttribute("src"); old.load();
+      }, noMotion ? 0 : 2700);
+    }
+    Promise.all([decodeImage(url), decodeImage(stillOf(variant))]).then(function () {
+      if (token !== generation) return;
+      if (noMotion || fallback || document.hidden) { commit(null); return; }
+      // 첫 접속은 정지본을 먼저 띄우고 디코딩된 영상으로 교체한다.
+      if (!active) commit(null);
+      getFormat().then(function (fmt) {
+        if (token !== generation) return;
+        // 코덱 판정을 기다리다 탭이 숨겨져도 요청한 장면은 정지본으로 확정한다.
+        // 여기서 반환만 하면 requested와 active가 달라 복귀 후에도 전환이 막힌다.
+        if (noMotion || document.hidden) { commit(null); return; }
+        var video = videos[nextSlot];
+        video.poster = stillOf(variant); video.src = av("naeru-" + variant + "." + fmt);
+        delete video.dataset.pauseOwner;
+        video.play().catch(function () {});
+        firstFrame(video).then(function (ok) {
+          if (token !== generation || noMotion) return;
+          if (!ok) { fallback = true; commit(null); return; }
+          commit(video);
+        });
+      });
+    }).catch(function () {
+      if (token !== generation) return;
+      requested = null; sceneReady(Boolean(active));
+    });
+  }
+  videos.forEach(function (v) {
+    v.addEventListener("error", function () {
+      if (!v.classList.contains("on") || !v.getAttribute("src")) return;
+      fallback = true; stopWatch(); v.pause(); v.classList.remove("on");
+      still.src = stillOf(active); still.classList.add("on");
+    });
   });
 
-  // 다음 분 경계에 맞춰 갱신 (초 표시가 없으므로 분 단위면 충분)
-  function tick() {
-    render();
-    setTimeout(tick, 60000 - (Date.now() % 60000) + 50);
+  function render() {
+    var now = new Date(), min = seoulMinutes(now);
+    timeEl.innerHTML = hhmm(min).replace(":", '<span class="colon">:</span>');
+    timeEl.dateTime = now.toISOString(); timeEl.setAttribute("aria-label", "서울 " + hhmm(min));
+    var korean = window.naeruSettings.date === "ko";
+    dateEl.textContent = new Intl.DateTimeFormat(korean ? "ko-KR" : "en-US", {
+      timeZone: TZ, month: korean ? "long" : "short", day: "numeric",
+      year: korean ? undefined : "numeric", weekday: korean ? "long" : undefined
+    }).format(now);
+    dateEl.dateTime = seoulDate(now);
+    renderInfo();
+    var variant = currentVariant(), season = seasonOf();
+    if (requested !== variant + "/" + season) showScene(variant, season);
   }
-  setTimeout(tick, 60000 - (Date.now() % 60000) + 50);
+  document.addEventListener("naeru:settings", function () {
+    params = new URLSearchParams(location.search);
+    var reduced = window.naeruReduced();
+    if (noMotion !== reduced) {
+      noMotion = reduced; requested = null;
+      videos.forEach(function (v) { v.pause(); });
+      if (noMotion) still.classList.add("on");
+    }
+    render();
+  });
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { videos.forEach(function (v) { v.pause(); }); return; }
+    render();
+    if (!noMotion && active && requested === active + "/" + activeSeason) {
+      var v = videos[slot];
+      if ((!v.getAttribute("src") || fallback) && retries < 3) {
+        retries++; fallback = false; showScene(active, activeSeason);
+      } else if (!fallback) v.play().catch(function () {});
+    }
+    if (!weather || Date.now() - weather.t > 60000) fetchWeather();
+  });
+  render(); fetchWeather();
+  setInterval(function () { if (!document.hidden) fetchWeather(); }, 300000);
+  (function tick() {
+    setTimeout(function () { render(); tick(); }, 60000 - Date.now() % 60000 + 50);
+  })();
 })();
 </script>
 
@@ -979,7 +1171,6 @@ function layoutFrameBox(el) {
 
    ?ball=0 끄기 / ?ball=1 즉시·반복(빈도 튜닝용) ─────────────────── */
 (function () {
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   var flag = new URLSearchParams(location.search).get("ball");
   if (flag === "0") return;
   var DEBUG = flag === "1";
@@ -1071,18 +1262,24 @@ function layoutFrameBox(el) {
     var u = head.x, v = head.y;
     var vx = dir * 0.14, vy = -0.30;           // 프레임 비율/초
     var rot = spin * 0.25, squash = 0, settled = 0;
+    var grounded = false, bounces = 0, elapsed = 0;
     var last = performance.now();
 
     (function step(now) {
       var dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      vy += GRAVITY * dt;
+      elapsed += dt;
+      // 지면에 멈춘 뒤에는 중력을 다시 더하지 않는다. 낮은 fps에서 매번
+      // 중력만큼 속도가 생겨 영원히 튀던 문제를 막고 반동 횟수도 제한한다.
+      if (grounded) { settled += dt; vx *= Math.pow(0.001, dt); }
+      else vy += GRAVITY * dt;
       u += vx * dt;
       v += vy * dt;
       if (v >= restV) {                        // 착지 — 튕기고 감쇠
         v = restV;
-        if (vy > 0.07) { vy = -vy * BOUNCE_E; vx *= 0.72; squash = 1; }
-        else { vy = 0; vx *= 0.86; settled += dt; }
+        if (!grounded && vy * BOUNCE_E > 0.07 && bounces < 3 && elapsed < 4) {
+          vy = -vy * BOUNCE_E; vx *= 0.72; squash = 1; bounces++;
+        } else { vy = 0; grounded = true; }
       }
       u = Math.max(0.40, Math.min(0.62, u));
       rot += vx * dt * 900;                    // 구르는 만큼 돌린다
@@ -1151,7 +1348,13 @@ function layoutFrameBox(el) {
       toss();
     }, ms);
   }
-  schedule(true);
+  var motion = createSceneMotion(function () { schedule(true); }, function () {
+    ball.style.opacity = "0"; ball.style.transition = ""; bonk.style.opacity = "0";
+    root.style.setProperty("--bg-shake", "none");
+    if (window.naeru) window.naeru.busy = false;
+  });
+  var requestAnimationFrame = motion.frame, setTimeout = motion.later;
+  motion.start();
 })();
 </script>
 
@@ -1172,10 +1375,6 @@ function layoutFrameBox(el) {
    ?act=0 전체 끄기 / ?act=hop|look|flip 해당 동작만 5초 간격 반복 ───── */
 (function () {
   var params = new URLSearchParams(location.search);
-  // ?still=1(정지 프레임 강제)일 땐 동작도 멈춰야 스크린샷이 결정적이 된다 —
-  // 브라우저 픽셀 diff가 이걸 쓴다
-  if (params.get("still") === "1") return;
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   var actFlag = params.get("act");
   if (actFlag === "0") return;
   var IDLE_KINDS = ["doze", "stretch", "shiver", "idle"];
@@ -1490,20 +1689,13 @@ function layoutFrameBox(el) {
     });
   }
 
-  /* #stage가 pointer-events:none이라 히트 영역을 따로 두지 않고, 눌린 점이
-     #naeru-move 상자에서 캐릭터가 실제로 차지하는 비율 안인지 본다.
-     pointerdown이라 마우스와 터치가 한 경로로 처리된다(모바일 중복 없음). */
-  var HIT = { x0: 0.20, x1: 0.80, y0: 0.13, y1: 0.79 };
-  var lastPoke = 0;
-  addEventListener("pointerdown", function (e) {
-    var r = move.getBoundingClientRect();
-    if (!r.width || !r.height) return;
-    var u = (e.clientX - r.left) / r.width, v = (e.clientY - r.top) / r.height;
-    if (u < HIT.x0 || u > HIT.x1 || v < HIT.y0 || v > HIT.y1) return;
-    if (performance.now() - lastPoke < 500) return;      // 연타 방지
+  /* 투명 버튼의 click은 마우스·터치·키보드가 같은 경로를 사용한다. */
+  var lastPoke = -Infinity;
+  document.addEventListener("naeru:greet", function (e) {
+    if (!sceneMotionAllowed() || performance.now() - lastPoke < 500) return;
     lastPoke = performance.now();
-    poke(u < 0.5 ? -1 : 1);                              // 눌린 쪽 반대로 움찔
-  }, { passive: true });
+    poke(e.detail && e.detail.dir || 1);
+  });
 
   /* 나비가 앉았을 때의 짧은 갸웃. 공 IIFE의 flinch와 달리 busy를 존중한다 —
      폴짝 중에 끼어들면 #naeru-act를 서로 덮어쓴다.
@@ -1560,14 +1752,19 @@ function layoutFrameBox(el) {
     }, ms);
   }
 
-  if (DEBUG) {
-    schedule(DEBUG === "look" ? "look"
-             : IDLE_KINDS.indexOf(DEBUG) >= 0 ? "idle" : "hop");
-  } else {
-    schedule("hop");
-    schedule("look");
-    schedule("idle");
-  }
+  var motion = createSceneMotion(function () {
+    if (actFlag === "approach") return;  // 다가오기 미리보기는 한 번만 실행한다.
+    if (DEBUG) {
+      schedule(DEBUG === "look" ? "look"
+               : IDLE_KINDS.indexOf(DEBUG) >= 0 ? "idle" : "hop");
+    } else { schedule("hop"); schedule("look"); schedule("idle"); }
+  }, function () {
+    setMove(""); setAct(""); face.style.transform = ""; facing = 1;
+    emote.style.opacity = "0"; emote.innerHTML = ""; emoteBusy = false;
+    window.naeru.busy = false; window.naeru.hold = false;
+  });
+  var requestAnimationFrame = motion.frame, setTimeout = motion.later;
+  motion.start();
 })();
 </script>
 
@@ -1586,7 +1783,6 @@ function layoutFrameBox(el) {
 
    ?flit=0 끄기 / ?flit=1 자주 ─────────────────────────────────── */
 (function () {
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   var flag = new URLSearchParams(location.search).get("flit");
   if (flag === "0") return;
   var DEBUG = flag === "1";
@@ -1651,7 +1847,7 @@ function layoutFrameBox(el) {
   }
 
   function leave(dir) {
-    if (vid) { vid.play().catch(function () {}); vid = null; }   // 다시 움직인다
+    releaseVideo();
     var from = perch(), t0 = performance.now();
     var to = [dir > 0 ? 1.15 : -0.15, rand(0.12, 0.26)];
     (function step(now) {
@@ -1676,6 +1872,7 @@ function layoutFrameBox(el) {
       for (var i = 1; i < MARKS.length; i++) {
         if (Math.abs(vid.currentTime - MARKS[i]) < Math.abs(vid.currentTime - m)) m = MARKS[i];
       }
+      vid.dataset.pauseOwner = "butterfly";
       vid.pause();
       try { vid.currentTime = m + 0.01; } catch (e) {}
     }
@@ -1759,7 +1956,20 @@ function layoutFrameBox(el) {
       waitForLaunch(v);
     }, ms);
   }
-  schedule("first");
+  function releaseVideo() {
+    if (vid && vid.dataset.pauseOwner === "butterfly") {
+      delete vid.dataset.pauseOwner;
+      if (sceneMotionAllowed() && vid.classList.contains("on")) {
+        vid.play().catch(function () {});
+      }
+    }
+    vid = null;
+  }
+  var motion = createSceneMotion(function () { schedule("first"); }, function () {
+    releaseVideo(); hold(false); flit.style.opacity = "0";
+  });
+  var requestAnimationFrame = motion.frame, setTimeout = motion.later;
+  motion.start();
 })();
 </script>
 
@@ -1777,7 +1987,6 @@ function layoutFrameBox(el) {
 
    ?ff=0 끄기 ─────────────────────────────────────────────────── */
 (function () {
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   if (new URLSearchParams(location.search).get("ff") === "0") return;
 
   var N = 6;
@@ -1820,7 +2029,8 @@ function layoutFrameBox(el) {
 
   function on() {
     // 겨울엔 안 나온다 — 반딧불이는 여름 벌레다
-    return (document.body.dataset.variant || "").indexOf("night") === 0 &&
+    return sceneMotionAllowed() &&
+           (document.body.dataset.variant || "").indexOf("night") === 0 &&
            document.body.dataset.weather !== "rain" &&
            document.documentElement.dataset.season !== "winter";
   }
@@ -1855,8 +2065,12 @@ function layoutFrameBox(el) {
     running = true;
     requestAnimationFrame(step);
   }
-  check();
-  document.addEventListener("visibilitychange", check);
+  var motion = createSceneMotion(check, function () {
+    running = false;
+    bugs.forEach(function (b) { b.el.style.opacity = "0"; });
+  });
+  var requestAnimationFrame = motion.frame, setTimeout = motion.later;
+  motion.start();
 })();
 </script>
 
@@ -1880,7 +2094,6 @@ function layoutFrameBox(el) {
 
    ?tongue=0 끄기 / ?tongue=1 자주 ──────────────────────────────── */
 (function () {
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   /* **기본은 꺼져 있다.** 동작 자체는 되지만 아직 불안정해서 감춰 뒀다
      (2026-09-05 "낼름거림은 저장은 하되 보이지 않게"). ?tongue=1로만 나온다.
      자산(naeru-<변형>-nt.png, tongue-<변형>.png)과 tools/naeru-split/tongue.py는
@@ -1899,6 +2112,7 @@ function layoutFrameBox(el) {
 
   var nt   = document.getElementById("naeruNt");
   var tong = document.getElementById("tongue");
+  var frozenVideo = null;
   if (!nt || !tong) return;
 
   function rand(a, b) { return a + Math.random() * (b - a); }
@@ -1941,6 +2155,7 @@ function layoutFrameBox(el) {
 
   function play(v) {
     if (window.naeru) window.naeru.busy = true;
+    frozenVideo = v; v.dataset.pauseOwner = "tongue";
     v.pause();
     nt.style.opacity = "1";
     tong.style.opacity = "1";
@@ -1957,7 +2172,10 @@ function layoutFrameBox(el) {
           tong.style.opacity = "0";
           nt.style.opacity = "0";
           tong.style.transform = "";
-          v.play().catch(function () {});
+          delete v.dataset.pauseOwner; frozenVideo = null;
+          if (sceneMotionAllowed() && v.classList.contains("on")) {
+            v.play().catch(function () {});
+          }
           if (window.naeru) window.naeru.busy = false;
           schedule();
         });
@@ -1994,10 +2212,316 @@ function layoutFrameBox(el) {
       waitForFrame(v);
     }, ms);
   }
-  preload(document.body.dataset.variant || "dusk");   // 첫 시도 전에 미리 받아둔다
-  schedule("first");
+  var motion = createSceneMotion(function () {
+    preload(document.body.dataset.variant || "dusk"); schedule("first");
+  }, function () {
+    nt.style.opacity = "0"; tong.style.opacity = "0"; tong.style.transform = "";
+    if (frozenVideo) {
+      delete frozenVideo.dataset.pauseOwner;
+      if (sceneMotionAllowed() && frozenVideo.classList.contains("on")) {
+        frozenVideo.play().catch(function () {});
+      }
+      frozenVideo = null;
+    }
+    if (window.naeru) window.naeru.busy = false;
+  });
+  var requestAnimationFrame = motion.frame, setTimeout = motion.later;
+  motion.start();
 })();
 </script>
 
+<script>
+/* ── 가을 낮: 다가와 눈 맞추기 ─────────────────────────────────
+   6걸음 → 가까이서 2.4초 인사 → 5걸음으로 복귀. 화면 크기로 끝 위치를
+   계산하되 배경·꽃은 기존 cover 상자를 그대로 쓴다. 새 보행 영상 없이
+   보폭의 가감속·체중 이동을 합성하는 시범 동작이다. */
+(function () {
+  var root = document.documentElement;
+  var params = new URLSearchParams(location.search);
+  var approach = document.getElementById("naeru-approach");
+  var stride = document.getElementById("naeru-stride");
+  var move = document.getElementById("naeru-move");
+  var ground = document.getElementById("approach-ground");
+  var shadow = document.getElementById("approach-shadow");
+  var back = document.getElementById("approach-return");
+  var preview = document.getElementById("approach-preview");
+  var panel = document.getElementById("settings-panel");
+  var pending = null, running = false, demoPlayed = false;
+  var visitGap = 5 * 60 * 1000, nextVisit = performance.now() + visitGap;
+  var readyAt = performance.now(), geometry = null, progress = 0;
+  var phase = "", phaseStart = 0, returnFrom = 1;
+
+  function eligible() {
+    return root.dataset.season === "autumn" && document.body.dataset.variant === "day" &&
+           !window.naeruReduced() && params.get("act") !== "0";
+  }
+  function controls() {
+    document.getElementById("approach-setting").hidden = !eligible();
+    preview.disabled = running || Boolean(pending) || root.dataset.sceneReady !== "true";
+  }
+  function reset() {
+    var owned = running;
+    if (document.hidden && pending !== "focus") pending = null;
+    if (pending === "auto" && root.dataset.sceneReady !== "true") pending = null;
+    if (window.naeruReduced()) pending = null;
+    running = false; geometry = null; progress = 0;
+    delete root.dataset.approach;
+    approach.style.transform = ""; stride.style.transform = "";
+    ground.style.opacity = "0"; shadow.style.opacity = "0";
+    if (document.activeElement === back) document.getElementById("settings-open").focus();
+    back.hidden = true;
+    document.getElementById("naeru-touch").setAttribute("aria-label", "내루미에게 인사하기");
+    if (owned && window.naeru) { window.naeru.busy = false; window.naeru.hold = false; }
+    controls();
+  }
+  function pose(p, beat, envelope) {
+    progress = p;
+    // 뒤쪽에선 작게, 가까워질수록 한 걸음의 이동량이 커진다.
+    var depth = Math.pow(p, 1.55);
+    var scale = 1 + (geometry.scale - 1) * depth;
+    var sway = Math.sin(beat * Math.PI) * envelope;
+    var lift = Math.pow(Math.sin(beat * Math.PI), 2) * envelope;
+    approach.style.transform = "translate(" + (geometry.x * depth).toFixed(2) + "px," +
+      (geometry.y * depth).toFixed(2) + "px) scale(" + scale.toFixed(5) + ")";
+    stride.style.transform = "translate(" + (sway * .8).toFixed(3) + "%," +
+      (-lift * 1.3).toFixed(3) + "%) rotate(" + (sway * 1.7).toFixed(3) +
+      "deg) scaleY(" + (1 - lift * .012).toFixed(4) + ")";
+    var departed = Math.min(1, depth * 8);
+    ground.style.opacity = departed.toFixed(3);
+    shadow.style.opacity = (departed * (1 - lift * .35)).toFixed(3);
+  }
+  function changePhase(next, now) {
+    phase = next; phaseStart = now; root.dataset.approach = next;
+  }
+  function returnHome() {
+    if (!running || phase === "returning") return;
+    returnFrom = progress; changePhase("returning", performance.now());
+  }
+  function animate(now) {
+    var t = Math.min(1, (now - phaseStart) /
+      (phase === "walking" ? 4200 : phase === "close" ? 2400 : 3400));
+    if (phase === "close") {
+      // 대기 중 원래 영상의 표정은 계속 움직이고, 몸만 살짝 갸웃한다.
+      pose(1, 0, 0);
+      stride.style.transform = "rotate(" + (Math.sin(t * Math.PI * 2) * 1.4).toFixed(3) + "deg)";
+      if (t === 1) { returnFrom = 1; changePhase("returning", now); }
+    } else {
+      var steps = phase === "walking" ? 6 : 5;
+      var beat = t * steps, foot = beat % 1;
+      var walked = (Math.floor(beat) + (1 - Math.cos(foot * Math.PI)) / 2) / steps;
+      var envelope = Math.min(1, t * 12, (1 - t) * 12);
+      pose(phase === "walking" ? walked : returnFrom * (1 - walked), beat, envelope);
+      if (t === 1) {
+        if (phase === "returning") { reset(); return; }
+        changePhase("close", now);
+      }
+    }
+    motion.frame(animate);
+  }
+  function begin() {
+    pending = null; running = true;
+    nextVisit = performance.now() + visitGap;
+    window.naeru.busy = true; window.naeru.hold = true;
+    var box = move.getBoundingClientRect();
+    var eye = document.getElementById("naeru-brow").getBoundingClientRect();
+    var footX = box.left + box.width * .479167;
+    var footY = box.top + box.height * .790323;
+    // 세로 화면은 얼굴이, 가로 화면은 상체가 화면을 메운다. 눈은 중앙에 둔다.
+    var scale = Math.max(innerHeight * .92 / (box.height * .46),
+                         innerWidth * .8 / (box.width * .54));
+    // 좁은 화면에서도 두 눈이 잘리지 않도록 얼굴 폭으로 한 번 더 제한한다.
+    scale = Math.min(scale, innerWidth * .94 / (box.width * .29));
+    geometry = { scale: scale,
+      x: innerWidth * .5 - footX - (eye.left - footX) * scale,
+      y: innerHeight * .39 - footY - (eye.top - footY) * scale };
+    var url = "img/bg-day-autumn.jpg?v=" + root.dataset.av;
+    document.getElementById("approach-grass-image").setAttribute("href", url);
+    document.getElementById("approach-flower-image").setAttribute("href", url);
+    document.getElementById("approach-flower-mask").setAttribute("href", url);
+    back.hidden = false;
+    document.getElementById("greeting").hidden = true;
+    document.getElementById("naeru-touch").setAttribute("aria-label", "내루미를 제자리로 보내기");
+    changePhase("walking", performance.now()); controls(); motion.frame(animate);
+  }
+  function tryPending() {
+    if (!pending || running || !sceneMotionAllowed()) { controls(); return; }
+    if (!eligible() || !window.naeru) {
+      var greet = pending === "focus"; pending = null; controls();
+      if (greet) document.dispatchEvent(new CustomEvent("naeru:greet", { detail: { dir: 1 } }));
+      return;
+    }
+    // 배경 페이드와 이미 진행 중인 공·나비·인사가 끝난 다음 출발한다.
+    if (performance.now() - readyAt < 2800 || window.naeru.busy || window.naeru.hold || panel.open) {
+      motion.later(tryPending, 250); controls(); return;
+    }
+    begin();
+  }
+  function request(kind) {
+    if (running || pending) return;
+    if (window.naeruReduced()) {
+      if (kind === "focus") document.dispatchEvent(new CustomEvent("naeru:greet"));
+      return;
+    }
+    pending = kind; tryPending();
+  }
+  function scheduleVisit() {
+    // URL 동작 검사는 각각의 미리보기 규칙을 유지한다. 일반 접속만 5분마다.
+    if (params.has("act") || !eligible()) return;
+    motion.later(function () {
+      if (performance.now() >= nextVisit) {
+        nextVisit = performance.now() + visitGap;
+        request("auto");
+      }
+      scheduleVisit();
+    }, Math.max(1, nextVisit - performance.now()));
+  }
+  // scene 이벤트는 플레이어 초기 정지본/영상 확정 때 두 번 올 수 있다.
+  // 예약은 보존하고, 마지막 확정부터 페이드가 끝날 시간을 다시 센다.
+  document.addEventListener("naeru:scene", function () {
+    readyAt = performance.now(); controls();
+  });
+  var motion = createSceneMotion(function () {
+    // 숨은 탭의 방문을 몰아서 재생하지 않고, 돌아온 장면에서 새로 5분을 센다.
+    nextVisit = performance.now() + visitGap;
+    if (params.get("act") === "approach" && !demoPlayed && eligible()) {
+      demoPlayed = true; pending = "preview";
+    }
+    tryPending(); scheduleVisit();
+  }, reset);
+  document.addEventListener("naeru:focus-complete", function () { request("focus"); });
+  document.addEventListener("naeru:approach", function () { request("preview"); });
+  preview.addEventListener("click", function () {
+    panel.close(); request("preview");
+    document.getElementById("scene-message").textContent = "내루미가 가까이 다가와요.";
+  });
+  back.addEventListener("click", returnHome);
+  document.getElementById("naeru-touch").addEventListener("click", function (e) {
+    if (!running) return;
+    e.stopImmediatePropagation(); returnHome();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && running && !panel.open) { e.preventDefault(); returnHome(); }
+  });
+  addEventListener("resize", function () { if (running) motion.start(); });
+  motion.start(); controls();
+})();
+</script>
+
+<script>
+/* ── 작은 설정과 인사, 선택형 집중 시간 ──────────────────────── */
+(function () {
+  var panel = document.getElementById("settings-panel");
+  var opener = document.getElementById("settings-open");
+  var greeting = document.getElementById("greeting");
+  var message = document.getElementById("scene-message");
+  var hintSeen = false, hintTimer = null, hideHintTimer = null;
+  try { hintSeen = localStorage.getItem("naeru-hint-seen") === "1"; } catch (e) {}
+  opener.addEventListener("click", function () {
+    greeting.hidden = true; panel.showModal();
+  });
+  document.getElementById("settings-close").addEventListener("click", function () {
+    panel.close();
+  });
+  var queryKeys = { season: ["s"], band: ["v", "h"], motion: ["still"] };
+  ["season", "band", "motion", "date", "clock"].forEach(function (key) {
+    var control = document.getElementById("setting-" + key);
+    if (key === "clock") control.checked = window.naeruSettings[key];
+    else {
+      var query = new URLSearchParams(location.search);
+      var preview = key === "season" ? query.get("s") : key === "band" ? query.get("v") : null;
+      control.value = window.naeruSettings[key];
+      if (preview && Array.from(control.options).some(function (o) { return o.value === preview; })) {
+        control.value = preview;
+      }
+    }
+    control.addEventListener("change", function () {
+      window.naeruSettings[key] = key === "clock" ? control.checked : control.value;
+      // URL 미리보기를 설정에서 바꾸면 그 항목의 강제값만 해제한다.
+      var url = new URL(location.href);
+      (queryKeys[key] || []).forEach(function (p) { url.searchParams.delete(p); });
+      history.replaceState(null, "", url.href);
+      try { localStorage.setItem("naeru-settings", JSON.stringify(window.naeruSettings)); } catch (e) {}
+      document.dispatchEvent(new Event("naeru:settings"));
+    });
+  });
+  function hideHint() {
+    clearTimeout(hintTimer); clearTimeout(hideHintTimer); greeting.hidden = true;
+  }
+  document.getElementById("naeru-touch").addEventListener("click", function (e) {
+    hideHint(); hintSeen = true;
+    try { localStorage.setItem("naeru-hint-seen", "1"); } catch (err) {}
+    var r = e.currentTarget.getBoundingClientRect();
+    var dir = e.detail && e.clientX < r.left + r.width / 2 ? -1 : 1;
+    message.textContent = "내루미에게 인사했어요.";
+    document.dispatchEvent(new CustomEvent("naeru:greet", { detail: { dir: dir } }));
+  });
+  document.addEventListener("naeru:scene", function () {
+    hideHint();
+    if (hintSeen || document.documentElement.dataset.sceneReady !== "true") return;
+    hintTimer = setTimeout(function () {
+      if (document.hidden || panel.open || focusEnd) return;
+      greeting.hidden = false; hintSeen = true;
+      try { localStorage.setItem("naeru-hint-seen", "1"); } catch (e) {}
+      hideHintTimer = setTimeout(hideHint, 8000);
+    }, 1800);
+  });
+  document.addEventListener("visibilitychange", function () { if (document.hidden) hideHint(); });
+
+  /* 종료 시각에서 남은 시간을 계산해 숨은 탭·새로고침에서도 어긋나지 않게 한다. */
+  var focusEnd = null;
+  try {
+    var saved = JSON.parse(sessionStorage.getItem("naeru-focus") || "null");
+    if (saved && Number.isFinite(saved.end) && saved.end > Date.now() - 12 * 3600000 &&
+        saved.end - Date.now() <= 50 * 60000) focusEnd = saved.end;
+  } catch (e) {}
+  var strip = document.getElementById("focus-strip");
+  var label = document.getElementById("focus-label");
+  var start = document.getElementById("focus-start");
+  var stop = document.getElementById("focus-stop");
+  var duration = document.getElementById("focus-duration");
+  var note = document.getElementById("focus-note");
+  function renderFocus() {
+    start.disabled = duration.disabled = Boolean(focusEnd);
+    start.textContent = focusEnd ? "진행 중" : "시작";
+    if (!focusEnd) return;
+    var seconds = Math.max(0, Math.ceil((focusEnd - Date.now()) / 1000));
+    strip.hidden = false;
+    if (seconds === 0) {
+      focusEnd = null;
+      try { sessionStorage.removeItem("naeru-focus"); } catch (e) {}
+      label.textContent = "수고했어요. 잠깐 쉬어가요."; stop.textContent = "닫기";
+      message.textContent = label.textContent;
+      note.textContent = "집중을 마쳤어요. 준비되면 다시 시작해요.";
+      document.title = "내루미";
+      document.dispatchEvent(new Event("naeru:focus-complete"));
+      renderFocus(); return;
+    }
+    var text = String(Math.floor(seconds / 60)).padStart(2, "0") + ":" +
+               String(seconds % 60).padStart(2, "0");
+    label.textContent = "집중 " + text; stop.textContent = "종료";
+    note.textContent = "지금 집중하고 있어요. 남은 시간 " + text;
+    document.title = text + " · 내루미";
+  }
+  start.addEventListener("click", function () {
+    var minutes = Number(duration.value);
+    if (focusEnd || [25, 50].indexOf(minutes) < 0) return;
+    focusEnd = Date.now() + minutes * 60000;
+    try { sessionStorage.setItem("naeru-focus", JSON.stringify({ end: focusEnd })); } catch (e) {}
+    hideHint(); panel.close(); renderFocus();
+    message.textContent = minutes + "분 집중을 시작해요.";
+  });
+  stop.addEventListener("click", function () {
+    focusEnd = null; strip.hidden = true; document.title = "내루미";
+    try { sessionStorage.removeItem("naeru-focus"); } catch (e) {}
+    note.textContent = "끝나면 내루미가 쉬어갈 시간을 알려줘요.";
+    renderFocus(); opener.focus();
+  });
+  renderFocus();
+  setInterval(function () { if (!document.hidden) renderFocus(); }, 1000);
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) renderFocus();
+  });
+})();
+</script>
 </body>
 </html>
