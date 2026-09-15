@@ -4,4 +4,5 @@ __pycache__/
 tools/camp-overlay/build/
 tools/naeru-split/build/
 tools/naeru-split/.venv/
+tools/naeru-hd/build/
 tools/browser-check/node_modules/

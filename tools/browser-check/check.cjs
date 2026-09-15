@@ -7,7 +7,7 @@ const http = require('node:http');
 const repo = path.resolve(__dirname, '../..');
 const out = process.env.NAERU_CHECK_OUTPUT;
 if (out) fs.mkdirSync(out, { recursive: true });
-const mime = { '.html': 'text/html', '.jpg': 'image/jpeg', '.png': 'image/png',
+const mime = { '.html': 'text/html', '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp',
   '.webm': 'video/webm', '.mp4': 'video/mp4' };
 const results = [];
 const server = http.createServer((req, res) => {
@@ -82,6 +82,8 @@ async function check(name, fn) {
               assert.equal(state.variant, band + (w === 'rain' ? '-rain' : ''));
               assert.notEqual(state.filter, 'none');
               assert.equal(state.still, '1'); assert.equal(state.video, false);
+              await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
+                document.querySelector('#naeruStill').naturalWidth === 2304);
               assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
               await shot(p, `${season}-${band}-${w}`);
             }
@@ -177,7 +179,7 @@ async function check(name, fn) {
         await p.route('https://api.open-meteo.com/**', r => { pending = r; });
         await open(p, 'v=day');
         assert.equal(await p.locator('#time').textContent(), '12:00');
-        assert.equal(await p.locator('#naeruStill').evaluate(e => e.naturalWidth), 576);
+        assert([576, 2304].includes(await p.locator('#naeruStill').evaluate(e => e.naturalWidth)));
         assert(pending);
         await pending.fulfill({ json: meteo(85) });
         await p.waitForFunction(() => document.querySelector('#info').textContent.includes('소낙눈'));
@@ -191,7 +193,13 @@ async function check(name, fn) {
         await p.route('**/img/naeru-*.mp4*', r => r.abort());
         await open(p, 'v=day&w=clear&ball=0&flit=0&ff=0');
         await p.waitForTimeout(4500);
+        // 첫 접근 중에는 같은 정지본을 HD 레이어로 교차 전환한다.
+        // 복귀 후 기본 정지본이 다시 보이는지까지 확인한다.
+        await p.waitForFunction(() => !document.documentElement.dataset.approach &&
+          getComputedStyle(document.querySelector('#naeruStill')).opacity === '1',
+        null, { timeout: 20000 });
         assert.equal(await p.locator('#naeruStill').evaluate(e => getComputedStyle(e).opacity), '1');
+        assert.equal(await p.locator('#naeruStill').evaluate(e => e.naturalWidth), 2304);
         assert.deepEqual(p.errors, []);
       } finally { await p.close(); }
     });
@@ -318,6 +326,10 @@ async function check(name, fn) {
             assert(frozen.time <= 8 / 24 || frozen.time >= 308 / 24);
             await p.waitForTimeout(1800); await shot(p, `autumn-${band}-${width}-walking`);
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'hd');
+            assert.equal(await p.locator('#naeruHd').evaluate(e => e.naturalWidth), 2304);
+            assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '1');
+            assert.equal(await video.evaluate(v => v.style.opacity), '0');
             for (const id of ['approach-flower-image', 'approach-grass-image']) {
               assert.match(await p.locator('#' + id).getAttribute('href'),
                 new RegExp(`bg-${band}-autumn\\.jpg`));
@@ -335,7 +347,52 @@ async function check(name, fn) {
         }));
       }
     });
-    await check('다가오기: 실제 몸짓·영상 포즈 대기·탐색 없이 고정·재생 복원', async () => {
+    await check('고해상도: 실패·늦은 로드·풍경 전환 중 오래된 응답', async () => {
+      await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
+        const p = await makePage(); p.setDefaultTimeout(30000);
+        let release;
+        const held = new Promise(resolve => { release = resolve; });
+        await p.route('**/naeru-day-hd.webp?*', async route => {
+          if (kind === 'failed') return route.abort();
+          await held;
+          await route.fulfill({ path: path.join(repo, 'img/naeru-day-hd.webp') });
+        });
+        try {
+          await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
+          if (kind === 'scene') {
+            await p.click('#settings-open'); await p.selectOption('#setting-band', 'night');
+            await p.waitForFunction(() => document.body.dataset.variant === 'night' &&
+              document.querySelector('#naeruHd').dataset.status === 'ready');
+            release(); await p.waitForTimeout(500);
+            assert.match(await p.locator('#naeruHd').getAttribute('src'), /naeru-night-hd.webp/);
+            await p.keyboard.press('Escape');
+            await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'hd');
+          } else {
+            await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'original');
+            if (kind === 'slow') {
+              release();
+              await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready');
+              await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
+              assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '0');
+              assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'original');
+            }
+            await p.click('#approach-return');
+            await p.waitForFunction(() => !document.documentElement.dataset.approach);
+            await playing(p);
+            if (kind === 'slow') {
+              await p.evaluate(() => document.dispatchEvent(new Event('naeru:approach')));
+              await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
+              assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'hd');
+              assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '1');
+            }
+          }
+          assert.deepEqual(p.errors, []);
+        } finally { release(); await p.close(); }
+      }));
+    });
+    await check('호출 버튼: 실제 몸짓·영상 포즈 대기·안내·탐색 없이 고정·재생 복원', async () => {
       const p = await makePage();
       p.setDefaultTimeout(30000);
       try {
@@ -344,25 +401,35 @@ async function check(name, fn) {
         await p.click('#approach-return');
         await p.waitForFunction(() => !document.documentElement.dataset.approach);
         await playing(p);
-        await p.evaluate(async () => {
+        await p.click('#settings-open');
+        // 로컬 서버의 탐색 지원 여부에 기대지 않고 실제 팔 동작까지 재생한다.
+        await p.waitForFunction(() => {
           const v = document.querySelector('video.naeru.on');
-          await new Promise(resolve => {
-            v.addEventListener('seeked', resolve, { once: true });
-            v.currentTime = 130 / 24; // 검사 시작점만 팔을 벌린 프레임으로 맞춘다.
-          });
+          return v && !v.paused && !v.seeking && v.currentTime >= 5 && v.currentTime < 7;
+        });
+        await p.evaluate(() => {
+          const v = document.querySelector('video.naeru.on');
           window.approachSeeks = 0;
           v.addEventListener('seeking', () => window.approachSeeks++);
           document.dispatchEvent(new Event('naeru:greet'));
-          document.dispatchEvent(new Event('naeru:approach'));
-          document.dispatchEvent(new Event('naeru:focus-complete'));
         });
+        await p.click('#approach-preview');
+        await p.evaluate(() => document.dispatchEvent(new Event('naeru:focus-complete')));
+        assert.equal(await p.locator('#settings-panel').evaluate(e => e.open), false);
+        assert.equal(await p.locator('#approach-wait').isVisible(), true);
         await p.waitForTimeout(200);
         assert.equal(await p.evaluate(() => naeru.busy), true);
         assert.equal(await p.evaluate(() => document.documentElement.dataset.approach), undefined);
-        await p.waitForFunction(() => !naeru.busy);
+        await p.waitForFunction(() => !naeru.busy && naeru.hold);
         assert.equal(await p.evaluate(() => document.documentElement.dataset.approach), undefined);
         assert.equal(await p.locator('video.naeru.on').evaluate(v => v.paused), false);
+        await p.evaluate(() => document.dispatchEvent(new Event('naeru:greet')));
+        assert.equal(await p.evaluate(() => naeru.busy), false);
+        await shot(p, 'call-waiting-for-pose');
         await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+        assert.equal(await p.locator('#approach-wait').isVisible(), false);
+        assert.equal(await p.locator('#approach-preview').isEnabled(), false);
+        assert.equal(await p.locator('#approach-preview').textContent(), '다가오는 중');
         const frozen = await p.locator('video.naeru.on').evaluate(v => v.currentTime);
         assert(frozen <= 8 / 24 || frozen >= 308 / 24);
         assert.equal(await p.evaluate(() => window.approachSeeks), 0);
@@ -370,10 +437,13 @@ async function check(name, fn) {
         await p.waitForTimeout(1200);
         assert.equal(await p.locator('video.naeru.on').evaluate(v => v.currentTime), frozen);
         await p.click('#approach-return');
+        assert.equal(await p.locator('#approach-preview').textContent(), '돌아가는 중');
         await p.waitForFunction(() => !document.documentElement.dataset.approach);
         await playing(p);
         assert.equal(await p.locator('video.naeru.on').evaluate(v => v.dataset.pauseOwner), undefined);
         assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
+        assert.equal(await p.locator('#approach-preview').isEnabled(), true);
+        assert.equal(await p.locator('#approach-preview').textContent(), '가까이 와줘');
         assert.deepEqual(p.errors, []);
       } finally { await p.close(); }
     });
@@ -398,6 +468,9 @@ async function check(name, fn) {
           await p.waitForFunction(() => !document.documentElement.dataset.approach);
           assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
           assert.equal(await p.locator('#naeru-stride').evaluate(e => e.style.transform), '');
+          assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '0');
+          assert.equal(await p.evaluate(() => [...document.querySelectorAll('video.naeru')]
+            .every(v => !v.style.opacity)), true);
           assert.equal(await p.locator('#approach-ground').evaluate(e => e.style.opacity), '0');
           if (kind === 'hidden') {
             await p.evaluate(() => {
@@ -435,6 +508,71 @@ async function check(name, fn) {
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
           } else {
             assert.equal(await p.locator('#naeruStill').evaluate(e => e.classList.contains('on')), true);
+          }
+          assert.deepEqual(p.errors, []);
+        } finally { await p.close(); }
+      }));
+    });
+    await check('호출 버튼: 첫 인사 대기 중 설정을 열어도 클릭 가능', async () => {
+      await Promise.all([[1280, 720], [390, 844]].map(async ([width, height]) => {
+        const p = await makePage({ viewport: { width, height } });
+        p.setDefaultTimeout(30000);
+        try {
+          await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
+          await p.click('#settings-open');
+          await p.waitForTimeout(3200);
+          assert.equal(await p.evaluate(() => document.documentElement.dataset.approach), undefined);
+          await shot(p, `call-startup-${width}`);
+          assert.equal(await p.locator('#approach-preview').isEnabled(), true);
+          await p.click('#approach-preview');
+          assert.equal(await p.locator('#settings-panel').evaluate(e => e.open), false);
+          await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+          await p.click('#approach-return');
+          await p.waitForFunction(() => !document.documentElement.dataset.approach);
+          await playing(p);
+          assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
+          assert.deepEqual(p.errors, []);
+        } finally { await p.close(); }
+      }));
+    });
+    await check('호출 버튼: 영상 포즈 대기 중 숨김·정지·풍경 변경 정리', async () => {
+      await Promise.all(['hidden', 'reduced', 'scene'].map(async kind => {
+        const p = await makePage(); p.setDefaultTimeout(30000);
+        try {
+          await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
+          await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+          await p.click('#approach-return');
+          await p.waitForFunction(() => !document.documentElement.dataset.approach);
+          await playing(p);
+          await p.click('#settings-open');
+          await p.waitForFunction(() => {
+            const v = document.querySelector('video.naeru.on');
+            return v && !v.paused && !v.seeking && v.currentTime >= 5 && v.currentTime < 7;
+          });
+          await p.click('#approach-preview');
+          await p.waitForFunction(() => naeru.hold && !naeru.busy &&
+            !document.querySelector('video[data-pause-owner="approach"]'));
+          assert.equal(await p.locator('#approach-wait').isVisible(), true);
+          if (kind === 'hidden') {
+            await p.evaluate(() => {
+              Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+              document.dispatchEvent(new Event('visibilitychange'));
+            });
+          } else if (kind === 'reduced') await p.emulateMedia({ reducedMotion: 'reduce' });
+          else {
+            await p.click('#settings-open'); await p.selectOption('#setting-season', 'winter');
+            await p.waitForFunction(() => document.documentElement.dataset.season === 'winter');
+          }
+          await p.waitForFunction(() => !naeru.busy && !naeru.hold);
+          assert.equal(await p.locator('#approach-wait').isVisible(), false);
+          assert.equal(await p.evaluate(() => document.documentElement.dataset.approach), undefined);
+          if (kind === 'hidden') {
+            await p.evaluate(() => {
+              Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+              document.dispatchEvent(new Event('visibilitychange'));
+            });
+            await playing(p);
+            assert.equal(await p.locator('#approach-wait').isVisible(), false);
           }
           assert.deepEqual(p.errors, []);
         } finally { await p.close(); }

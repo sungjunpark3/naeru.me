@@ -23,6 +23,7 @@ args = parser.parse_args()
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
 for v in VARIANTS:
     images.update({f"naeru-{v}.png": CROP_SIZE,
+                   f"naeru-{v}-hd.webp": (2304, 1984),
                    f"naeru-{v}-nt.png": CROP_SIZE,
                    f"tongue-{v}.png": CROP_SIZE})
 images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
@@ -39,6 +40,9 @@ for name in runtime:
     if name in images:
         with Image.open(p) as im:
             assert im.size == images[name], f"크기 불일치: {name} {im.size}"
+            if name.endswith("-hd.webp"):
+                assert im.mode == "RGBA", f"HD 알파 누락: {name}"
+                assert im.getchannel("A").getextrema() == (0, 255), name
             im.verify()
 
 html_path = REPO / "index.html"
@@ -53,7 +57,7 @@ for name, value in expected.items():
     actual = float(re.search(rf"{name}:\s*([\d.]+)%", box).group(1))
     assert abs(actual - value) < 0.0001, f"크롭 좌표 불일치: {name}"
 
-# 런타임 80개는 제공하고, 제작 입력 40개는 강제 404 규칙으로 보호한다.
+# 런타임 자산은 제공하고, 제작 입력 40개는 강제 404 규칙으로 보호한다.
 rules = [line.split() for line in (REPO / "_redirects").read_text().splitlines()
          if line.strip() and not line.lstrip().startswith("#")]
 protected = {r[0] for r in rules if r[1:] == ["/404.html", "404!"]}

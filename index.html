@@ -150,17 +150,28 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   body[data-variant="night"] #approach-shadow { filter: opacity(.6); }
   html[data-approach] #approach-flowers { opacity: 1; }
   html[data-approach] .clock-wrap { opacity: .22; transition: opacity .6s; }
-  #approach-return {
+  #approach-return, #approach-wait {
     left: 50%; top: max(20px, env(safe-area-inset-top)); transform: translateX(-50%);
     padding: 10px 18px; border: 1px solid rgba(255, 249, 237, .45);
     border-radius: 24px; color: #fff9ed; background: rgba(28, 35, 38, .65);
-    cursor: pointer; font-size: .85rem;
+    font-size: .85rem;
+  }
+  #approach-return { cursor: pointer; }
+  #approach-wait {
+    margin: 0; width: max-content; max-width: calc(100vw - 32px);
+    text-align: center; pointer-events: none;
   }
   .naeru, #naeruStill {
     position: absolute; inset: 0; width: 100%; height: 100%;
     opacity: 0; transition: opacity 2.5s ease;
   }
   .naeru.on, #naeruStill.on { opacity: 1; }
+  #naeruHd {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; pointer-events: none;
+  }
+  /* 가까워지는 정도에 맞춰 직접 교차 전환한다. 장면용 2.5초 전환과 겹치지 않는다. */
+  html[data-approach] .naeru, html[data-approach] #naeruStill { transition: none; }
 
   /* 혀 개그용 두 장. 영상을 세운 그 프레임의 "혀 없는 몸"과 "혀"라서, 둘을
      겹치면 원래 화면과 픽셀이 같다 — 바꿔치는 순간이 안 보인다.
@@ -486,6 +497,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     padding: 10px 14px; color: #242d2d; background: #eddfbf;
     border: 0; border-radius: 8px; cursor: pointer;
   }
+  #approach-preview:disabled { opacity: .55; cursor: default; }
   #settings-panel fieldset { border: 0; border-top: 1px solid #52615f; margin-top: 22px; }
   #settings-panel legend { padding: 0 8px 0 0; font-size: .9rem; }
 
@@ -542,6 +554,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     <video id="naeruA" class="naeru" aria-hidden="true" muted loop playsinline preload="auto"></video>
     <video id="naeruB" class="naeru" aria-hidden="true" muted loop playsinline preload="none"></video>
     <img id="naeruStill" alt="">
+    <img id="naeruHd" alt="" aria-hidden="true">
     <img id="naeruNt" alt="">
     <img id="tongue" alt="">
     <div id="naeru-head"></div>
@@ -657,6 +670,9 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
 </main>
 <p id="greeting" class="scene-ui" hidden>내루미를 살짝 눌러보세요</p>
 <p id="scene-message" class="sr-only" role="status"></p>
+<p id="approach-wait" class="scene-ui" role="status" hidden>
+  하던 동작을 마치고 다가갈게요.
+</p>
 <button id="approach-return" class="scene-ui" type="button" hidden>돌아가기</button>
 <div id="focus-strip" class="scene-ui" hidden>
   <span id="focus-label"></span><button id="focus-stop" type="button">종료</button>
@@ -796,7 +812,7 @@ function createSceneMotion(restart, cleanup) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "3cd0c6104366";
+  var ASSET_V = "2efe91d187ab";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -955,13 +971,33 @@ function createSceneMotion(restart, cleanup) {
   var bgs = [document.getElementById("bgA"), document.getElementById("bgB")];
   var videos = [document.getElementById("naeruA"), document.getElementById("naeruB")];
   var still = document.getElementById("naeruStill");
+  var hd = document.getElementById("naeruHd");
   var stage = document.getElementById("stage");
   var slot = 0, active = null, activeSeason = null, requested = null;
   var generation = 0, noMotion = window.naeruReduced(), fallback = false, retries = 0;
+  var hdRequest = 0;
   var format = null, formatPromise = null, stopWatch = function () {};
   function av(file) { return "img/" + file + "?v=" + ASSET_V; }
   function bgOf(v, s) { return av("bg-" + v + "-" + s + ".jpg"); }
-  function stillOf(v) { return av("naeru-" + v + ".png"); }
+  function stillOf(v) {
+    return av("naeru-" + v + (hd.dataset.variant === v && hd.dataset.status === "ready"
+      ? "-hd.webp" : ".png"));
+  }
+  function prepareHD(variant) {
+    if (hd.dataset.variant === variant) return;
+    var request = ++hdRequest;
+    hd.dataset.variant = variant; hd.dataset.status = "loading";
+    var image = new Image();
+    image.src = av("naeru-" + variant + "-hd.webp");
+    // 작은 정지본과 배경을 먼저 띄운다. HD의 지연·실패로 장면 확정을 막지 않는다.
+    image.decode().then(function () {
+      if (request !== hdRequest) return;
+      hd.src = image.src; hd.dataset.status = "ready";
+      if (active === variant && !root.dataset.approach) still.src = image.src;
+    }).catch(function () {
+      if (request === hdRequest) hd.dataset.status = "failed";
+    });
+  }
   function layout() { layoutFrameBox(stage); }
   addEventListener("resize", layout); layout();
 
@@ -1046,6 +1082,7 @@ function createSceneMotion(restart, cleanup) {
     var token = ++generation, nextSlot = active ? 1 - slot : slot;
     var key = variant + "/" + season, url = bgOf(variant, season);
     requested = key; stopWatch(); sceneReady(false);
+    prepareHD(variant);
     // 첫 화면의 시계와 배경은 날씨 요청을 기다리지 않는다.
     if (!active) {
       root.style.setProperty("--still", 'url("' + url + '")');
@@ -2247,12 +2284,15 @@ function createSceneMotion(restart, cleanup) {
   var root = document.documentElement;
   var params = new URLSearchParams(location.search);
   var approach = document.getElementById("naeru-approach");
+  var hd = document.getElementById("naeruHd");
+  var baseImage = null, useHD = false;
   var stride = document.getElementById("naeru-stride");
   var move = document.getElementById("naeru-move");
   var ground = document.getElementById("approach-ground");
   var shadow = document.getElementById("approach-shadow");
   var back = document.getElementById("approach-return");
   var preview = document.getElementById("approach-preview");
+  var wait = document.getElementById("approach-wait");
   var panel = document.getElementById("settings-panel");
   var pending = null, running = false, visited = false;
   var reserved = false, frozenVideo = null;
@@ -2286,8 +2326,15 @@ function createSceneMotion(restart, cleanup) {
   }
   function controls() {
     document.getElementById("approach-setting").hidden = !eligible();
-    preview.disabled = running || Boolean(pending) || maskFailed ||
+    // 예약 중에도 호출할 수 있어야 설정 창을 닫고 그 인사를 이어갈 수 있다.
+    preview.disabled = running || maskFailed ||
                        root.dataset.sceneReady !== "true";
+    preview.textContent = running ? (phase === "returning" ? "돌아가는 중" :
+      phase === "close" ? "인사하는 중" : "다가오는 중") :
+      maskFailed ? "준비하지 못했어요" :
+      root.dataset.sceneReady !== "true" ? "준비하는 중" : "가까이 와줘";
+    wait.hidden = pending !== "preview" || running || !eligible() || document.hidden ||
+                  root.dataset.sceneReady !== "true";
   }
   function reset() {
     var owned = running || reserved;
@@ -2296,6 +2343,12 @@ function createSceneMotion(restart, cleanup) {
     if (window.naeruReduced()) pending = null;
     running = false; reserved = false; geometry = null; progress = 0;
     delete root.dataset.approach;
+    delete root.dataset.approachQuality;
+    if (baseImage) baseImage.style.opacity = "";
+    baseImage = null; useHD = false; hd.style.opacity = "0";
+    if (hd.dataset.status === "ready" && hd.dataset.variant === document.body.dataset.variant) {
+      document.getElementById("naeruStill").src = hd.src;
+    }
     approach.style.transform = ""; stride.style.transform = "";
     ground.style.opacity = "0"; shadow.style.opacity = "0";
     if (document.activeElement === back) document.getElementById("settings-open").focus();
@@ -2328,9 +2381,17 @@ function createSceneMotion(restart, cleanup) {
     var departed = Math.min(1, depth * 8);
     ground.style.opacity = departed.toFixed(3);
     shadow.style.opacity = (departed * (1 - lift * .35)).toFixed(3);
+    if (useHD) {
+      // 아직 작은 거리에서 같은 뉴트럴 그림으로 연결해, 얼굴이 커지기 전에 바꾼다.
+      var mix = Math.max(0, Math.min(1, (p - .04) / .20));
+      mix = mix * mix * (3 - 2 * mix);
+      hd.style.opacity = mix.toFixed(4);
+      baseImage.style.opacity = (1 - mix).toFixed(4);
+    }
   }
   function changePhase(next, now) {
     phase = next; phaseStart = now; root.dataset.approach = next;
+    controls();
   }
   function returnHome() {
     if (!running || phase === "returning") return;
@@ -2359,6 +2420,10 @@ function createSceneMotion(restart, cleanup) {
   }
   function begin() {
     pending = null; running = true; visited = true;
+    baseImage = frozenVideo || document.getElementById("naeruStill");
+    useHD = hd.dataset.variant === document.body.dataset.variant &&
+            hd.dataset.status === "ready";
+    root.dataset.approachQuality = useHD ? "hd" : "original";
     nextVisit = performance.now() + visitGap;
     window.naeru.busy = true; window.naeru.hold = true;
     var box = move.getBoundingClientRect();
@@ -2376,7 +2441,7 @@ function createSceneMotion(restart, cleanup) {
     back.hidden = false;
     document.getElementById("greeting").hidden = true;
     document.getElementById("naeru-touch").setAttribute("aria-label", "내루미를 제자리로 보내기");
-    changePhase("walking", performance.now()); controls(); motion.frame(animate);
+    changePhase("walking", performance.now()); motion.frame(animate);
   }
   function tryPending() {
     if (!pending || running || !sceneMotionAllowed()) { controls(); return; }
@@ -2394,6 +2459,11 @@ function createSceneMotion(restart, cleanup) {
       motion.later(tryPending, 250); controls(); return;
     }
     if (!reserved) {
+      // 진행 중인 몸짓은 끝까지 기다리되, 다음 몸짓이 호출을 계속 밀지 않게 한다.
+      // 영상은 계속 재생해 실제 뉴트럴 포즈에 도착한 뒤에만 멈춘다.
+      reserved = true; window.naeru.hold = true;
+    }
+    if (!frozenVideo) {
       var video = document.querySelector("video.naeru.on");
       if (video) {
         // 루프의 양끝 약 8프레임은 팔을 내린 포즈다. 팔 벌리기·혀 흔들기는
@@ -2408,19 +2478,28 @@ function createSceneMotion(restart, cleanup) {
         video.dataset.pauseOwner = "approach"; video.pause();
       }
       // 영상 실패 폴백은 0001 프레임 정지본이라 이미 뉴트럴 포즈다.
-      reserved = true; window.naeru.hold = true;
     }
     // 첫 접속에서 뉴트럴을 잡은 뒤 배경 페이드가 끝나기를 기다린다.
     if (performance.now() - readyAt < 2800) { motion.later(tryPending, 100); return; }
+    // HD는 최대 5초까지만 기다리고, 실패·지연 시 기존 영상으로 이번 인사를 한다.
+    // 시작 후 뒤늦게 도착한 그림으로 바꾸면 가까운 얼굴이 갑자기 튀므로 다음에 쓴다.
+    if (hd.dataset.status === "loading" && performance.now() - readyAt < 5000) {
+      motion.later(tryPending, 100); return;
+    }
     begin();
   }
   function request(kind) {
-    if (running || pending) return;
+    if (running) return;
+    if (pending) {
+      // 첫 인사·자동 방문 예약을 수동 호출 한 번으로 합친다. 재시도 타이머는 재사용한다.
+      if (kind === "preview") pending = kind;
+      controls(); return;
+    }
     if (window.naeruReduced()) {
       if (kind === "focus") document.dispatchEvent(new CustomEvent("naeru:greet"));
       return;
     }
-    pending = kind; tryPending();
+    pending = kind; controls(); tryPending();
   }
   function scheduleVisit() {
     // URL 동작 검사는 각각의 미리보기 규칙을 유지한다. 일반 접속만 5분마다.
@@ -2451,7 +2530,6 @@ function createSceneMotion(restart, cleanup) {
   document.addEventListener("naeru:approach", function () { request("preview"); });
   preview.addEventListener("click", function () {
     panel.close(); request("preview");
-    document.getElementById("scene-message").textContent = "내루미가 가까이 다가와요.";
   });
   back.addEventListener("click", returnHome);
   document.getElementById("naeru-touch").addEventListener("click", function (e) {
