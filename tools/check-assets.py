@@ -23,7 +23,7 @@ args = parser.parse_args()
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
 for v in VARIANTS:
     images.update({f"naeru-{v}.png": CROP_SIZE,
-                   f"naeru-{v}-hd.webp": (2304, 1984),
+                   f"naeru-{v}-hd.webp": (4608, 3968),
                    f"naeru-{v}-nt.png": CROP_SIZE,
                    f"tongue-{v}.png": CROP_SIZE})
 images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),

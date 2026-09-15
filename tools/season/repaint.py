@@ -31,6 +31,8 @@ REPO = HERE.parent.parent
 IMG = REPO / "img"
 sys.path.insert(0, str(REPO / "tools" / "naeru-split"))
 from coords import VARIANTS
+sys.path.insert(0, str(REPO / "tools" / "ground"))
+from repair import repair_ground
 
 SEASONS = ["spring", "summer", "autumn", "winter"]
 HORIZON = 1290
@@ -74,6 +76,7 @@ def build_masks():
     """하늘 / 나무 / 초원. 이 그림은 채색이 탁해서 색상만으론 못 가른다 —
     밝기(하늘 166~199, 나무 79~117, 초원 107~160)와 높이를 같이 쓴다."""
     a = np.asarray(Image.open(IMG / "bg-day.jpg").convert("RGB"), np.float32)
+    a = repair_ground(a)
     L = a.mean(2)
     H, W = L.shape
     g = a[..., 1] - np.maximum(a[..., 0], a[..., 2])
@@ -232,6 +235,7 @@ def main():
 def repaint_seasons(selected, tmp, L, yy, sky, tree, shape):
     for v in VARIANTS:
         base = np.asarray(Image.open(IMG / f"bg-{v}.jpg").convert("RGB"), np.float32)
+        base = repair_ground(base)
         for s in selected:
             rng = np.random.default_rng(20260905)   # 계절마다 같은 얼룩을 쓴다
             a = base

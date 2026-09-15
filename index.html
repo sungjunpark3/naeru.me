@@ -119,7 +119,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
      #naeru-face=방향(뒤집기). CROP box(576×496 @ 1744,1328 / 3840×2160)를
      프레임 비율로 환산한 값 — matte.py의 CROP_ORIGIN/CROP_SIZE와 반드시
      같이 맞출 것(tools/naeru-split/coords.py가 원본) */
-  #naeru-move {
+  #naeru-shadow, #naeru-move {
     position: absolute;
     left: 45.4167%; top: 61.4815%; width: 15%; height: 22.9630%;
   }
@@ -129,25 +129,56 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   /* 회전·스쿼시의 기준점은 발끝이다. 크롭 상단이 y1328, 발끝이 y1720이므로
      세로 (1720-1328)/496 = 79.03%, 가로는 몸 중심 x2020 →
      (2020-1744)/576 = 47.92%. 틀리면 기울일 때 발이 지면에서 뜬다 */
-  #naeru-approach, #naeru-stride, #naeru-act, #naeru-face {
+  #naeru-shadow, #naeru-approach, #naeru-stride, #naeru-act, #naeru-face {
     transform-origin: 47.9167% 79.0323%;
   }
   /* 다가오기는 바깥 겹의 원근 이동 + 안쪽 겹의 보폭으로 나눈다.
      기존 폴짝·인사와 transform을 공유하지 않는다. */
   html[data-approach] #naeru-approach,
   html[data-approach] #naeru-stride { will-change: transform; }
-  #approach-ground, #approach-flowers {
+  #approach-flowers {
     position: absolute; inset: 0; width: 100%; height: 100%;
     pointer-events: none; opacity: 0;
   }
-  #approach-shadow {
-    position: absolute; left: 17%; top: 75%; width: 62%; height: 11%;
-    border-radius: 50%; opacity: 0;
-    background: radial-gradient(ellipse, rgba(43, 42, 26, .3), transparent 70%);
+  /* 그림자는 점프 겹의 형제다. 발이 떠도 바닥에 남고, 접근의 원근만 공유한다. */
+  #naeru-shadow {
+    --shadow-ink: 30, 43, 33; --cast-alpha: .30; --contact-alpha: .34;
+    --cast-length: 76%; --cast-angle: -5deg;
+    --cast-density: 1; --contact-density: 1; --cast-spread: 1; --contact-size: 1;
+    pointer-events: none;
   }
-  body[data-variant="dawn"] #approach-shadow { filter: opacity(.85); }
-  body[data-variant="dusk"] #approach-shadow { filter: opacity(.9); }
-  body[data-variant="night"] #approach-shadow { filter: opacity(.6); }
+  #shadow-cast, #shadow-contact {
+    position: absolute; left: 47.9167%; top: 79.0323%; border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(var(--shadow-ink), .9),
+      rgba(var(--shadow-ink), .45) 40%, rgba(var(--shadow-ink), 0) 72%);
+  }
+  #shadow-cast {
+    width: var(--cast-length); height: 13%; transform-origin: 88% 50%;
+    transform: translate(-88%, -40%) rotate(var(--cast-angle)) scale(var(--cast-spread));
+    opacity: calc(var(--cast-alpha) * var(--cast-density));
+  }
+  #shadow-contact {
+    width: 44%; height: 8%; transform-origin: 50% 50%;
+    transform: translate(-50%, -40%) scale(var(--contact-size));
+    opacity: calc(var(--contact-alpha) * var(--contact-density));
+  }
+  body[data-variant="dawn"] #naeru-shadow {
+    --shadow-ink: 36, 38, 48; --cast-length: 86%; --cast-alpha: .26;
+  }
+  body[data-variant="dusk"] #naeru-shadow {
+    --shadow-ink: 42, 33, 43; --cast-length: 92%; --cast-alpha: .32;
+  }
+  body[data-variant="night"] #naeru-shadow {
+    --shadow-ink: 14, 20, 38; --cast-length: 58%; --cast-alpha: .20;
+    --contact-alpha: .28;
+  }
+  body[data-weather="rain"] #naeru-shadow {
+    --shadow-ink: 31, 38, 47; --cast-length: 50%; --cast-alpha: .16;
+    --contact-alpha: .28;
+  }
+  html[data-season="winter"] #naeru-shadow {
+    --shadow-ink: 53, 68, 93;
+  }
   html[data-approach] #approach-flowers { opacity: 1; }
   html[data-approach] .clock-wrap { opacity: .22; transition: opacity .6s; }
   #approach-return, #approach-wait {
@@ -532,24 +563,10 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
      배경 위, .rain/.vignette 아래 — 구워져 있던 내루미 위로 비·비네트가
      얹혀 있었으므로 그래야 지금과 톤이 같다 -->
 <div id="stage">
-  <!-- 가까운 잔디를 부드러운 마스크로 옮겨, 떠난 자리에 구워진 그림자를 가린다.
-       원본 배경을 참조하므로 새 풍경 파일이나 색이 다른 패치가 필요 없다. -->
-  <svg id="approach-ground" viewBox="0 0 3840 2160" aria-hidden="true">
-    <defs>
-      <radialGradient id="ground-feather">
-        <stop offset=".65" stop-color="white"/>
-        <stop offset="1" stop-color="black"/>
-      </radialGradient>
-      <mask id="ground-mask" maskUnits="userSpaceOnUse" x="1500" y="1600"
-            width="700" height="230">
-        <ellipse cx="1860" cy="1720" rx="340" ry="94" fill="url(#ground-feather)"/>
-      </mask>
-    </defs>
-    <image id="approach-grass-image" x="0" y="155" width="3840" height="2160"
-           mask="url(#ground-mask)"/>
-  </svg>
+  <div id="naeru-shadow" aria-hidden="true">
+    <div id="shadow-cast"></div><div id="shadow-contact"></div>
+  </div>
   <div id="naeru-move"><div id="naeru-approach">
-  <div id="approach-shadow" aria-hidden="true"></div>
   <div id="naeru-stride"><div id="naeru-act"><div id="naeru-face">
     <video id="naeruA" class="naeru" aria-hidden="true" muted loop playsinline preload="auto"></video>
     <video id="naeruB" class="naeru" aria-hidden="true" muted loop playsinline preload="none"></video>
@@ -764,6 +781,22 @@ function layoutFrameBox(el) {
   return { W: W, H: H };
 }
 
+window.naeruShadow = (function () {
+  var el = document.getElementById("naeru-shadow");
+  return {
+    lift: function (height) {
+      var air = Math.max(0, Math.min(1, height));
+      // 몸이 뜨면 접촉 그림자는 작고 옅어지고, 넓은 그림자는 부드럽게 퍼진다.
+      // 그림자의 top/Y는 바꾸지 않는다. 지면의 기준점은 항상 발이 닿던 자리다.
+      el.style.setProperty("--cast-density", (1 - air * .4).toFixed(3));
+      el.style.setProperty("--contact-density", (1 - air * .8).toFixed(3));
+      el.style.setProperty("--cast-spread", (1 + air * .22).toFixed(3));
+      el.style.setProperty("--contact-size", (1 - air * .35).toFixed(3));
+    },
+    travel: function (transform) { el.style.transform = transform; }
+  };
+})();
+
 /* ── 장면 동작의 수명 ──────────────────────────────────────────
    시간대 전환·탭 숨김·동작 줄이기에서 각 IIFE의 타이머와 rAF를 함께 취소한다.
    예전 콜백이 뒤늦게 돌아와 새 장면의 transform·busy를 덮어쓰지 않게 한다. */
@@ -812,7 +845,7 @@ function createSceneMotion(restart, cleanup) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "2efe91d187ab";
+  var ASSET_V = "ca5e0737dbef";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1464,7 +1497,10 @@ function createSceneMotion(restart, cleanup) {
   function headAt() { return anchorAt(head, 1995 / 3840, 1399 / 2160); }
   function browAt() { return anchorAt(brow, 2000 / 3840, 1445 / 2160); }
 
-  function setMove(t) { move.style.transform = t; }
+  function setMove(height) {
+    move.style.transform = height ? "translateY(" + height + "%)" : "";
+    window.naeruShadow.lift(Math.max(0, -height) / 13);
+  }
   function setAct(t)  { act.style.transform  = t; }
 
   // 공용 타이밍 헬퍼: dur(ms)짜리 구간을 진행률 0→1로 fn에 넘겨 반복 호출.
@@ -1503,7 +1539,7 @@ function createSceneMotion(restart, cleanup) {
       } },
       { dur: 260, fn: function (t) {                 // 상승 ease-out
           var e = 1 - Math.pow(1 - t, 2);
-          setMove("translateY(" + (-13 * e) + "%)");
+          setMove(-13 * e);
           setAct("scale(" + (1.06 - 0.09 * t) + "," + (0.92 + 0.13 * t) + ")");
           if (willFlip && !didFlip && t > 0.4) {   // 정점 부근에서 전환
             didFlip = true;
@@ -1513,7 +1549,7 @@ function createSceneMotion(restart, cleanup) {
       } },
       { dur: 220, fn: function (t) {                 // 하강 ease-in — 착지 직전 스케일은 중립
           var e = t * t;
-          setMove("translateY(" + (-13 * (1 - e)) + "%)");
+          setMove(-13 * (1 - e));
           setAct("scale(" + (0.97 + 0.03 * e) + "," + (1.05 - 0.05 * e) + ")");
       } },
       // 착지에 아주 짧은 가로 미끄러짐을 얹는다 — 무게가 실렸다가 버티는 한 박자.
@@ -1527,7 +1563,7 @@ function createSceneMotion(restart, cleanup) {
                  (1.05 - 0.05 * t) + "," + (0.94 + 0.06 * t) + ")");
       } }
     ], function () {
-      setMove(""); setAct("");   // 방향(facing)은 유지 — 되돌리기도 다음 폴짝의 공중에서
+      setMove(0); setAct("");   // 방향(facing)은 유지 — 되돌리기도 다음 폴짝의 공중에서
       if (doDouble) setTimeout(hopAgain, 60);
       else { window.naeru.busy = false; schedule("hop"); }
     });
@@ -1540,17 +1576,17 @@ function createSceneMotion(restart, cleanup) {
       } },
       { dur: 200, fn: function (t) {
           var e = 1 - Math.pow(1 - t, 2);
-          setMove("translateY(" + (-9.1 * e) + "%)");
+          setMove(-9.1 * e);
           setAct("scale(" + (1.05 - 0.08 * t) + "," + (0.93 + 0.12 * t) + ")");
       } },
       { dur: 170, fn: function (t) {
           var e = t * t;
-          setMove("translateY(" + (-9.1 * (1 - e)) + "%)");
+          setMove(-9.1 * (1 - e));
           setAct("translateX(" + (facing * 0.4 * (1 - t)).toFixed(2) + "%) scale(" +
                  (0.97 + 0.03 * t) + "," + (1.05 - 0.05 * t) + ")");
       } }
     ], function () {
-      setMove(""); setAct("");
+      setMove(0); setAct("");
       window.naeru.busy = false;
       schedule("hop");
     });
@@ -1714,13 +1750,13 @@ function createSceneMotion(restart, cleanup) {
       } },
       { dur: 240, fn: function (t) {                 // 통 튀어오름
           var e = 1 - Math.pow(1 - t, 2);
-          setMove("translateY(" + (-10 * e) + "%)");
+          setMove(-10 * e);
           setAct("translateX(" + (d * 0.5 * (1 - t)).toFixed(2) + "%) scale(" +
                  (1.08 - 0.11 * t) + "," + (0.90 + 0.15 * t) + ")");
       } },
       { dur: 200, fn: function (t) {                 // 하강
           var e = t * t;
-          setMove("translateY(" + (-10 * (1 - e)) + "%)");
+          setMove(-10 * (1 - e));
           setAct("scale(" + (0.97 + 0.03 * e) + "," + (1.05 - 0.05 * e) + ")");
       } },
       { dur: 110, fn: function (t) {
@@ -1730,7 +1766,7 @@ function createSceneMotion(restart, cleanup) {
           setAct("scale(" + (1.06 - 0.06 * t) + "," + (0.93 + 0.07 * t) + ")");
       } }
     ], function () {
-      setMove(""); setAct(""); window.naeru.busy = false;
+      setMove(0); setAct(""); window.naeru.busy = false;
     });
   }
 
@@ -1804,7 +1840,7 @@ function createSceneMotion(restart, cleanup) {
                : IDLE_KINDS.indexOf(DEBUG) >= 0 ? "idle" : "hop");
     } else { schedule("hop"); schedule("look"); schedule("idle"); }
   }, function () {
-    setMove(""); setAct(""); face.style.transform = ""; facing = 1;
+    setMove(0); setAct(""); face.style.transform = ""; facing = 1;
     emote.style.opacity = "0"; emote.innerHTML = ""; emoteBusy = false;
     window.naeru.busy = false; window.naeru.hold = false;
   });
@@ -2288,8 +2324,6 @@ function createSceneMotion(restart, cleanup) {
   var baseImage = null, useHD = false;
   var stride = document.getElementById("naeru-stride");
   var move = document.getElementById("naeru-move");
-  var ground = document.getElementById("approach-ground");
-  var shadow = document.getElementById("approach-shadow");
   var back = document.getElementById("approach-return");
   var preview = document.getElementById("approach-preview");
   var wait = document.getElementById("approach-wait");
@@ -2312,10 +2346,9 @@ function createSceneMotion(restart, cleanup) {
     var version = "?v=" + root.dataset.av;
     var url = "img/bg-" + document.body.dataset.variant + "-autumn.jpg" + version;
     var maskUrl = "img/bg-day-autumn.jpg" + version;
-    document.getElementById("approach-grass-image").setAttribute("href", url);
     document.getElementById("approach-flower-image").setAttribute("href", url);
     // 네 시간대는 같은 꽃을 색보정한 그림이다. 경계 판정은 밝은 낮 원본을
-    // 공통으로 쓰고, 실제 꽃·잔디 색만 현재 시간대의 배경에서 가져온다.
+    // 공통으로 쓰고, 실제 꽃 색만 현재 시간대의 배경에서 가져온다.
     document.getElementById("approach-flower-mask").setAttribute("href", maskUrl);
     if (!maskReady && !maskLoading) {
       maskLoading = true; maskFailed = false;
@@ -2350,7 +2383,7 @@ function createSceneMotion(restart, cleanup) {
       document.getElementById("naeruStill").src = hd.src;
     }
     approach.style.transform = ""; stride.style.transform = "";
-    ground.style.opacity = "0"; shadow.style.opacity = "0";
+    window.naeruShadow.travel(""); window.naeruShadow.lift(0);
     if (document.activeElement === back) document.getElementById("settings-open").focus();
     back.hidden = true;
     document.getElementById("naeru-touch").setAttribute("aria-label", "내루미에게 인사하기");
@@ -2378,9 +2411,8 @@ function createSceneMotion(restart, cleanup) {
     stride.style.transform = "translate(" + (sway * .8).toFixed(3) + "%," +
       (-lift * 1.3).toFixed(3) + "%) rotate(" + (sway * 1.7).toFixed(3) +
       "deg) scaleY(" + (1 - lift * .012).toFixed(4) + ")";
-    var departed = Math.min(1, depth * 8);
-    ground.style.opacity = departed.toFixed(3);
-    shadow.style.opacity = (departed * (1 - lift * .35)).toFixed(3);
+    window.naeruShadow.travel(approach.style.transform);
+    window.naeruShadow.lift(lift * .4);
     if (useHD) {
       // 아직 작은 거리에서 같은 뉴트럴 그림으로 연결해, 얼굴이 커지기 전에 바꾼다.
       var mix = Math.max(0, Math.min(1, (p - .04) / .20));

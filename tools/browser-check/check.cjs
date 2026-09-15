@@ -83,7 +83,7 @@ async function check(name, fn) {
               assert.notEqual(state.filter, 'none');
               assert.equal(state.still, '1'); assert.equal(state.video, false);
               await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
-                document.querySelector('#naeruStill').naturalWidth === 2304);
+                document.querySelector('#naeruStill').naturalWidth === 4608);
               assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
               await shot(p, `${season}-${band}-${w}`);
             }
@@ -179,7 +179,7 @@ async function check(name, fn) {
         await p.route('https://api.open-meteo.com/**', r => { pending = r; });
         await open(p, 'v=day');
         assert.equal(await p.locator('#time').textContent(), '12:00');
-        assert([576, 2304].includes(await p.locator('#naeruStill').evaluate(e => e.naturalWidth)));
+        assert([576, 4608].includes(await p.locator('#naeruStill').evaluate(e => e.naturalWidth)));
         assert(pending);
         await pending.fulfill({ json: meteo(85) });
         await p.waitForFunction(() => document.querySelector('#info').textContent.includes('소낙눈'));
@@ -199,7 +199,7 @@ async function check(name, fn) {
           getComputedStyle(document.querySelector('#naeruStill')).opacity === '1',
         null, { timeout: 20000 });
         assert.equal(await p.locator('#naeruStill').evaluate(e => getComputedStyle(e).opacity), '1');
-        assert.equal(await p.locator('#naeruStill').evaluate(e => e.naturalWidth), 2304);
+        assert.equal(await p.locator('#naeruStill').evaluate(e => e.naturalWidth), 4608);
         assert.deepEqual(p.errors, []);
       } finally { await p.close(); }
     });
@@ -279,6 +279,57 @@ async function check(name, fn) {
         await playing(p); assert.deepEqual(p.errors, []);
       } finally { releaseProbe(); await p.close(); }
     });
+    await check('그림자: 사계절·정지 모드와 점프 중 지면 고정', async () => {
+      for (const season of ['spring', 'summer', 'autumn', 'winter']) {
+        const p = await makePage({ reducedMotion: 'reduce' });
+        try {
+          await open(p, `s=${season}&v=day&w=clear&act=0`);
+          assert.equal(await p.locator('#naeru-shadow').isVisible(), true);
+          assert.equal(await p.locator('#naeru-shadow').evaluate(e => e.parentElement.id), 'stage');
+          assert.equal(await p.locator('#approach-ground').count(), 0);
+          assert.equal(await p.locator('#approach-shadow').count(), 0);
+          const [shadow, body] = await Promise.all([
+            p.locator('#naeru-shadow').boundingBox(), p.locator('#naeru-move').boundingBox()
+          ]);
+          assert.deepEqual(shadow, body);
+          assert(await p.locator('#shadow-contact').evaluate(e => +getComputedStyle(e).opacity) > 0);
+          assert.deepEqual(p.errors, []);
+        } finally { await p.close(); }
+      }
+      await Promise.all([[1280, 720], [390, 844]].map(async ([width, height]) => {
+        const p = await makePage({ viewport: { width, height } });
+        try {
+          await open(p, 's=summer&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
+          await playing(p);
+          const samples = await p.evaluate(() => new Promise(resolve => {
+            const shadow = document.querySelector('#naeru-shadow');
+            const body = document.querySelector('#naeru-move');
+            const contact = document.querySelector('#shadow-contact');
+            const frames = [];
+            function sample() {
+              const s = shadow.getBoundingClientRect(), b = body.getBoundingClientRect();
+              frames.push({ groundY: s.y + s.height * .790323, bodyY: b.y,
+                opacity: +getComputedStyle(contact).opacity });
+              if (naeru.busy) requestAnimationFrame(sample);
+              else resolve(frames);
+            }
+            frames.push({ groundY: shadow.getBoundingClientRect().y +
+              shadow.getBoundingClientRect().height * .790323,
+              bodyY: body.getBoundingClientRect().y, opacity: +getComputedStyle(contact).opacity });
+            document.dispatchEvent(new Event('naeru:greet'));
+            requestAnimationFrame(sample);
+          }));
+          assert(samples.length > 5);
+          assert(samples[0].bodyY - Math.min(...samples.map(s => s.bodyY)) > 5);
+          assert(Math.max(...samples.map(s => s.groundY)) -
+            Math.min(...samples.map(s => s.groundY)) < .1);
+          assert(Math.min(...samples.map(s => s.opacity)) < samples[0].opacity * .6);
+          assert.equal(samples.at(-1).opacity, samples[0].opacity);
+          await shot(p, `shadow-returned-${width}`);
+          assert.deepEqual(p.errors, []);
+        } finally { await p.close(); }
+      }));
+    });
     await check('다가오기: 네 화면비에서 접근·눈 맞춤·자동 복귀', async () => {
       await Promise.all([[1920, 1080], [390, 844], [844, 390], [2560, 1080]].map(async ([width, height]) => {
         const p = await makePage({ viewport: { width, height } });
@@ -292,12 +343,13 @@ async function check(name, fn) {
           const close = await p.evaluate(() => ({
             eye: document.querySelector('#naeru-brow').getBoundingClientRect().toJSON(),
             flowers: getComputedStyle(document.querySelector('#approach-flowers')).opacity,
-            ground: document.querySelector('#approach-ground').style.opacity,
+            shadow: document.querySelector('#naeru-shadow').style.transform,
+            approach: document.querySelector('#naeru-approach').style.transform,
             width: document.body.scrollWidth
           }));
           assert(close.eye.x > width * .3 && close.eye.x < width * .7);
           assert(close.eye.y > height * .25 && close.eye.y < height * .5);
-          assert.equal(close.flowers, '1'); assert.equal(close.ground, '1');
+          assert.equal(close.flowers, '1'); assert.equal(close.shadow, close.approach);
           assert.equal(close.width, width); await shot(p, `approach-${width}-close`);
           await p.waitForFunction(() => !document.documentElement.dataset.approach);
           assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
@@ -310,7 +362,7 @@ async function check(name, fn) {
         } finally { await p.close(); }
       }));
     });
-    await check('다가오기: 가을 네 시간대의 첫 방문·꽃·잔디 레이어', async () => {
+    await check('다가오기: 가을 네 시간대의 첫 방문·꽃·지면 그림자', async () => {
       for (const [width, height] of [[1920, 1080], [390, 844]]) {
         await Promise.all(['dawn', 'day', 'dusk', 'night'].map(async band => {
           const p = await makePage({ viewport: { width, height } });
@@ -327,13 +379,11 @@ async function check(name, fn) {
             await p.waitForTimeout(1800); await shot(p, `autumn-${band}-${width}-walking`);
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
             assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'hd');
-            assert.equal(await p.locator('#naeruHd').evaluate(e => e.naturalWidth), 2304);
+            assert.equal(await p.locator('#naeruHd').evaluate(e => e.naturalWidth), 4608);
             assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '1');
             assert.equal(await video.evaluate(v => v.style.opacity), '0');
-            for (const id of ['approach-flower-image', 'approach-grass-image']) {
-              assert.match(await p.locator('#' + id).getAttribute('href'),
-                new RegExp(`bg-${band}-autumn\\.jpg`));
-            }
+            assert.match(await p.locator('#approach-flower-image').getAttribute('href'),
+              new RegExp(`bg-${band}-autumn\\.jpg`));
             assert.match(await p.locator('#approach-flower-mask').getAttribute('href'),
               /bg-day-autumn\.jpg/);
             assert.equal(await video.evaluate(v => v.currentTime), frozen.time);
@@ -471,7 +521,9 @@ async function check(name, fn) {
           assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '0');
           assert.equal(await p.evaluate(() => [...document.querySelectorAll('video.naeru')]
             .every(v => !v.style.opacity)), true);
-          assert.equal(await p.locator('#approach-ground').evaluate(e => e.style.opacity), '0');
+          assert.equal(await p.locator('#naeru-shadow').evaluate(e => e.style.transform), '');
+          assert.equal(await p.locator('#naeru-shadow').evaluate(e =>
+            e.style.getPropertyValue('--contact-density')), '1.000');
           if (kind === 'hidden') {
             await p.evaluate(() => {
               Object.defineProperty(document, 'hidden', { configurable: true, value: false });
