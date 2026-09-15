@@ -56,7 +56,8 @@ async function check(name, fn) {
   }
   async function playing(page) {
     await page.waitForFunction(() => [...document.querySelectorAll('video')]
-      .some(v => v.classList.contains('on') && !v.paused && v.currentTime > .3));
+      .some(v => v.classList.contains('on') && !v.paused && v.currentTime > .3),
+    null, { timeout: 30000 }); // 첫 인사 동안은 뉴트럴 프레임을 의도적으로 멈춘다.
   }
   async function shot(page, name) {
     if (out) await page.screenshot({ path: path.join(out, name + '.png'), animations: 'disabled' });
@@ -203,7 +204,8 @@ async function check(name, fn) {
             window.cancelAnimationFrame = clearTimeout;
           }, fps);
           await open(p, 'v=day&w=clear&ball=1&flit=0&ff=0');
-          await p.waitForFunction(() => document.querySelector('#ball').style.opacity === '1');
+          await p.waitForFunction(() => document.querySelector('#ball').style.opacity === '1',
+            null, { timeout: 30000 }); // 첫 인사가 끝난 뒤 공이 들어온다.
           await p.waitForFunction(() => document.querySelector('#ball').style.opacity === '0' &&
             !window.naeru.busy, null, { timeout: 12000 });
           await p.locator('#naeru-touch').press('Space');
@@ -218,7 +220,7 @@ async function check(name, fn) {
       try {
         await open(p, 's=autumn&v=day&w=clear&ball=0&flit=1&ff=0');
         await p.waitForFunction(() => !!document.querySelector('video[data-pause-owner="butterfly"]'),
-          null, { timeout: 22000 });
+          null, { timeout: 35000 });
         await p.evaluate(() => {
           Object.defineProperty(document, 'hidden', { configurable: true, value: true });
           document.dispatchEvent(new Event('visibilitychange'));
@@ -300,6 +302,81 @@ async function check(name, fn) {
         } finally { await p.close(); }
       }));
     });
+    await check('다가오기: 가을 네 시간대의 첫 방문·꽃·잔디 레이어', async () => {
+      for (const [width, height] of [[1920, 1080], [390, 844]]) {
+        await Promise.all(['dawn', 'day', 'dusk', 'night'].map(async band => {
+          const p = await makePage({ viewport: { width, height } });
+          p.setDefaultTimeout(30000);
+          try {
+            await p.addInitScript(() => { Math.random = () => .99; });
+            await open(p, `s=autumn&v=${band}&w=clear&ball=0&flit=0&ff=0`);
+            await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+            const video = p.locator('video.naeru.on');
+            const frozen = await video.evaluate(v => ({ time: v.currentTime,
+              owner: v.dataset.pauseOwner, paused: v.paused }));
+            assert.equal(frozen.owner, 'approach'); assert(frozen.paused);
+            assert(frozen.time <= 8 / 24 || frozen.time >= 308 / 24);
+            await p.waitForTimeout(1800); await shot(p, `autumn-${band}-${width}-walking`);
+            await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
+            for (const id of ['approach-flower-image', 'approach-grass-image']) {
+              assert.match(await p.locator('#' + id).getAttribute('href'),
+                new RegExp(`bg-${band}-autumn\\.jpg`));
+            }
+            assert.match(await p.locator('#approach-flower-mask').getAttribute('href'),
+              /bg-day-autumn\.jpg/);
+            assert.equal(await video.evaluate(v => v.currentTime), frozen.time);
+            await shot(p, `autumn-${band}-${width}-close`);
+            await p.waitForFunction(() => !document.documentElement.dataset.approach);
+            await playing(p);
+            assert.equal(await video.evaluate(v => v.dataset.pauseOwner), undefined);
+            await shot(p, `autumn-${band}-${width}-returned`);
+            assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+          } finally { await p.close(); }
+        }));
+      }
+    });
+    await check('다가오기: 실제 몸짓·영상 포즈 대기·탐색 없이 고정·재생 복원', async () => {
+      const p = await makePage();
+      p.setDefaultTimeout(30000);
+      try {
+        await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
+        await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+        await p.click('#approach-return');
+        await p.waitForFunction(() => !document.documentElement.dataset.approach);
+        await playing(p);
+        await p.evaluate(async () => {
+          const v = document.querySelector('video.naeru.on');
+          await new Promise(resolve => {
+            v.addEventListener('seeked', resolve, { once: true });
+            v.currentTime = 130 / 24; // 검사 시작점만 팔을 벌린 프레임으로 맞춘다.
+          });
+          window.approachSeeks = 0;
+          v.addEventListener('seeking', () => window.approachSeeks++);
+          document.dispatchEvent(new Event('naeru:greet'));
+          document.dispatchEvent(new Event('naeru:approach'));
+          document.dispatchEvent(new Event('naeru:focus-complete'));
+        });
+        await p.waitForTimeout(200);
+        assert.equal(await p.evaluate(() => naeru.busy), true);
+        assert.equal(await p.evaluate(() => document.documentElement.dataset.approach), undefined);
+        await p.waitForFunction(() => !naeru.busy);
+        assert.equal(await p.evaluate(() => document.documentElement.dataset.approach), undefined);
+        assert.equal(await p.locator('video.naeru.on').evaluate(v => v.paused), false);
+        await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+        const frozen = await p.locator('video.naeru.on').evaluate(v => v.currentTime);
+        assert(frozen <= 8 / 24 || frozen >= 308 / 24);
+        assert.equal(await p.evaluate(() => window.approachSeeks), 0);
+        assert.equal(await p.locator('#naeru-act').evaluate(e => e.style.transform), '');
+        await p.waitForTimeout(1200);
+        assert.equal(await p.locator('video.naeru.on').evaluate(v => v.currentTime), frozen);
+        await p.click('#approach-return');
+        await p.waitForFunction(() => !document.documentElement.dataset.approach);
+        await playing(p);
+        assert.equal(await p.locator('video.naeru.on').evaluate(v => v.dataset.pauseOwner), undefined);
+        assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
+        assert.deepEqual(p.errors, []);
+      } finally { await p.close(); }
+    });
     await check('다가오기: 숨김·풍경 변경·동작 줄이기·화면 회전·Escape', async () => {
       await Promise.all(['hidden', 'scene', 'reduced', 'resize', 'escape'].map(async kind => {
         const p = await makePage();
@@ -334,8 +411,38 @@ async function check(name, fn) {
         } finally { await p.close(); }
       }));
     });
+    await check('다가오기: 출발 전 포즈 예약 중 숨김·정지 모드 복구', async () => {
+      await Promise.all(['hidden', 'reduced'].map(async kind => {
+        const p = await makePage();
+        try {
+          await open(p, 's=autumn&v=night&w=clear&act=approach&ball=0&flit=0&ff=0');
+          await p.waitForFunction(() => document.querySelector('video[data-pause-owner="approach"]') &&
+            !document.documentElement.dataset.approach);
+          if (kind === 'hidden') {
+            await p.evaluate(() => {
+              Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+              document.dispatchEvent(new Event('visibilitychange'));
+            });
+          } else await p.emulateMedia({ reducedMotion: 'reduce' });
+          await p.waitForFunction(() => !naeru.busy && !naeru.hold &&
+            !document.querySelector('video[data-pause-owner="approach"]'));
+          assert.equal(await p.evaluate(() => document.documentElement.dataset.approach), undefined);
+          if (kind === 'hidden') {
+            await p.evaluate(() => {
+              Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+              document.dispatchEvent(new Event('visibilitychange'));
+            });
+            await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+          } else {
+            assert.equal(await p.locator('#naeruStill').evaluate(e => e.classList.contains('on')), true);
+          }
+          assert.deepEqual(p.errors, []);
+        } finally { await p.close(); }
+      }));
+    });
     await check('다가오기: 설정 버튼·중복 요청·집중 완료 예약·장면 제한', async () => {
       const p = await makePage();
+      p.setDefaultTimeout(30000); // 요청 시점에 따라 영상 한 루프를 기다린다.
       try {
         await open(p, 's=autumn&v=day&w=clear&ball=0&flit=0&ff=0'); await playing(p);
         await p.click('#settings-open'); await p.click('#approach-preview');
@@ -353,7 +460,7 @@ async function check(name, fn) {
         await p.waitForFunction(() => !document.documentElement.dataset.approach);
         assert.deepEqual(p.errors, []);
       } finally { await p.close(); }
-      await Promise.all(['s=winter&v=day&w=clear', 's=autumn&v=dusk&w=clear',
+      await Promise.all(['s=winter&v=day&w=clear', 's=spring&v=dusk&w=clear',
         's=autumn&v=day&w=rain', 's=autumn&v=day&w=clear&still=1'].map(async query => {
         const p = await makePage();
         try {
@@ -384,12 +491,26 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []);
       } finally { await p.close(); }
     });
-    await check('다가오기: 5분 자동 방문 반복·숨은 탭 방문 누적 방지', async () => {
+    await check('다가오기: 첫 방문·약 5분·포즈 대기·숨은 탭 방문 누적 방지', async () => {
       const p = await makePage();
       try {
         await p.clock.install({ time: now });
         await p.addInitScript(() => {
           Math.random = () => .5;
+          // 가상 시계는 네이티브 영상 시간을 진행시키지 않는다. 이 검사만
+          // 포즈 시간을 제어하고 실제 재생·탐색 여부는 별도 검사에서 확인한다.
+          window.testPoseTime = .1;
+          const time = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+          Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
+            configurable: true, get() { return window.testPoseTime; }, set: time.set
+          });
+          // 재생 감시에도 가상 재생을 알린다. 실제 벽시계의 timeupdate를
+          // 기다리면 수 분을 건너뛴 검사에서 영상 실패 폴백으로 바뀐다.
+          setInterval(() => {
+            document.querySelectorAll('video.naeru.on').forEach(v => {
+              if (!v.paused) v.dispatchEvent(new Event('timeupdate'));
+            });
+          }, 200);
           window.visits = [];
           document.addEventListener('naeru:scene', () => {
             if (document.documentElement.dataset.sceneReady === 'true') {
@@ -405,36 +526,47 @@ async function check(name, fn) {
               attributeFilter: ['data-approach'] });
           });
         });
-        await open(p, 's=autumn&v=day&w=clear&ball=0&flit=0&ff=0'); await playing(p);
+        await open(p, 's=autumn&v=day&w=clear&ball=0&flit=0&ff=0');
+        await p.waitForFunction(() => window.visits.length === 1);
         await p.clock.pauseAt(new Date(await p.evaluate(() => Date.now() + 1000)));
+        await p.clock.runFor(11000);
         assert.deepEqual(p.errors, []);
         async function advanceBeforeVisit(startedAt) {
           const elapsed = await p.evaluate(() => performance.now());
           await p.clock.fastForward(Math.max(0, Math.floor(startedAt + 299000 - elapsed)));
         }
-        await advanceBeforeVisit(await p.evaluate(() => window.readyAt));
-        assert.equal(await p.evaluate(() => window.visits.length), 0);
-        await p.clock.runFor(12000);
-        assert.equal(await p.evaluate(() => window.visits.length), 1);
         await advanceBeforeVisit(await p.evaluate(() => window.visits[0]));
         assert.equal(await p.evaluate(() => window.visits.length), 1);
+        await p.evaluate(() => { window.testPoseTime = 5; naeru.hold = true; });
+        await p.clock.runFor(3000);
+        assert.equal(await p.evaluate(() => window.visits.length), 1);
+        await p.evaluate(() => { naeru.hold = false; });
+        await p.clock.runFor(3000);
+        assert.equal(await p.evaluate(() => window.visits.length), 1);
+        await p.evaluate(() => { window.testPoseTime = .1; });
         await p.clock.runFor(12000);
         assert.equal(await p.evaluate(() => window.visits.length), 2);
+        const visits = await p.evaluate(() => window.visits);
+        assert(visits[1] - visits[0] >= 305000);
+        await advanceBeforeVisit(visits[1]);
+        assert.equal(await p.evaluate(() => window.visits.length), 2);
+        await p.clock.runFor(12000);
+        assert.equal(await p.evaluate(() => window.visits.length), 3);
         await p.evaluate(() => {
           Object.defineProperty(document, 'hidden', { configurable: true, value: true });
           document.dispatchEvent(new Event('visibilitychange'));
         });
         await p.clock.fastForward(600000);
-        assert.equal(await p.evaluate(() => window.visits.length), 2);
+        assert.equal(await p.evaluate(() => window.visits.length), 3);
         const resumedAt = await p.evaluate(() => {
           Object.defineProperty(document, 'hidden', { configurable: true, value: false });
           document.dispatchEvent(new Event('visibilitychange'));
           return performance.now();
         });
         await advanceBeforeVisit(resumedAt);
-        assert.equal(await p.evaluate(() => window.visits.length), 2);
-        await p.clock.runFor(12000);
         assert.equal(await p.evaluate(() => window.visits.length), 3);
+        await p.clock.runFor(12000);
+        assert.equal(await p.evaluate(() => window.visits.length), 4);
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });

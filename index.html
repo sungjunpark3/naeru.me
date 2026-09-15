@@ -145,6 +145,9 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     border-radius: 50%; opacity: 0;
     background: radial-gradient(ellipse, rgba(43, 42, 26, .3), transparent 70%);
   }
+  body[data-variant="dawn"] #approach-shadow { filter: opacity(.85); }
+  body[data-variant="dusk"] #approach-shadow { filter: opacity(.9); }
+  body[data-variant="night"] #approach-shadow { filter: opacity(.6); }
   html[data-approach] #approach-flowers { opacity: 1; }
   html[data-approach] .clock-wrap { opacity: .22; transition: opacity .6s; }
   #approach-return {
@@ -708,7 +711,8 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
       <span>가까이서 인사할까요?</span>
       <button id="approach-preview" type="button">가까이 와줘</button>
     </div>
-    <p class="settings-note">5분마다 놀러 오고, 집중을 마치면 쉬어갈 시간을 알려줘요.</p>
+    <p class="settings-note">처음 만나면 인사하러 와요. 그다음엔 약 5분마다,
+      하던 동작을 마치고 놀러 와요. 집중을 마치면 쉬어갈 시간도 알려줘요.</p>
   </fieldset>
   <fieldset>
     <legend>잠깐 집중하기</legend>
@@ -1403,7 +1407,11 @@ function createSceneMotion(restart, cleanup) {
     flinch: flinch,
     peek:   peek,       // 나비 IIFE가 "머리에 앉았다"고 알릴 때 쓴다
     headAt: headAt,     // 머리 꼭대기 — 공의 조준점
-    browAt: browAt      // 두 눈 사이 — 나비가 앉는 자리
+    browAt: browAt,     // 두 눈 사이 — 나비가 앉는 자리
+    isNeutral: function () {
+      return !window.naeru.busy && !window.naeru.hold && !emoteBusy &&
+             !move.style.transform && !act.style.transform;
+    }
   };
 
   function rand(a, b) { return a + Math.random() * (b - a); }
@@ -2231,7 +2239,7 @@ function createSceneMotion(restart, cleanup) {
 </script>
 
 <script>
-/* ── 가을 낮: 다가와 눈 맞추기 ─────────────────────────────────
+/* ── 가을: 뉴트럴 포즈에서 다가와 눈 맞추기 ───────────────────
    6걸음 → 가까이서 2.4초 인사 → 5걸음으로 복귀. 화면 크기로 끝 위치를
    계산하되 배경·꽃은 기존 cover 상자를 그대로 쓴다. 새 보행 영상 없이
    보폭의 가감속·체중 이동을 합성하는 시범 동작이다. */
@@ -2246,25 +2254,47 @@ function createSceneMotion(restart, cleanup) {
   var back = document.getElementById("approach-return");
   var preview = document.getElementById("approach-preview");
   var panel = document.getElementById("settings-panel");
-  var pending = null, running = false, demoPlayed = false;
+  var pending = null, running = false, visited = false;
+  var reserved = false, frozenVideo = null;
+  var maskReady = false, maskLoading = false, maskFailed = false;
+  var maskImage = new Image();
   var visitGap = 5 * 60 * 1000, nextVisit = performance.now() + visitGap;
   var readyAt = performance.now(), geometry = null, progress = 0;
   var phase = "", phaseStart = 0, returnFrom = 1;
 
   function eligible() {
-    return root.dataset.season === "autumn" && document.body.dataset.variant === "day" &&
+    return root.dataset.season === "autumn" && document.body.dataset.weather === "clear" &&
+           ["dawn", "day", "dusk", "night"].indexOf(document.body.dataset.variant) >= 0 &&
            !window.naeruReduced() && params.get("act") !== "0";
+  }
+  function prepareLayers() {
+    if (!eligible() || root.dataset.sceneReady !== "true") return;
+    var version = "?v=" + root.dataset.av;
+    var url = "img/bg-" + document.body.dataset.variant + "-autumn.jpg" + version;
+    var maskUrl = "img/bg-day-autumn.jpg" + version;
+    document.getElementById("approach-grass-image").setAttribute("href", url);
+    document.getElementById("approach-flower-image").setAttribute("href", url);
+    // 네 시간대는 같은 꽃을 색보정한 그림이다. 경계 판정은 밝은 낮 원본을
+    // 공통으로 쓰고, 실제 꽃·잔디 색만 현재 시간대의 배경에서 가져온다.
+    document.getElementById("approach-flower-mask").setAttribute("href", maskUrl);
+    if (!maskReady && !maskLoading) {
+      maskLoading = true; maskFailed = false;
+      maskImage.onload = function () { maskReady = true; maskLoading = false; controls(); };
+      maskImage.onerror = function () { maskFailed = true; maskLoading = false; controls(); };
+      maskImage.src = maskUrl;
+    }
   }
   function controls() {
     document.getElementById("approach-setting").hidden = !eligible();
-    preview.disabled = running || Boolean(pending) || root.dataset.sceneReady !== "true";
+    preview.disabled = running || Boolean(pending) || maskFailed ||
+                       root.dataset.sceneReady !== "true";
   }
   function reset() {
-    var owned = running;
+    var owned = running || reserved;
     if (document.hidden && pending !== "focus") pending = null;
     if (pending === "auto" && root.dataset.sceneReady !== "true") pending = null;
     if (window.naeruReduced()) pending = null;
-    running = false; geometry = null; progress = 0;
+    running = false; reserved = false; geometry = null; progress = 0;
     delete root.dataset.approach;
     approach.style.transform = ""; stride.style.transform = "";
     ground.style.opacity = "0"; shadow.style.opacity = "0";
@@ -2272,6 +2302,15 @@ function createSceneMotion(restart, cleanup) {
     back.hidden = true;
     document.getElementById("naeru-touch").setAttribute("aria-label", "내루미에게 인사하기");
     if (owned && window.naeru) { window.naeru.busy = false; window.naeru.hold = false; }
+    if (frozenVideo) {
+      var video = frozenVideo; frozenVideo = null;
+      if (video.dataset.pauseOwner === "approach") {
+        delete video.dataset.pauseOwner;
+        if (sceneMotionAllowed() && video.classList.contains("on")) {
+          video.play().catch(function () {});
+        }
+      }
+    }
     controls();
   }
   function pose(p, beat, envelope) {
@@ -2301,7 +2340,7 @@ function createSceneMotion(restart, cleanup) {
     var t = Math.min(1, (now - phaseStart) /
       (phase === "walking" ? 4200 : phase === "close" ? 2400 : 3400));
     if (phase === "close") {
-      // 대기 중 원래 영상의 표정은 계속 움직이고, 몸만 살짝 갸웃한다.
+      // 접근 내내 영상의 뉴트럴 포즈를 유지하고 DOM 몸짓만 살짝 움직인다.
       pose(1, 0, 0);
       stride.style.transform = "rotate(" + (Math.sin(t * Math.PI * 2) * 1.4).toFixed(3) + "deg)";
       if (t === 1) { returnFrom = 1; changePhase("returning", now); }
@@ -2319,7 +2358,7 @@ function createSceneMotion(restart, cleanup) {
     motion.frame(animate);
   }
   function begin() {
-    pending = null; running = true;
+    pending = null; running = true; visited = true;
     nextVisit = performance.now() + visitGap;
     window.naeru.busy = true; window.naeru.hold = true;
     var box = move.getBoundingClientRect();
@@ -2334,10 +2373,6 @@ function createSceneMotion(restart, cleanup) {
     geometry = { scale: scale,
       x: innerWidth * .5 - footX - (eye.left - footX) * scale,
       y: innerHeight * .39 - footY - (eye.top - footY) * scale };
-    var url = "img/bg-day-autumn.jpg?v=" + root.dataset.av;
-    document.getElementById("approach-grass-image").setAttribute("href", url);
-    document.getElementById("approach-flower-image").setAttribute("href", url);
-    document.getElementById("approach-flower-mask").setAttribute("href", url);
     back.hidden = false;
     document.getElementById("greeting").hidden = true;
     document.getElementById("naeru-touch").setAttribute("aria-label", "내루미를 제자리로 보내기");
@@ -2350,10 +2385,33 @@ function createSceneMotion(restart, cleanup) {
       if (greet) document.dispatchEvent(new CustomEvent("naeru:greet", { detail: { dir: 1 } }));
       return;
     }
-    // 배경 페이드와 이미 진행 중인 공·나비·인사가 끝난 다음 출발한다.
-    if (performance.now() - readyAt < 2800 || window.naeru.busy || window.naeru.hold || panel.open) {
+    if (maskFailed) {
+      pending = null; reset();
+      document.dispatchEvent(new CustomEvent("naeru:greet", { detail: { dir: 1 } }));
+      return;
+    }
+    if (!maskReady || panel.open || (!reserved && !window.naeru.isNeutral())) {
       motion.later(tryPending, 250); controls(); return;
     }
+    if (!reserved) {
+      var video = document.querySelector("video.naeru.on");
+      if (video) {
+        // 루프의 양끝 약 8프레임은 팔을 내린 포즈다. 팔 벌리기·혀 흔들기는
+        // busy와 별개로 영상 안에 있으므로 재생 위치도 확인한다. 강제 탐색하지
+        // 않고 자연스럽게 이 구간에 도착한 화면을 그대로 멈춘다.
+        var loop = 316 / 24, t = video.currentTime % loop;
+        if (video.paused || video.seeking || video.readyState < 2 || video.dataset.pauseOwner ||
+            (t > 8 / 24 && t < loop - 8 / 24)) {
+          motion.later(tryPending, 40); return;
+        }
+        frozenVideo = video;
+        video.dataset.pauseOwner = "approach"; video.pause();
+      }
+      // 영상 실패 폴백은 0001 프레임 정지본이라 이미 뉴트럴 포즈다.
+      reserved = true; window.naeru.hold = true;
+    }
+    // 첫 접속에서 뉴트럴을 잡은 뒤 배경 페이드가 끝나기를 기다린다.
+    if (performance.now() - readyAt < 2800) { motion.later(tryPending, 100); return; }
     begin();
   }
   function request(kind) {
@@ -2378,13 +2436,14 @@ function createSceneMotion(restart, cleanup) {
   // scene 이벤트는 플레이어 초기 정지본/영상 확정 때 두 번 올 수 있다.
   // 예약은 보존하고, 마지막 확정부터 페이드가 끝날 시간을 다시 센다.
   document.addEventListener("naeru:scene", function () {
-    readyAt = performance.now(); controls();
+    readyAt = performance.now(); prepareLayers(); controls();
   });
   var motion = createSceneMotion(function () {
     // 숨은 탭의 방문을 몰아서 재생하지 않고, 돌아온 장면에서 새로 5분을 센다.
     nextVisit = performance.now() + visitGap;
-    if (params.get("act") === "approach" && !demoPlayed && eligible()) {
-      demoPlayed = true; pending = "preview";
+    if (!visited && eligible() && !pending &&
+        (!params.has("act") || params.get("act") === "approach")) {
+      pending = "startup";
     }
     tryPending(); scheduleVisit();
   }, reset);
