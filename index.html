@@ -88,7 +88,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
      움직여야 정렬이 유지되고, 살짝 확대해서 흔들린 만큼 가장자리에
      빈 틈이 생기지 않게 한다 (기본값 none이면 아무 영향 없음).
      배경·#stage를 같이 넣어야 흔들릴 때 내루미가 배경에서 떨어져 보이지 않는다 */
-  .bg-still, .bg-layer, #stage {
+  .bg-still, .bg-layer, #stage, #foreground {
     transform: var(--bg-shake, none);
   }
 
@@ -136,10 +136,14 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
      기존 폴짝·인사와 transform을 공유하지 않는다. */
   html[data-approach] #naeru-approach,
   html[data-approach] #naeru-stride { will-change: transform; }
-  #approach-flowers {
+  /* 배경과 같은 cover 좌표를 쓰되 내루미의 이동·확대와는 독립된 앞풀이다.
+     계절·시간대 색을 자산에 입혔으므로 #stage의 캐릭터용 필터 밖에 둔다. */
+  #foreground { position: fixed; pointer-events: none; }
+  .foreground-layer {
     position: absolute; inset: 0; width: 100%; height: 100%;
-    pointer-events: none; opacity: 0;
+    opacity: 0; transition: opacity 2.5s ease;
   }
+  .foreground-layer.on { opacity: 1; }
   /* 그림자는 점프 겹의 형제다. 발이 떠도 바닥에 남고, 접근의 원근만 공유한다. */
   #naeru-shadow {
     --shadow-ink: 30, 43, 33; --cast-alpha: .30; --contact-alpha: .34;
@@ -179,7 +183,6 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   html[data-season="winter"] #naeru-shadow {
     --shadow-ink: 53, 68, 93;
   }
-  html[data-approach] #approach-flowers { opacity: 1; }
   html[data-approach] .clock-wrap { opacity: .22; transition: opacity .6s; }
   #approach-return, #approach-wait {
     left: 50%; top: max(20px, env(safe-area-inset-top)); transform: translateX(-50%);
@@ -206,6 +209,8 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   /* 두 원화의 불투명도를 더해 전환 중 몸이 반투명해지지 않게 한다.
      합성은 얼굴 그룹 안에 가둬 배경색까지 밝아지는 것을 막는다. */
   @supports (mix-blend-mode: plus-lighter) {
+    #foreground { isolation: isolate; }
+    .foreground-layer { mix-blend-mode: plus-lighter; }
     html[data-approach] #naeru-face { isolation: isolate; }
     html[data-approach] :is(.naeru, #naeruStill, #naeruHd, #naeruClose) {
       mix-blend-mode: plus-lighter;
@@ -544,7 +549,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   html[data-motion="still"] :is(.rain, .fall, .naeru, #naeruNt, #tongue, #glow, #frame) {
     display: none !important;
   }
-  html[data-motion="still"] :is(.bg-layer, #stage, #naeruStill) { transition: none; }
+  html[data-motion="still"] :is(.bg-layer, .foreground-layer, #stage, #naeruStill) { transition: none; }
   html[data-motion="still"] #naeruStill.on { opacity: 1; }
 
   /* 움직임 최소화 설정 존중: 영상 없이 정지 프레임만 표시
@@ -554,7 +559,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     .rain, .fall { display: none !important; }
     .naeru, #naeruNt, #tongue { display: none !important; }
     #glow { display: none !important; }
-    .bg-layer, #naeruStill { transition: none !important; }
+    .bg-layer, .foreground-layer, #naeruStill { transition: none !important; }
     #frame { display: none !important; }
   }
 </style>
@@ -588,60 +593,13 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   </div><div id="emote" class="graded" aria-hidden="true"></div></div></div>
   <button id="naeru-touch" type="button" aria-label="내루미에게 인사하기"></button>
   </div></div>
-  <!-- 앞꽃은 같은 배경의 픽셀을 SVG 색상 마스크로 다시 보여준다.
-       R-2G+B로 분홍·보라·흰 꽃잎과 잔디를 구분해 붓질 경계를 보존한다.
-       꽃술·줄기는 좌표로 보완하고 가장 아래 풀은 부드럽게 연결한다. -->
-  <svg id="approach-flowers" viewBox="0 0 2048 1152" aria-hidden="true">
-    <defs>
-      <filter id="flower-ink" color-interpolation-filters="sRGB">
-        <feColorMatrix in="SourceGraphic" type="matrix" result="pink"
-          values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  12 -24 12 0 -.1"/>
-        <feColorMatrix in="SourceGraphic" type="matrix" result="white"
-          values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  6 6 6 0 -10"/>
-        <feComposite in="pink" in2="white" operator="arithmetic" k2="1" k3="1"
-                     result="petals"/>
-        <feColorMatrix in="SourceGraphic" type="matrix" result="no-brown"
-          values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  -10 0 10 0 1.6"/>
-        <feComposite in="petals" in2="no-brown" operator="in"/>
-        <feComponentTransfer><feFuncA type="linear" slope="1.5" intercept="-.1"/></feComponentTransfer>
-        <feMorphology operator="erode" radius=".3"/>
-        <feGaussianBlur stdDeviation=".45"/>
-      </filter>
-      <clipPath id="flower-area">
-        <ellipse cx="538" cy="1026" rx="67" ry="42"/>
-        <ellipse cx="390" cy="1090" rx="61" ry="27"/>
-        <ellipse cx="135" cy="1131" rx="74" ry="43"/>
-        <ellipse cx="888" cy="1090" rx="67" ry="43"/>
-        <ellipse cx="1874" cy="938" rx="74" ry="40"/>
-        <ellipse cx="1778" cy="997" rx="59" ry="40"/>
-        <ellipse cx="1937" cy="1047" rx="91" ry="64"/>
-      </clipPath>
-      <radialGradient id="front-grass-fade">
-        <stop offset=".35" stop-color="white"/>
-        <stop offset="1" stop-color="black"/>
-      </radialGradient>
-      <mask id="front-flowers" maskUnits="userSpaceOnUse" x="0" y="0"
-            width="2048" height="1152">
-        <g fill="url(#front-grass-fade)">
-          <ellipse cx="100" cy="1240" rx="1000" ry="170"/>
-          <ellipse cx="2048" cy="1230" rx="780" ry="170"/>
-        </g>
-        <image id="approach-flower-mask" width="2048" height="1152"
-               filter="url(#flower-ink)" clip-path="url(#flower-area)"/>
-        <g fill="white">
-          <ellipse cx="532" cy="1030" rx="12" ry="6"/>
-          <ellipse cx="386" cy="1090" rx="15" ry="7"/>
-          <ellipse cx="1848" cy="935" rx="9" ry="7"/>
-          <ellipse cx="1938" cy="1045" rx="19" ry="11"/>
-        </g>
-        <path d="M537 1037Q563 1097 564 1152M388 1093l-10 59
-          M886 1098l-8 54M1937 1053l26 99M1849 942q-19 85-17 210
-          M1776 999q-38 65-54 153" fill="none" stroke="white" stroke-width="4"/>
-      </mask>
-    </defs>
-    <image id="approach-flower-image" width="2048" height="1152"
-           mask="url(#front-flowers)"/>
-  </svg>
+</div>
+
+<!-- 가을의 꽃·앞풀은 처음부터 내루미 앞에 놓인 투명 원화다.
+     배경 A/B와 같은 세대로 전환하며, 접근할 때 새로 나타나거나 커지지 않는다. -->
+<div id="foreground" aria-hidden="true">
+  <img id="foregroundA" class="foreground-layer" alt="">
+  <img id="foregroundB" class="foreground-layer" alt="">
 </div>
 
 <div class="rain rain-far"></div>
@@ -854,7 +812,7 @@ function createSceneMotion(restart, cleanup) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "45da0db510b3";
+  var ASSET_V = "022ff833fe67";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1015,6 +973,8 @@ function createSceneMotion(restart, cleanup) {
   var still = document.getElementById("naeruStill");
   var hd = document.getElementById("naeruHd");
   var stage = document.getElementById("stage");
+  var foreground = document.getElementById("foreground");
+  var fronts = [document.getElementById("foregroundA"), document.getElementById("foregroundB")];
   var slot = 0, active = null, activeSeason = null, requested = null;
   var generation = 0, noMotion = window.naeruReduced(), fallback = false, retries = 0;
   var hdRequest = 0;
@@ -1040,7 +1000,7 @@ function createSceneMotion(restart, cleanup) {
       if (request === hdRequest) hd.dataset.status = "failed";
     });
   }
-  function layout() { layoutFrameBox(stage); }
+  function layout() { layoutFrameBox(stage); layoutFrameBox(foreground); }
   addEventListener("resize", layout); layout();
 
   function sceneReady(ready) {
@@ -1123,6 +1083,8 @@ function createSceneMotion(restart, cleanup) {
   function showScene(variant, season) {
     var token = ++generation, nextSlot = active ? 1 - slot : slot;
     var key = variant + "/" + season, url = bgOf(variant, season);
+    var frontUrl = season === "autumn" ? av("foreground-" + variant + "-autumn.webp") : null;
+    var frontReady = false;
     requested = key; stopWatch(); sceneReady(false);
     prepareHD(variant);
     // 첫 화면의 시계와 배경은 날씨 요청을 기다리지 않는다.
@@ -1143,6 +1105,12 @@ function createSceneMotion(restart, cleanup) {
         ? 'url("' + av("snow-near.png") + '")' : "none");
       bgs[nextSlot].style.backgroundImage = 'url("' + url + '")';
       bgs[nextSlot].classList.add("on"); bgs[oldSlot].classList.remove("on");
+      // 전경도 이 장면의 로드가 끝난 뒤 함께 표시한다. 오래된 요청의 응답은
+      // 위의 generation 검사로 버리며, 실패하면 꽃 없는 완성된 들판을 쓴다.
+      if (frontReady) fronts[nextSlot].src = frontUrl;
+      fronts[nextSlot].classList.toggle("on", frontReady);
+      fronts[oldSlot].classList.remove("on");
+      root.dataset.foreground = frontReady ? "ready" : frontUrl ? "failed" : "none";
       still.src = stillOf(variant);
       still.classList.toggle("on", !video);
       videos.forEach(function (v) {
@@ -1157,7 +1125,16 @@ function createSceneMotion(restart, cleanup) {
         var old = videos[oldSlot]; old.pause(); old.removeAttribute("src"); old.load();
       }, noMotion ? 0 : 2700);
     }
-    Promise.all([decodeImage(url), decodeImage(stillOf(variant))]).then(function () {
+    // 전경 지연이 시계·배경을 끝없이 붙잡지 않도록 상한을 둔다. 늦은 원화는
+    // 이미 시작한 장면에 끼워 넣지 않고 다음 장면 전환에서 사용한다.
+    var frontLoaded = frontUrl ? new Promise(function (resolve) {
+      var timeout = setTimeout(function () { resolve(false); }, 4000);
+      decodeImage(frontUrl).then(function () {
+        clearTimeout(timeout); resolve(true);
+      }).catch(function () { clearTimeout(timeout); resolve(false); });
+    }) : Promise.resolve(false);
+    Promise.all([decodeImage(url), decodeImage(stillOf(variant)), frontLoaded]).then(function (loaded) {
+      frontReady = loaded[2];
       if (token !== generation) return;
       if (noMotion || fallback || document.hidden) { commit(null); return; }
       // 첫 접속은 정지본을 먼저 띄우고 디코딩된 영상으로 교체한다.
@@ -2341,8 +2318,6 @@ function createSceneMotion(restart, cleanup) {
   var panel = document.getElementById("settings-panel");
   var pending = null, running = false, visited = false;
   var reserved = false, frozenVideo = null;
-  var maskReady = false, maskLoading = false, maskFailed = false;
-  var maskImage = new Image();
   var visitGap = 5 * 60 * 1000, nextVisit = performance.now() + visitGap;
   var readyAt = performance.now(), geometry = null, progress = 0;
   var phase = "", phaseStart = 0, returnFrom = 1;
@@ -2369,27 +2344,15 @@ function createSceneMotion(restart, cleanup) {
         if (request === closeRequest) closeup.dataset.status = "failed";
       });
     }
-    var url = "img/bg-" + document.body.dataset.variant + "-autumn.jpg" + version;
-    var maskUrl = "img/bg-day-autumn.jpg" + version;
-    document.getElementById("approach-flower-image").setAttribute("href", url);
-    // 네 시간대는 같은 꽃을 색보정한 그림이다. 경계 판정은 밝은 낮 원본을
-    // 공통으로 쓰고, 실제 꽃 색만 현재 시간대의 배경에서 가져온다.
-    document.getElementById("approach-flower-mask").setAttribute("href", maskUrl);
-    if (!maskReady && !maskLoading) {
-      maskLoading = true; maskFailed = false;
-      maskImage.onload = function () { maskReady = true; maskLoading = false; controls(); };
-      maskImage.onerror = function () { maskFailed = true; maskLoading = false; controls(); };
-      maskImage.src = maskUrl;
-    }
   }
+
   function controls() {
     document.getElementById("approach-setting").hidden = !eligible();
     // 예약 중에도 호출할 수 있어야 설정 창을 닫고 그 인사를 이어갈 수 있다.
-    preview.disabled = running || maskFailed ||
+    preview.disabled = running ||
                        root.dataset.sceneReady !== "true";
     preview.textContent = running ? (phase === "returning" ? "돌아가는 중" :
       phase === "close" ? "인사하는 중" : "다가오는 중") :
-      maskFailed ? "준비하지 못했어요" :
       root.dataset.sceneReady !== "true" ? "준비하는 중" : "가까이 와줘";
     wait.hidden = pending !== "preview" || running || !eligible() || document.hidden ||
                   root.dataset.sceneReady !== "true";
@@ -2513,12 +2476,7 @@ function createSceneMotion(restart, cleanup) {
       if (greet) document.dispatchEvent(new CustomEvent("naeru:greet", { detail: { dir: 1 } }));
       return;
     }
-    if (maskFailed) {
-      pending = null; reset();
-      document.dispatchEvent(new CustomEvent("naeru:greet", { detail: { dir: 1 } }));
-      return;
-    }
-    if (!maskReady || panel.open || (!reserved && !window.naeru.isNeutral())) {
+    if (panel.open || (!reserved && !window.naeru.isNeutral())) {
       motion.later(tryPending, 250); controls(); return;
     }
     if (!reserved) {

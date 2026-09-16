@@ -21,6 +21,7 @@ parser.add_argument("--videos", action="store_true", help="두 코덱의 실제 
 args = parser.parse_args()
 
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
+images.update({f"foreground-{v}-autumn.webp": FRAME_SIZE for v in VARIANTS})
 for v in VARIANTS:
     images.update({f"naeru-{v}.png": CROP_SIZE,
                    f"naeru-{v}-hd.webp": (4608, 3968),
@@ -35,6 +36,7 @@ images.update({f"{kind}-{depth}.png": (512, 1024)
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
 runtime = sorted([*images, *videos, "alpha-probe.webm"])
 digest = hashlib.sha256()
+foreground_alpha = None
 for name in runtime:
     p = REPO / "img" / name
     assert p.is_file() and p.stat().st_size, f"누락: {name}"
@@ -42,9 +44,18 @@ for name in runtime:
     if name in images:
         with Image.open(p) as im:
             assert im.size == images[name], f"크기 불일치: {name} {im.size}"
-            if name.endswith(("-hd.webp", "-close.webp")):
-                assert im.mode == "RGBA", f"HD 알파 누락: {name}"
+            if name.endswith(("-hd.webp", "-close.webp")) or name.startswith("foreground-"):
+                assert im.mode == "RGBA", f"투명 자산 알파 누락: {name}"
                 assert im.getchannel("A").getextrema() == (0, 255), name
+            if name.startswith("foreground-"):
+                # 열린 하늘·중앙 통로에는 전경의 네모판·알파 먼지가 없어야 한다.
+                alpha = im.getchannel("A")
+                assert alpha.crop((0, 0, 3840, 1000)).getbbox() is None, name
+                assert alpha.crop((2150, 0, 2450, 2160)).getbbox() is None, name
+                signature = hashlib.sha256(alpha.tobytes()).digest()
+                if foreground_alpha is None:
+                    foreground_alpha = signature
+                assert signature == foreground_alpha, f"시간대별 전경 형태 불일치: {name}"
             im.verify()
 
 html_path = REPO / "index.html"

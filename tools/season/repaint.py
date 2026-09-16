@@ -33,6 +33,8 @@ sys.path.insert(0, str(REPO / "tools" / "naeru-split"))
 from coords import VARIANTS
 sys.path.insert(0, str(REPO / "tools" / "ground"))
 from repair import repair_ground
+sys.path.insert(0, str(REPO / "tools" / "foreground"))
+from build import AutumnForeground
 
 SEASONS = ["spring", "summer", "autumn", "winter"]
 HORIZON = 1290
@@ -233,6 +235,7 @@ def main():
 
 
 def repaint_seasons(selected, tmp, L, yy, sky, tree, shape):
+    foreground = AutumnForeground() if "autumn" in selected else None
     for v in VARIANTS:
         base = np.asarray(Image.open(IMG / f"bg-{v}.jpg").convert("RGB"), np.float32)
         base = repair_ground(base)
@@ -258,6 +261,8 @@ def repaint_seasons(selected, tmp, L, yy, sky, tree, shape):
                 b = np.asarray(Image.open(out).convert("RGB"), np.float32)
                 Image.fromarray(np.clip(storm_sky(b, L, yy, v, s), 0, 255).astype(np.uint8)) \
                      .save(out, quality=93)
+            if s == "autumn":
+                foreground.paint(out, v)
         print(f"  {v} → {' '.join(selected)}")
     print("=== 완료")
 

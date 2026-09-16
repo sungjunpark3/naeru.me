@@ -82,6 +82,13 @@ async function check(name, fn) {
               assert.equal(state.variant, band + (w === 'rain' ? '-rain' : ''));
               assert.notEqual(state.filter, 'none');
               assert.equal(state.still, '1'); assert.equal(state.video, false);
+              assert.equal(await p.evaluate(() => document.documentElement.dataset.foreground),
+                season === 'autumn' ? 'ready' : 'none');
+              assert.equal(await p.locator('.foreground-layer.on').count(), season === 'autumn' ? 1 : 0);
+              if (season === 'autumn') {
+                assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
+                  new RegExp(`foreground-${state.variant}-autumn\\.webp`));
+              }
               await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
                 document.querySelector('#naeruStill').naturalWidth === 4608);
               assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
@@ -90,6 +97,45 @@ async function check(name, fn) {
           } finally { await p.close(); }
         }));
       }
+    });
+    await check('가을 전경: 실패·시간 초과·오래된 응답에도 장면과 입력 유지', async () => {
+      await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
+        const p = await makePage({ reducedMotion: 'reduce' });
+        let release;
+        const held = new Promise(resolve => { release = resolve; });
+        await p.route('**/foreground-day-autumn.webp?*', async route => {
+          if (kind === 'failed') return route.abort();
+          await held;
+          await route.fulfill({ path: path.join(repo, 'img/foreground-day-autumn.webp') });
+        });
+        try {
+          await p.goto(base + '/?s=autumn&v=day&w=clear', { waitUntil: 'domcontentloaded' });
+          if (kind === 'scene') {
+            await p.click('#settings-open'); await p.selectOption('#setting-band', 'night');
+            await p.waitForFunction(() => document.body.dataset.variant === 'night' &&
+              document.documentElement.dataset.sceneReady === 'true');
+            release(); await p.waitForTimeout(300);
+            assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
+              /foreground-night-autumn\.webp/);
+          } else {
+            await p.waitForFunction(() => document.documentElement.dataset.sceneReady === 'true');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.foreground), 'failed');
+            assert.equal(await p.locator('.foreground-layer.on').count(), 0);
+            assert.equal(await p.locator('#naeruStill').isVisible(), true);
+            if (kind === 'slow') {
+              release(); await p.waitForTimeout(300);
+              assert.equal(await p.locator('.foreground-layer.on').count(), 0);
+            }
+            await p.click('#settings-open'); await p.selectOption('#setting-band', 'night');
+            await p.waitForFunction(() => document.documentElement.dataset.foreground === 'ready');
+          }
+          await p.selectOption('#setting-season', 'summer');
+          await p.waitForFunction(() => document.documentElement.dataset.season === 'summer' &&
+            document.documentElement.dataset.sceneReady === 'true');
+          assert.equal(await p.locator('.foreground-layer.on').count(), 0);
+          assert.deepEqual(p.errors, []);
+        } finally { release(); await p.close(); }
+      }));
     });
     await check('다섯 화면비와 설정 패널 접근', async () => {
       for (const [width, height] of [[390, 844], [320, 568], [768, 1024], [2560, 1080], [844, 390]]) {
@@ -337,12 +383,13 @@ async function check(name, fn) {
           await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
           await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
           assert.equal(await p.evaluate(() => naeru.busy && naeru.hold), true);
+          const foregroundBox = await p.locator('#foreground').boundingBox();
           await shot(p, `approach-${width}-start`);
           await p.waitForTimeout(1800); await shot(p, `approach-${width}-walking`);
           await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
           const close = await p.evaluate(() => ({
             eye: document.querySelector('#naeru-brow').getBoundingClientRect().toJSON(),
-            flowers: getComputedStyle(document.querySelector('#approach-flowers')).opacity,
+            flowers: getComputedStyle(document.querySelector('.foreground-layer.on')).opacity,
             shadow: document.querySelector('#naeru-shadow').style.transform,
             approach: document.querySelector('#naeru-approach').style.transform,
             width: document.body.scrollWidth
@@ -350,11 +397,14 @@ async function check(name, fn) {
           assert(close.eye.x > width * .3 && close.eye.x < width * .7);
           assert(close.eye.y > height * .25 && close.eye.y < height * .5);
           assert.equal(close.flowers, '1'); assert.equal(close.shadow, close.approach);
+          assert.deepEqual(await p.locator('#foreground').boundingBox(), foregroundBox);
           assert.equal(close.width, width); await shot(p, `approach-${width}-close`);
           await p.waitForFunction(() => !document.documentElement.dataset.approach);
           assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
           assert.equal(await p.locator('#naeru-approach').evaluate(e => e.style.transform), '');
           assert.equal(await p.locator('#approach-return').isVisible(), false);
+          assert.equal(await p.locator('.foreground-layer.on').evaluate(e => getComputedStyle(e).opacity), '1');
+          assert.deepEqual(await p.locator('#foreground').boundingBox(), foregroundBox);
           await shot(p, `approach-${width}-returned`);
           await p.locator('#naeru-touch').press('Enter');
           assert.equal(await p.evaluate(() => naeru.busy), true);
@@ -384,10 +434,9 @@ async function check(name, fn) {
             assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '1');
             assert.notEqual(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '1');
             assert.equal(await video.evaluate(v => v.style.opacity), '0');
-            assert.match(await p.locator('#approach-flower-image').getAttribute('href'),
-              new RegExp(`bg-${band}-autumn\\.jpg`));
-            assert.match(await p.locator('#approach-flower-mask').getAttribute('href'),
-              /bg-day-autumn\.jpg/);
+            assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
+              new RegExp(`foreground-${band}-autumn\\.webp`));
+            assert.equal(await p.locator('#approach-flowers').count(), 0);
             assert.equal(await video.evaluate(v => v.currentTime), frozen.time);
             await shot(p, `autumn-${band}-${width}-close`);
             await p.waitForFunction(() => !document.documentElement.dataset.approach);
