@@ -379,8 +379,10 @@ async function check(name, fn) {
             await p.waitForTimeout(1800); await shot(p, `autumn-${band}-${width}-walking`);
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
             assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'hd');
-            assert.equal(await p.locator('#naeruHd').evaluate(e => e.naturalWidth), 4608);
-            assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '1');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'closeup');
+            assert.equal(await p.locator('#naeruClose').evaluate(e => e.naturalWidth), 4608);
+            assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '1');
+            assert.notEqual(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '1');
             assert.equal(await video.evaluate(v => v.style.opacity), '0');
             assert.match(await p.locator('#approach-flower-image').getAttribute('href'),
               new RegExp(`bg-${band}-autumn\\.jpg`));
@@ -390,6 +392,8 @@ async function check(name, fn) {
             await shot(p, `autumn-${band}-${width}-close`);
             await p.waitForFunction(() => !document.documentElement.dataset.approach);
             await playing(p);
+            assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '0');
+            assert.match(await p.locator('#naeruStill').getAttribute('src'), /-hd\.webp/);
             assert.equal(await video.evaluate(v => v.dataset.pauseOwner), undefined);
             await shot(p, `autumn-${band}-${width}-returned`);
             assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
@@ -407,6 +411,8 @@ async function check(name, fn) {
           await held;
           await route.fulfill({ path: path.join(repo, 'img/naeru-day-hd.webp') });
         });
+        // 기존 HD 실패 검사는 근접 원화도 없을 때의 최후 정지본을 확인한다.
+        await p.route('**/naeru-day-close.webp?*', route => route.abort());
         try {
           await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
           if (kind === 'scene') {
@@ -437,6 +443,53 @@ async function check(name, fn) {
               assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'hd');
               assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '1');
             }
+          }
+          assert.deepEqual(p.errors, []);
+        } finally { release(); await p.close(); }
+      }));
+    });
+    await check('근접 원화: 실패·지연·이전 장면 응답과 원래 HD 복귀', async () => {
+      await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
+        const p = await makePage(); p.setDefaultTimeout(30000);
+        let release;
+        const held = new Promise(resolve => { release = resolve; });
+        await p.route('**/naeru-day-close.webp?*', async route => {
+          if (kind === 'failed') return route.abort();
+          await held;
+          await route.fulfill({ path: path.join(repo, 'img/naeru-day-close.webp') });
+        });
+        try {
+          await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
+          if (kind === 'scene') {
+            await p.click('#settings-open'); await p.selectOption('#setting-band', 'night');
+            await p.waitForFunction(() => document.body.dataset.variant === 'night' &&
+              document.querySelector('#naeruClose').dataset.status === 'ready');
+            release(); await p.waitForTimeout(300);
+            assert.match(await p.locator('#naeruClose').getAttribute('src'), /naeru-night-close\.webp/);
+            await p.keyboard.press('Escape');
+            await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'closeup');
+          } else {
+            await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'restored');
+            if (kind === 'slow') {
+              release();
+              await p.waitForFunction(() => document.querySelector('#naeruClose').dataset.status === 'ready');
+            }
+            await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
+            assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '1');
+            assert.notEqual(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '1');
+          }
+          await p.click('#approach-return');
+          await p.waitForFunction(() => !document.documentElement.dataset.approach);
+          assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '0');
+          assert.match(await p.locator('#naeruStill').getAttribute('src'), /-hd\.webp/);
+          if (kind === 'slow') {
+            await playing(p);
+            await p.evaluate(() => document.dispatchEvent(new Event('naeru:approach')));
+            await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'closeup');
+            assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '1');
           }
           assert.deepEqual(p.errors, []);
         } finally { release(); await p.close(); }

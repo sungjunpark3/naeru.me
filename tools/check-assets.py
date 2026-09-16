@@ -26,6 +26,8 @@ for v in VARIANTS:
                    f"naeru-{v}-hd.webp": (4608, 3968),
                    f"naeru-{v}-nt.png": CROP_SIZE,
                    f"tongue-{v}.png": CROP_SIZE})
+for v in ["dawn", "day", "dusk", "night"]:
+    images[f"naeru-{v}-close.webp"] = (4608, 3968)
 images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
                "apple-touch-icon.png": (180, 180)})
 images.update({f"{kind}-{depth}.png": (512, 1024)
@@ -40,7 +42,7 @@ for name in runtime:
     if name in images:
         with Image.open(p) as im:
             assert im.size == images[name], f"크기 불일치: {name} {im.size}"
-            if name.endswith("-hd.webp"):
+            if name.endswith(("-hd.webp", "-close.webp")):
                 assert im.mode == "RGBA", f"HD 알파 누락: {name}"
                 assert im.getchannel("A").getextrema() == (0, 255), name
             im.verify()

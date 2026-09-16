@@ -3,8 +3,19 @@
 **기존 포즈·크롭을 보존한 4608×3968 WebP 8장을 만든다.**
 정지 애니메이션용 RealESRGAN_x4plus_anime_6B로 눈·입의 선을 복원하고,
 animevideov3로 최종 크기를 만든다. 누끼의 넓은 반투명 띠도 좁힌다.
-결과는 `img/naeru-<variant>-hd.webp`이며 접근과 정지 화면에서 사용한다.
+결과는 `img/naeru-<variant>-hd.webp`이며 정지 화면과 근접 원화 실패 시 사용한다.
 영상 전체를 업스케일하는 도구는 아니다.
+
+근접에서는 작은 원화의 선까지 확대하지 않도록 별도의 얇은 선 원화를 쓴다.
+built-in imagegen으로 기존 원화의 선 굵기를 조정한 입력을
+`source/naeru-close-day.png`에 보존했다. `closeup.py`는 생성된 알파의 바깥 점을
+제거하고 크롭·눈 위치를 맞춘 뒤, 같은 형태에 시간대 조명을 적용한다.
+`img/naeru-{dawn,day,dusk,night}-close.webp` 네 장을 재현하는 명령은 다음과 같다.
+
+```sh
+tools/naeru-split/.venv/bin/python tools/naeru-hd/closeup.py
+tools/naeru-split/.venv/bin/python tools/check-assets.py --update-version
+```
 
 ## 재현
 
