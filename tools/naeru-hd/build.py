@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""뉴트럴 포즈를 8배 복원하고, 확대 때 드러나는 누끼 계단과 색 번짐을 정리한다."""
+"""정지 그림의 선을 복원한 뒤 8배로 확대하고, 근접용 누끼 경계를 정리한다."""
 import argparse
 import hashlib
 import time
@@ -11,11 +11,13 @@ import torch
 from PIL import Image, ImageFilter
 
 from vendor.srvgg_arch import SRVGGNetCompact
+from vendor.rrdbnet_arch import RRDBNet
 
 HERE = Path(__file__).resolve().parent
 VARIANTS = ["dawn", "day", "dusk", "night",
             "dawn-rain", "day-rain", "dusk-rain", "night-rain"]
 MODEL_SHA256 = "b8a8376811077954d82ca3fcf476f1ac3da3e8a68a4f4d71363008000a18b75d"
+IMAGE_SHA256 = "f872d837d3c90ed2e05227bed711af5671a6fd1c9f7d7e91c911a61f155e99da"
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--variants", nargs="+", choices=VARIANTS, default=VARIANTS)
 parser.add_argument("--output", type=Path, default=HERE.parents[1] / "img")
@@ -25,18 +27,22 @@ args.output.mkdir(parents=True, exist_ok=True)
 
 model_path = HERE / "build" / "realesr-animevideov3.pth"
 assert hashlib.sha256(model_path.read_bytes()).hexdigest() == MODEL_SHA256
+image_path = HERE / "build" / "RealESRGAN_x4plus_anime_6B.pth"
+assert hashlib.sha256(image_path.read_bytes()).hexdigest() == IMAGE_SHA256
 torch.set_num_threads(4)
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 model = SRVGGNetCompact().to(device).eval()
 model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True)["params"])
-print(f"Real-ESRGAN animevideov3 / {device} / {args.scale}x", flush=True)
+image_model = RRDBNet(3, 3, num_block=6).to(device).eval()
+image_model.load_state_dict(torch.load(image_path, map_location=device,
+                                       weights_only=True)["params_ema"])
+print(f"Real-ESRGAN anime 6B + animevideov3 / {device} / {args.scale}x", flush=True)
 
 
-def restore_colors(rgb):
-    """24px 겹친 타일로 추론한다. 내부 경계는 모델의 18px 수용 영역 밖이다."""
+def restore_colors(rgb, network, tile, pad):
+    """각 모델의 수용 영역보다 넓게 겹쳐, 타일 경계의 불연속을 막는다."""
     height, width = rgb.shape[:2]
     output = np.empty((height * 4, width * 4, 3), np.uint8)
-    tile, pad = 384, 24
     for y in range(0, height, tile):
         for x in range(0, width, tile):
             right, bottom = min(x + tile, width), min(y + tile, height)
@@ -45,7 +51,7 @@ def restore_colors(rgb):
             crop = rgb[y0:y1, x0:x1]
             tensor = torch.from_numpy(crop.transpose(2, 0, 1).copy()).float()[None] / 255
             with torch.inference_mode():
-                restored = model(tensor.to(device)).clamp(0, 1).cpu()
+                restored = network(tensor.to(device)).clamp(0, 1).cpu()
             pixels = np.rint(restored[0].permute(1, 2, 0).numpy() * 255).astype(np.uint8)
             output[y * 4:bottom * 4, x * 4:right * 4] = pixels[
                 (y - y0) * 4:(bottom - y0) * 4, (x - x0) * 4:(right - x0) * 4]
@@ -69,22 +75,22 @@ for variant in args.variants:
     weight = np.clip(alpha.astype(np.float32) / 32, 0, 1)[:, :, None]
     rgb = np.rint(rgb * weight + extended * (1 - weight)).astype(np.uint8)
 
-    colors = restore_colors(rgb)
+    # 근접에서 보이는 눈·입의 선은 정지 애니메이션용 RRDB 모델로 먼저 복원한다.
+    # 6개 RRDB의 저해상도 수용 반경(약 94px) 밖으로 문맥을 확보한다.
+    colors = restore_colors(rgb, image_model, 288, 100)
     if args.scale == 8:
         # 첫 4배 복원에서 찾은 선을 2배 크기의 중간본에 모아 한 번 더 복원한다.
         # 최종 WebP를 단순 확대하는 것과 달리 두 번째 추론이 선과 명암을 다시 푼다.
         middle = Image.fromarray(colors).resize((1152, 992), Image.Resampling.LANCZOS)
-        detail = restore_colors(np.asarray(middle))
-        soft = np.asarray(Image.fromarray(colors).resize((4608, 3968), Image.Resampling.LANCZOS))
-        # 두 번째 복원의 얇은 선이 지나치게 진해지지 않도록 원래 회화 질감을 섞는다.
-        colors = np.rint(detail.astype(np.float32) * .7 + soft * .3).astype(np.uint8)
+        colors = restore_colors(np.asarray(middle), model, 384, 24)
 
     # 실루엣의 중심선을 유지하면서 원본 픽셀 단위의 계단을 둥글게 연결한다.
-    # 넓은 반투명 띠를 좁혀 큰 화면의 회색 테두리를 없앤다.
+    # 곡선의 중심은 알파 128에 두고, 실제 안티앨리어싱 띠만 좁힌다.
+    # 이전 64~192 범위는 최대 접근 시 머리·볼에 넓은 반투명 띠로 남았다.
     size = (576 * args.scale, 496 * args.scale)
     edge = source.getchannel("A").resize(size, Image.Resampling.LANCZOS)
-    edge = edge.filter(ImageFilter.GaussianBlur(.65 * args.scale))
-    coverage = np.clip((np.asarray(edge, np.float32) - 64) / 128, 0, 1)
+    edge = edge.filter(ImageFilter.GaussianBlur(args.scale))
+    coverage = np.clip((np.asarray(edge, np.float32) - 116) / 24, 0, 1)
     coverage = coverage * coverage * (3 - 2 * coverage)
     high_alpha = Image.fromarray(np.rint(coverage * 255).astype(np.uint8))
     colors[np.asarray(high_alpha) == 0] = 0
