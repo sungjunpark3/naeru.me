@@ -2,6 +2,7 @@
 """정지 그림의 선을 복원한 뒤 8배로 확대하고, 근접용 누끼 경계를 정리한다."""
 import argparse
 import hashlib
+import sys
 import time
 from pathlib import Path
 
@@ -14,6 +15,10 @@ from vendor.srvgg_arch import SRVGGNetCompact
 from vendor.rrdbnet_arch import RRDBNet
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "naeru-split"))
+from eyes import locate_eye, replace_eye
+
+eye_patch = locate_eye(Image.open(HERE / "source" / "naeru-day.png"))
 VARIANTS = ["dawn", "day", "dusk", "night",
             "dawn-rain", "day-rain", "dusk-rain", "night-rain"]
 MODEL_SHA256 = "b8a8376811077954d82ca3fcf476f1ac3da3e8a68a4f4d71363008000a18b75d"
@@ -60,6 +65,7 @@ def restore_colors(rgb, network, tile, pad):
 for variant in args.variants:
     started = time.monotonic()
     source = Image.open(HERE / "source" / f"naeru-{variant}.png").convert("RGBA")
+    source = replace_eye(source, eye_patch)
     assert source.size == (576, 496)
     rgba = np.asarray(source)
     rgb = rgba[:, :, :3].copy()

@@ -40,6 +40,7 @@ REPO = HERE.parent.parent
 B = HERE / "build"
 sys.path.insert(0, str(HERE))
 from coords import CROP_SIZE, VARIANTS
+from eyes import locate_eye, replace_eye
 
 REF = 79                        # 혀가 가장 안정된 프레임. index.html의 TONGUE_FRAME과 같아야 한다
 
@@ -96,6 +97,7 @@ def draw_arm(base, sp, alpha, arm_shape, arm_line):
 
 
 def main():
+    eye_patch = locate_eye(Image.open(B / "naeru-day" / f"{REF + 1:04d}.png"))
     poly = Image.new("L", CROP_SIZE, 0)
     ImageDraw.Draw(poly).polygon(INPAINT_POLY, fill=255)
     mask = poly.filter(ImageFilter.MaxFilter(DILATE))       # 지울 범위
@@ -125,6 +127,7 @@ def main():
                       arm_shape, arm_line)
         # 혀는 실루엣 안쪽이라 알파가 안 바뀐다 — 원본 알파를 그대로 쓴다
         nt.putalpha(alpha)
+        nt = replace_eye(nt, eye_patch)
         nt.save(REPO / "img" / f"naeru-{v}-nt.png")
 
         t_alpha = ImageChops.multiply(cut, alpha)

@@ -16,6 +16,7 @@ REPO = HERE.parent.parent
 B = HERE / "build"
 sys.path.insert(0, str(HERE))
 from coords import CROP_ORIGIN, CROP_SIZE, N_FRAMES, VARIANTS
+from eyes import locate_eye, replace_eye
 
 # PNG 시퀀스(pass1)와 인코딩본(pass2)의 기준을 따로 둔다.
 #
@@ -174,6 +175,11 @@ def decode_webm(path, out_dir):
 
 def pass2():
     values = []
+    # 런타임 영상에는 의도적으로 눈꺼풀 선을 지웠다. 원본 영상에도 같은
+    # 눈 편집만 반영해 비교한다. 그 외 부위와 기존 품질 하한은 그대로다.
+    eye_patches = [locate_eye(Image.open(p)) for p in
+                   sorted((B / "naeru-day").glob("*.png"))]
+    assert len(eye_patches) == N_FRAMES
     tmp_root = Path(tempfile.mkdtemp(prefix="naeru-verify-"))
     for v in VARIANTS:
         webm = REPO / "img" / f"naeru-{v}.webm"
@@ -196,7 +202,8 @@ def pass2():
             recon = orig.convert("RGBA").copy()
             recon.alpha_composite(plate)
             recon.alpha_composite(naeru)
-            values.append((i, v, psnr(recon.convert("RGB"), orig)))
+            expected = replace_eye(orig, eye_patches[i - 1]).convert("RGB")
+            values.append((i, v, psnr(recon.convert("RGB"), expected)))
     if not values:
         print("PASS2: 검사할 webm이 없음")
         return True

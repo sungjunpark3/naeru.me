@@ -16,6 +16,10 @@ silhouette, make eyes smaller, crop, move the character, add details, add shadow
 or sharpen with halos. Produce a refined thin-lined version of the same image
 suitable for filling a screen, with genuinely transparent background.
 Preserve the input resolution if possible.
+
+눈 수정: built-in imagegen으로 눈 안쪽의 밝은 가로 띠·윗눈꺼풀을 지우고
+하나의 짙은 타원 눈으로 편집했다. 생성된 눈 부분만 기존 원화에 합성했다.
+프롬프트와 영상에 쓰는 눈 원화는 ../naeru-split/eyes.py, eye.png에 보존한다.
 """
 from pathlib import Path
 

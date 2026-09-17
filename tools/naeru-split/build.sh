@@ -58,13 +58,16 @@ done
 # 4. PNG 시퀀스 단계 검증 --------------------------------------------------
 "$PYTHON_BIN" $HERE/verify.py --pass1
 
+# 원본 매트를 보존한 채 눈꺼풀 선을 지운 별도 인코딩 입력을 만든다.
+"$PYTHON_BIN" $HERE/eyes.py
+
 
 # 5. 인코딩 ---------------------------------------------------------------
 # VP9 crf 34 / HEVC q:v 40 — crf26·q65(계획 초안값)는 이 CROP 크기에서
 # 변형당 각각 ~2-3MB·~5-6MB로 너무 커서 실측 후 낮췄다(육안 확인 통과).
 for V in $VARIANTS; do
   echo "=== $V webm $(date +%T)"
-  ffmpeg -v error -y -framerate 24 -i $B/naeru-$V/%04d.png \
+  ffmpeg -v error -y -framerate 24 -i $B/eyes/$V/%04d.png \
     -c:v libvpx-vp9 -pix_fmt yuva420p -crf 34 -b:v 0 \
     -auto-alt-ref 0 -row-mt 1 -deadline good -cpu-used 2 \
     img/naeru-$V.webm
@@ -75,14 +78,14 @@ for V in $VARIANTS; do
   #' 밝은 크림색 테두리가 생긴다(2026-09-01 사파리 18.6에서 나란히 찍어 확인).
   #' webm(VP9)은 스트레이트가 맞으므로 여기서만 건다.
   #' 확인법: 인코딩 뒤 투명 영역 RGB가 (0,0,0)이어야 한다.
-  ffmpeg -v error -y -framerate 24 -i $B/naeru-$V/%04d.png \
+  ffmpeg -v error -y -framerate 24 -i $B/eyes/$V/%04d.png \
     -vf "premultiply=inplace=1" \
     -c:v hevc_videotoolbox -pix_fmt bgra -alpha_quality 0.85 -q:v 40 \
     -tag:v hvc1 -movflags +faststart \
     img/naeru-$V.mp4
   #   -q:v가 거부되면 -b:v 1500k 로 대체
 
-  pngquant --quality=70-95 --strip --force -o img/naeru-$V.png -- $B/naeru-$V/0001.png
+  pngquant --quality=70-95 --strip --force -o img/naeru-$V.png -- $B/eyes/$V/0001.png
 done
 
 # 16x16 완전 투명 1프레임 — 알파 지원 판정용(Safari가 VP9 알파를 무시하고

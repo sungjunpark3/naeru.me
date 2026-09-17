@@ -6,6 +6,10 @@ animevideov3로 최종 크기를 만든다. 누끼의 넓은 반투명 띠도 �
 결과는 `img/naeru-<variant>-hd.webp`이며 정지 화면과 근접 원화 실패 시 사용한다.
 영상 전체를 업스케일하는 도구는 아니다.
 
+눈 안의 밝은 가로 띠는 `../naeru-split/eyes.py`로 제거한다. 같은 원화와
+윤곽 추적을 영상·정지본·혀 동작·HD 입력에 함께 적용하며, 원본 알파는 보존한다.
+근접 원화에도 동일한 built-in imagegen 눈 편집을 반영했다.
+
 근접에서는 작은 원화의 선까지 확대하지 않도록 별도의 얇은 선 원화를 쓴다.
 built-in imagegen으로 기존 원화의 선 굵기를 조정한 입력을
 `source/naeru-close-day.png`에 보존했다. `closeup.py`는 생성된 알파의 바깥 점을
