@@ -38,6 +38,9 @@ async function check(name, fn) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = 'http://127.0.0.1:' + server.address().port;
   const browser = await chromium.launch({ headless: true,
+    args: process.platform === 'darwin' ?
+      ['--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'] :
+      ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
     ...(process.env.NAERU_BROWSER ? { executablePath: process.env.NAERU_BROWSER } : {}) });
   async function makePage(options = {}) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, ...options });
@@ -376,6 +379,106 @@ async function check(name, fn) {
         } finally { await p.close(); }
       }));
     });
+    await check('근접 모션: 기존 원화의 얼굴 보존·팔·혀·몸의 독립 움직임', async () => {
+      const p = await makePage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 });
+      p.setDefaultTimeout(30000);
+      try {
+        await p.clock.install({ time: now });
+        await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
+        await p.waitForFunction(() => document.documentElement.dataset.closeMotion === 'playing');
+        await p.clock.pauseAt(new Date(await p.evaluate(() => Date.now() + 50)));
+        const samples = await p.evaluate(() => {
+          const canvas = document.querySelector('#naeruCloseRig');
+          const source = document.querySelector('#naeruClose');
+          const gl = canvas.getContext('webgl'), scale = canvas.width / 576;
+          const reference = document.createElement('canvas');
+          reference.width = canvas.width; reference.height = canvas.height;
+          const context = reference.getContext('2d');
+          context.drawImage(source, 0, 0, reference.width, reference.height);
+          function read(x, y, w, h) {
+            [x, y, w, h] = [x, y, w, h].map(v => Math.round(v * scale));
+            const pixels = new Uint8Array(w * h * 4);
+            gl.readPixels(x, canvas.height - y - h, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+            const flipped = new Uint8Array(pixels.length);
+            for (let row = 0; row < h; row++) {
+              flipped.set(pixels.subarray(row * w * 4, (row + 1) * w * 4), (h - row - 1) * w * 4);
+            }
+            return flipped;
+          }
+          function difference(a, b) {
+            let total = 0;
+            for (let i = 0; i < a.length; i++) total += Math.abs(a[i] - b[i]);
+            return total / a.length;
+          }
+          const faceBox = [195, 85, 105, 65];
+          naeruCloseMotion.show(0, 0, 0, '1');
+          const face = read(...faceBox);
+          const original = context.getImageData(...faceBox.map(v => Math.round(v * scale))).data;
+          // WebGL readPixels는 premultiplied alpha, ImageData는 straight alpha다.
+          for (let i = 0; i < original.length; i += 4) {
+            for (let c = 0; c < 3; c++) original[i + c] = Math.round(original[i + c] * original[i + 3] / 255);
+          }
+          const body = read(235, 220, 65, 105);
+          naeruCloseMotion.show(1, 0, 0, '1');
+          const bodyOnly = read(235, 220, 65, 105);
+          const right = read(320, 210, 65, 85), left = read(120, 210, 70, 70);
+          naeruCloseMotion.show(1, 1, 0, '1');
+          const armRight = read(320, 210, 65, 85), armLeft = read(120, 210, 70, 70);
+          const tongue = read(158, 215, 75, 110);
+          naeruCloseMotion.show(1, 1, 1, '1');
+          const faceMoved = read(195, 92, 105, 65);
+          return { source: canvas.dataset.source, image: source.currentSrc,
+            width: canvas.width, height: canvas.height,
+            originalFaceError: difference(face, original), faceShapeError: difference(face, faceMoved),
+            bodyChange: difference(body, bodyOnly), rightChange: difference(right, armRight),
+            leftChange: difference(left, armLeft), tongueChange: difference(tongue, read(158, 215, 75, 110)),
+            error: gl.getError(), identity: new DOMMatrix(getComputedStyle(
+              document.querySelector('#naeru-stride')).transform).isIdentity };
+        });
+        assert.equal(samples.source, samples.image);
+        assert.deepEqual([samples.width, samples.height], [4608, 3968]);
+        assert(samples.originalFaceError < 1, `원화의 얼굴 픽셀 유지: ${samples.originalFaceError}`);
+        assert(samples.faceShapeError < 1, `움직일 때도 얼굴 비율·선 유지: ${samples.faceShapeError}`);
+        for (const key of ['bodyChange', 'rightChange', 'leftChange', 'tongueChange']) {
+          assert(samples[key] > 2, `${key}: 전체 DOM 확대 없이 해당 부위가 실제로 움직인다`);
+        }
+        assert.equal(samples.error, 0);
+        assert(samples.identity, '전체 DOM을 늘리는 숨쉬기를 사용하지 않는다');
+        await p.clock.runFor(11000);
+        assert.equal(await p.evaluate(() => document.documentElement.dataset.approach), undefined);
+        assert(await p.locator('#naeruCloseRig').evaluate(c => c.width === 1 && c.style.opacity === '0'));
+        assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { await p.close(); }
+    });
+    await check('근접 모션: WebGL 실패·컨텍스트 손실에도 원화와 입력 복구', async () => {
+      for (const kind of ['unavailable', 'lost']) {
+        const p = await makePage(); p.setDefaultTimeout(30000);
+        try {
+          if (kind === 'unavailable') await p.addInitScript(() => {
+            const getContext = HTMLCanvasElement.prototype.getContext;
+            HTMLCanvasElement.prototype.getContext = function (type, ...args) {
+              return type === 'webgl' ? null : getContext.call(this, type, ...args);
+            };
+          });
+          await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
+          await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
+          if (kind === 'lost') {
+            await p.waitForFunction(() => document.documentElement.dataset.closeMotion === 'playing');
+            await p.locator('#naeruCloseRig').evaluate(c => c.getContext('webgl')
+              .getExtension('WEBGL_lose_context').loseContext());
+            await p.waitForFunction(() => !document.documentElement.dataset.closeMotion);
+          }
+          assert(await p.locator('#naeruClose').evaluate(e =>
+            e.naturalWidth === 4608 && getComputedStyle(e).visibility === 'visible'));
+          assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'closeup');
+          await p.waitForFunction(() => !document.documentElement.dataset.approach);
+          assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
+          await playing(p);
+          assert.deepEqual(p.errors, []);
+        } finally { await p.close(); }
+      }
+    });
     await check('다가오기: 네 화면비에서 접근·눈 맞춤·자동 복귀', async () => {
       await Promise.all([[1920, 1080], [390, 844], [844, 390], [2560, 1080]].map(async ([width, height]) => {
         const p = await makePage({ viewport: { width, height } });
@@ -399,7 +502,7 @@ async function check(name, fn) {
           assert.equal(close.flowers, '1'); assert.equal(close.shadow, close.approach);
           assert.deepEqual(await p.locator('#foreground').boundingBox(), foregroundBox);
           assert.equal(close.width, width); await shot(p, `approach-${width}-close`);
-          await p.waitForFunction(() => !document.documentElement.dataset.approach);
+          await p.waitForFunction(() => !document.documentElement.dataset.approach, null, { timeout: 15000 });
           assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
           assert.equal(await p.locator('#naeru-approach').evaluate(e => e.style.transform), '');
           assert.equal(await p.locator('#approach-return').isVisible(), false);
@@ -599,13 +702,14 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []);
       } finally { await p.close(); }
     });
-    await check('다가오기: 숨김·풍경 변경·동작 줄이기·화면 회전·Escape', async () => {
+    await check('다가오기: 팔·혀 동작 중 숨김·풍경 변경·동작 줄이기·화면 회전·Escape', async () => {
       await Promise.all(['hidden', 'scene', 'reduced', 'resize', 'escape'].map(async kind => {
         const p = await makePage();
+        p.setDefaultTimeout(30000);
         try {
           await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
-          await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
-          await p.waitForTimeout(700);
+          await p.waitForFunction(() => document.documentElement.dataset.closeMotion === 'playing');
+          await p.waitForTimeout(1800);
           if (kind === 'hidden') {
             await p.evaluate(() => {
               Object.defineProperty(document, 'hidden', { configurable: true, value: true });
@@ -616,10 +720,15 @@ async function check(name, fn) {
             await p.waitForFunction(() => document.documentElement.dataset.season === 'winter');
           } else if (kind === 'reduced') await p.emulateMedia({ reducedMotion: 'reduce' });
           else if (kind === 'resize') await p.setViewportSize({ width: 390, height: 844 });
-          else await p.keyboard.press('Escape');
+          else {
+            await p.keyboard.press('Escape');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.closeMotion), 'playing');
+          }
           await p.waitForFunction(() => !document.documentElement.dataset.approach);
           assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
           assert.equal(await p.locator('#naeru-stride').evaluate(e => e.style.transform), '');
+          assert(await p.locator('#naeruCloseRig').evaluate(c => c.width === 1 && c.style.opacity === '0'));
+          assert.equal(await p.evaluate(() => document.documentElement.dataset.closeMotion), undefined);
           assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '0');
           assert.equal(await p.evaluate(() => [...document.querySelectorAll('video.naeru')]
             .every(v => !v.style.opacity)), true);
@@ -821,7 +930,8 @@ async function check(name, fn) {
         await open(p, 's=autumn&v=day&w=clear&ball=0&flit=0&ff=0');
         await p.waitForFunction(() => window.visits.length === 1);
         await p.clock.pauseAt(new Date(await p.evaluate(() => Date.now() + 1000)));
-        await p.clock.runFor(11000);
+        await p.clock.runFor(15000);
+        assert.equal(await p.evaluate(() => document.documentElement.dataset.approach), undefined);
         assert.deepEqual(p.errors, []);
         async function advanceBeforeVisit(startedAt) {
           const elapsed = await p.evaluate(() => performance.now());
@@ -840,6 +950,8 @@ async function check(name, fn) {
         assert.equal(await p.evaluate(() => window.visits.length), 2);
         const visits = await p.evaluate(() => window.visits);
         assert(visits[1] - visits[0] >= 305000);
+        await p.clock.runFor(3000);
+        assert.equal(await p.evaluate(() => document.documentElement.dataset.approach), undefined);
         await advanceBeforeVisit(visits[1]);
         assert.equal(await p.evaluate(() => window.visits.length), 2);
         await p.clock.runFor(12000);

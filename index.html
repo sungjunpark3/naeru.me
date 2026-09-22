@@ -200,10 +200,11 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     opacity: 0; transition: opacity 2.5s ease;
   }
   .naeru.on, #naeruStill.on { opacity: 1; }
-  #naeruHd, #naeruClose {
+  #naeruHd, #naeruClose, #naeruCloseRig {
     position: absolute; inset: 0; width: 100%; height: 100%;
     opacity: 0; pointer-events: none;
   }
+  html[data-close-motion] #naeruClose { visibility: hidden; }
   /* 가까워지는 정도에 맞춰 직접 교차 전환한다. 장면용 2.5초 전환과 겹치지 않는다. */
   html[data-approach] .naeru, html[data-approach] #naeruStill { transition: none; }
   /* 두 원화의 불투명도를 더해 전환 중 몸이 반투명해지지 않게 한다.
@@ -212,7 +213,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     #foreground { isolation: isolate; }
     .foreground-layer { mix-blend-mode: plus-lighter; }
     html[data-approach] #naeru-face { isolation: isolate; }
-    html[data-approach] :is(.naeru, #naeruStill, #naeruHd, #naeruClose) {
+    html[data-approach] :is(.naeru, #naeruStill, #naeruHd, #naeruClose, #naeruCloseRig) {
       mix-blend-mode: plus-lighter;
     }
   }
@@ -586,6 +587,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     <img id="naeruStill" alt="">
     <img id="naeruHd" alt="" aria-hidden="true">
     <img id="naeruClose" alt="" aria-hidden="true">
+    <canvas id="naeruCloseRig" width="1" height="1" aria-hidden="true"></canvas>
     <img id="naeruNt" alt="">
     <img id="tongue" alt="">
     <div id="naeru-head"></div>
@@ -2298,8 +2300,152 @@ function createSceneMotion(restart, cleanup) {
 </script>
 
 <script>
+/* ── 근접 원화의 팔·혀·몸 리깅 ───────────────────────────────
+   승인된 4608×3968 WebP를 그대로 사용한다. 얼굴은 평행 이동만 하고,
+   팔은 어깨를 중심으로 회전, 혀는 입에서 끝으로 갈수록 휘어진다.
+   같은 연결 망을 쓰므로 부위 사이에 빈틈이나 중복 윤곽이 생기지 않는다. */
+(function () {
+  var root = document.documentElement;
+  var canvas = document.getElementById("naeruCloseRig");
+  var gl = null, engine = null, texture = null, prepared = false;
+
+  function smooth(a, b, x) {
+    var t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  }
+  function initialize() {
+    gl = canvas.getContext("webgl", { alpha: true, premultipliedAlpha: true,
+      antialias: false, depth: false, stencil: false });
+    if (!gl || gl.isContextLost() ||
+        !gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT).precision) return false;
+    var program = gl.createProgram();
+    var shaders = [
+      [gl.VERTEX_SHADER,
+        "attribute vec2 position; attribute vec3 weight; uniform vec3 motion; varying vec2 uv;" +
+        "void main(){" +
+        "uv=position/vec2(576.0,496.0); vec2 p=position;" +
+        "float a=motion.y*0.22; float c=cos(a), s=sin(a);" +
+        "vec2 r=p-vec2(323.0,183.0), l=p-vec2(184.0,198.0);" +
+        "vec2 q=p+weight.y*(vec2(c*r.x+s*r.y,-s*r.x+c*r.y)-r)" +
+        "+weight.z*(vec2(c*l.x-s*l.y,s*l.x+c*l.y)-l);" +
+        "q-=weight.x*motion.z*max(0.0,(p.y-164.0)/180.0)*vec2(10.0,13.0);" +
+        "q.y+=motion.x*7.0*(1.0-smoothstep(180.0,392.0,p.y));" +
+        "gl_Position=vec4(q.x/288.0-1.0,1.0-q.y/248.0,0.0,1.0);}"],
+      [gl.FRAGMENT_SHADER,
+        "precision highp float; varying vec2 uv; uniform sampler2D artwork;" +
+        "void main(){gl_FragColor=texture2D(artwork,uv);}"]
+    ];
+    shaders.forEach(function (source) {
+      var shader = gl.createShader(source[0]);
+      gl.shaderSource(shader, source[1]); gl.compileShader(shader);
+      gl.attachShader(program, shader); gl.deleteShader(shader);
+    });
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      gl.deleteProgram(program); return false;
+    }
+    gl.useProgram(program);
+    // 원래 576×496 좌표로 지정한다. 투명 부분까지 부드럽게 연결해 경계가 접히지 않게 한다.
+    var tongue = [[200,166],[238,158],[266,163],[283,170],[269,180],
+      [253,194],[242,216],[237,240],[236,272],[233,302],[225,325],
+      [212,339],[192,344],[170,337],[156,322],[149,300],[149,271],
+      [158,240],[174,207],[189,183]];
+    function tongueWeight(x, y) {
+      var inside = false, distance = Infinity;
+      for (var i = 0, j = tongue.length - 1; i < tongue.length; j = i++) {
+        var a = tongue[j], b = tongue[i], dx = b[0] - a[0], dy = b[1] - a[1];
+        if ((a[1] > y) !== (b[1] > y) && x < dx * (y - a[1]) / dy + a[0]) inside = !inside;
+        var t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy)));
+        distance = Math.min(distance, Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy));
+      }
+      return smooth(-32, 7, inside ? distance : -distance) * smooth(160, 220, y);
+    }
+    function armWeight(x, y, ax, ay, bx, by, radius) {
+      var dx = bx - ax, dy = by - ay;
+      var t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)));
+      return 1 - smooth(radius, radius + 64, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+    }
+    var columns = 256, rows = 220, vertices = [], indices = [];
+    for (var y = 0; y <= rows; y++) for (var x = 0; x <= columns; x++) {
+      var px = x * 576 / columns, py = y * 496 / rows, wt = tongueWeight(px, py);
+      var right = armWeight(px, py, 323, 183, 358, 272, 22) * smooth(168, 217, py) * (1 - wt);
+      var left = armWeight(px, py, 184, 198, 141, 258, 14) * smooth(187, 228, py) * (1 - wt);
+      // 발과 다리의 동그란 무늬는 팔에 끌려가지 않게 고정한다.
+      right *= (1 - smooth(294, 318, py)) * (1 - smooth(380, 430, px));
+      left *= 1 - smooth(278, 307, py);
+      vertices.push(px, py, wt, right, left);
+      if (x < columns && y < rows) {
+        var a = y * (columns + 1) + x, b = a + 1, c = a + columns + 1, d = c + 1;
+        indices.push(a, b, c, b, d, c);
+      }
+    }
+    var buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+    var position = gl.getAttribLocation(program, "position"), weight = gl.getAttribLocation(program, "weight");
+    gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 20, 0);
+    gl.enableVertexAttribArray(weight); gl.vertexAttribPointer(weight, 3, gl.FLOAT, false, 20, 8);
+    var elements = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, elements);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    engine = { program: program, motion: gl.getUniformLocation(program, "motion"),
+      count: indices.length, maxTexture: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+      maxBuffer: gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) };
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    return true;
+  }
+  function reset() {
+    prepared = false; delete root.dataset.closeMotion; canvas.style.opacity = "0";
+    if (texture && gl && !gl.isContextLost()) gl.deleteTexture(texture);
+    texture = null;
+    // 방문 사이에는 큰 그리기 버퍼를 보관하지 않는다. 망·프로그램만 재사용한다.
+    canvas.width = 1; canvas.height = 1;
+  }
+  function prepare(image, width, height) {
+    reset();
+    try {
+      if (!engine && !initialize()) return false;
+      if (gl.isContextLost() || image.naturalWidth > engine.maxTexture ||
+          image.naturalHeight > engine.maxTexture) return false;
+      // 화면의 실제 표시 크기×DPR까지 그린다. 원화보다 키우거나 낮은 해상도로
+      // 먼저 그린 뒤 확대하지 않는다. 기기가 부족하면 원래 img를 유지한다.
+      var ratio = Math.min(devicePixelRatio || 1, image.naturalWidth / width);
+      var w = Math.ceil(width * ratio), h = Math.ceil(height * ratio);
+      if (Math.max(w, h) > engine.maxBuffer) return false;
+      canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h);
+      gl.useProgram(engine.program);
+      texture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+      if (gl.getError() !== gl.NO_ERROR) { reset(); return false; }
+      prepared = true; canvas.dataset.source = image.currentSrc;
+      draw(0, 0, 0); return true;
+    } catch (e) { reset(); return false; }
+  }
+  function draw(body, arms, tongue) {
+    if (!prepared || gl.isContextLost()) return false;
+    gl.uniform3f(engine.motion, body, arms, tongue);
+    gl.clear(gl.COLOR_BUFFER_BIT); gl.drawElements(gl.TRIANGLES, engine.count, gl.UNSIGNED_SHORT, 0);
+    return true;
+  }
+  function show(body, arms, tongue, opacity) {
+    if (!draw(body, arms, tongue)) return false;
+    root.dataset.closeMotion = "playing";
+    canvas.style.opacity = opacity;
+    return true;
+  }
+  canvas.addEventListener("webglcontextlost", function (e) {
+    e.preventDefault(); reset(); engine = null;
+  });
+  canvas.addEventListener("webglcontextrestored", function () { engine = null; });
+  window.naeruCloseMotion = { prepare: prepare, show: show, reset: reset };
+})();
+</script>
+
+<script>
 /* ── 가을: 뉴트럴 포즈에서 다가와 눈 맞추기 ───────────────────
-   6걸음 → 가까이서 2.4초 인사 → 5걸음으로 복귀. 화면 크기로 끝 위치를
+   6걸음 → 고화질 원화의 몸·팔·혀가 함께 움직이기 → 5걸음으로 복귀. 화면 크기로 끝 위치를
    계산하되 배경·꽃은 기존 cover 상자를 그대로 쓴다. 새 보행 영상 없이
    보폭의 가감속·체중 이동을 합성하는 시범 동작이다. */
 (function () {
@@ -2321,6 +2467,7 @@ function createSceneMotion(restart, cleanup) {
   var visitGap = 5 * 60 * 1000, nextVisit = performance.now() + visitGap;
   var readyAt = performance.now(), geometry = null, progress = 0;
   var phase = "", phaseStart = 0, returnFrom = 1;
+  var rigReady = false, rigPose = [0, 0, 0], returnPose = [0, 0, 0];
 
   function eligible() {
     return root.dataset.season === "autumn" && document.body.dataset.weather === "clear" &&
@@ -2363,6 +2510,8 @@ function createSceneMotion(restart, cleanup) {
     if (pending === "auto" && root.dataset.sceneReady !== "true") pending = null;
     if (window.naeruReduced()) pending = null;
     running = false; reserved = false; geometry = null; progress = 0;
+    window.naeruCloseMotion.reset();
+    rigReady = false; rigPose = [0, 0, 0]; returnPose = [0, 0, 0];
     delete root.dataset.approach;
     delete root.dataset.approachQuality;
     delete root.dataset.approachArt;
@@ -2418,22 +2567,40 @@ function createSceneMotion(restart, cleanup) {
   }
   function returnHome() {
     if (!running || phase === "returning") return;
+    returnPose = rigPose.slice();
     returnFrom = progress; changePhase("returning", performance.now());
+  }
+  function gesture(t) {
+    // 몸이 먼저 움츠러들고 팔·혀가 조금 뒤따른다. 시작과 끝은 정확히 원래
+    // 원화로 돌아와 근접 그림과 연결할 때 얼굴이나 선이 바뀌지 않는다.
+    function pulse(delay) {
+      var u = Math.max(0, Math.min(1, (t - delay) / (1 - delay)));
+      return Math.pow(Math.sin(u * Math.PI), 2);
+    }
+    rigPose = [pulse(0), pulse(.04), pulse(.08)];
+    return window.naeruCloseMotion.show(rigPose[0], rigPose[1], rigPose[2], portrait.style.opacity);
   }
   function animate(now) {
     var t = Math.min(1, (now - phaseStart) /
-      (phase === "walking" ? 4200 : phase === "close" ? 2400 : 3400));
+      (phase === "walking" ? 4200 : phase === "close" ? (rigReady ? 6000 : 2400) : 3400));
     if (phase === "close") {
-      // 접근 내내 영상의 뉴트럴 포즈를 유지하고 DOM 몸짓만 살짝 움직인다.
       pose(1, 0, 0);
-      stride.style.transform = "rotate(" + (Math.sin(t * Math.PI * 2) * 1.4).toFixed(3) + "deg)";
-      if (t === 1) { returnFrom = 1; changePhase("returning", now); }
+      // DOM 전체를 확대·축소하지 않고 승인된 원화 안의 관절만 움직인다.
+      if (rigReady && !gesture(t)) returnHome();
+      if (t === 1) { returnPose = [0, 0, 0]; returnFrom = 1; changePhase("returning", now); }
     } else {
       var steps = phase === "walking" ? 6 : 5;
       var beat = t * steps, foot = beat % 1;
       var walked = (Math.floor(beat) + (1 - Math.cos(foot * Math.PI)) / 2) / steps;
       var envelope = Math.min(1, t * 12, (1 - t) * 12);
       pose(phase === "walking" ? walked : returnFrom * (1 - walked), beat, envelope);
+      if (phase === "returning" && rigReady && root.dataset.closeMotion) {
+        // 도중 복귀는 현재 팔·혀 자세에서 0.5초 동안 힘을 풀며 이어간다.
+        var settle = Math.min(1, (now - phaseStart) / 500);
+        var remaining = 1 - settle * settle * (3 - 2 * settle);
+        window.naeruCloseMotion.show(returnPose[0] * remaining,
+          returnPose[1] * remaining, returnPose[2] * remaining, portrait.style.opacity);
+      }
       if (t === 1) {
         if (phase === "returning") { reset(); return; }
         changePhase("close", now);
@@ -2464,6 +2631,8 @@ function createSceneMotion(restart, cleanup) {
     geometry = { scale: scale,
       x: innerWidth * .5 - footX - (eye.left - footX) * scale,
       y: innerHeight * .39 - footY - (eye.top - footY) * scale };
+    rigReady = closeReady && window.naeruCloseMotion.prepare(closeup,
+      box.width * scale, box.height * scale);
     back.hidden = false;
     document.getElementById("greeting").hidden = true;
     document.getElementById("naeru-touch").setAttribute("aria-label", "내루미를 제자리로 보내기");
