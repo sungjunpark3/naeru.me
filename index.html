@@ -2299,7 +2299,7 @@ function createSceneMotion(restart, cleanup) {
 
 <script>
 /* ── 가을: 뉴트럴 포즈에서 다가와 눈 맞추기 ───────────────────
-   6걸음 → 가까이서 2.4초 인사 → 5걸음으로 복귀. 화면 크기로 끝 위치를
+   6걸음 → 가까이서 6초 동안 두 번 숨쉬기 → 5걸음으로 복귀. 화면 크기로 끝 위치를
    계산하되 배경·꽃은 기존 cover 상자를 그대로 쓴다. 새 보행 영상 없이
    보폭의 가감속·체중 이동을 합성하는 시범 동작이다. */
 (function () {
@@ -2321,6 +2321,7 @@ function createSceneMotion(restart, cleanup) {
   var visitGap = 5 * 60 * 1000, nextVisit = performance.now() + visitGap;
   var readyAt = performance.now(), geometry = null, progress = 0;
   var phase = "", phaseStart = 0, returnFrom = 1;
+  var breath = 0, returnBreath = 0, breathPeriod = 3000;
 
   function eligible() {
     return root.dataset.season === "autumn" && document.body.dataset.weather === "clear" &&
@@ -2363,6 +2364,7 @@ function createSceneMotion(restart, cleanup) {
     if (pending === "auto" && root.dataset.sceneReady !== "true") pending = null;
     if (window.naeruReduced()) pending = null;
     running = false; reserved = false; geometry = null; progress = 0;
+    breath = 0; returnBreath = 0;
     delete root.dataset.approach;
     delete root.dataset.approachQuality;
     delete root.dataset.approachArt;
@@ -2416,17 +2418,29 @@ function createSceneMotion(restart, cleanup) {
     phase = next; phaseStart = now; root.dataset.approach = next;
     controls();
   }
+  function breathe(amount) {
+    breath = amount;
+    // 발끝을 고정한 채 몸통이 살짝 넓어지고 상체가 올라온다. 매번 pose()가
+    // 보폭을 먼저 설정하므로 변형이 누적되지 않고 얼굴 비율도 거의 유지된다.
+    stride.style.transform += " scale(" + (1 + amount * .006).toFixed(5) + "," +
+      (1 + amount * .014).toFixed(5) + ")";
+  }
   function returnHome() {
     if (!running || phase === "returning") return;
+    returnBreath = breath;
     returnFrom = progress; changePhase("returning", performance.now());
   }
   function animate(now) {
-    var t = Math.min(1, (now - phaseStart) /
-      (phase === "walking" ? 4200 : phase === "close" ? 2400 : 3400));
+    var elapsed = now - phaseStart;
+    var t = Math.min(1, elapsed /
+      (phase === "walking" ? 4200 : phase === "close" ? breathPeriod * 2 : 3400));
     if (phase === "close") {
-      // 접근 내내 영상의 뉴트럴 포즈를 유지하고 DOM 몸짓만 살짝 움직인다.
       pose(1, 0, 0);
-      stride.style.transform = "rotate(" + (Math.sin(t * Math.PI * 2) * 1.4).toFixed(3) + "deg)";
+      // 1.2초 들숨 + 1.8초 날숨. 두 호흡 모두 원래 자세에서 시작하고 끝나
+      // 도착·자동 복귀 때 몸이 튀지 않는다. 그림자와 앞풀은 지면에 남는다.
+      var cycle = (t * 2) % 1;
+      var air = cycle < .4 ? cycle / .4 : (1 - cycle) / .6;
+      breathe((1 - Math.cos(air * Math.PI)) / 2);
       if (t === 1) { returnFrom = 1; changePhase("returning", now); }
     } else {
       var steps = phase === "walking" ? 6 : 5;
@@ -2434,6 +2448,11 @@ function createSceneMotion(restart, cleanup) {
       var walked = (Math.floor(beat) + (1 - Math.cos(foot * Math.PI)) / 2) / steps;
       var envelope = Math.min(1, t * 12, (1 - t) * 12);
       pose(phase === "walking" ? walked : returnFrom * (1 - walked), beat, envelope);
+      if (phase === "returning" && returnBreath) {
+        // 숨을 들이쉬는 도중 돌아가기를 눌러도 원래 크기로 갑자기 줄지 않는다.
+        var settle = Math.min(1, elapsed / 400);
+        breathe(returnBreath * (1 - settle * settle * (3 - 2 * settle)));
+      }
       if (t === 1) {
         if (phase === "returning") { reset(); return; }
         changePhase("close", now);

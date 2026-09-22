@@ -376,7 +376,7 @@ async function check(name, fn) {
         } finally { await p.close(); }
       }));
     });
-    await check('다가오기: 네 화면비에서 접근·눈 맞춤·자동 복귀', async () => {
+    await check('다가오기: 네 화면비에서 접근·숨쉬기·자동 복귀', async () => {
       await Promise.all([[1920, 1080], [390, 844], [844, 390], [2560, 1080]].map(async ([width, height]) => {
         const p = await makePage({ viewport: { width, height } });
         try {
@@ -399,6 +399,29 @@ async function check(name, fn) {
           assert.equal(close.flowers, '1'); assert.equal(close.shadow, close.approach);
           assert.deepEqual(await p.locator('#foreground').boundingBox(), foregroundBox);
           assert.equal(close.width, width); await shot(p, `approach-${width}-close`);
+          const breathing = await p.evaluate(() => new Promise(resolve => {
+            const body = document.querySelector('#naeru-stride');
+            const shadow = document.querySelector('#naeru-shadow');
+            const frames = [];
+            function sample() {
+              if (document.documentElement.dataset.approach !== 'close') return resolve(frames);
+              const b = body.getBoundingClientRect(), s = shadow.getBoundingClientRect();
+              frames.push({ height: b.height, width: b.width,
+                footX: b.x + b.width * .479167, footY: b.y + b.height * .790323,
+                shadowY: s.y, shadowHeight: s.height });
+              requestAnimationFrame(sample);
+            }
+            sample();
+          }));
+          assert(breathing.length > 30);
+          const span = key => Math.max(...breathing.map(f => f[key])) -
+            Math.min(...breathing.map(f => f[key]));
+          const rise = span('height') / breathing[0].height;
+          assert(rise > .008 && rise < .02, '눈에 보이되 형태를 과하게 늘리지 않는 숨쉬기');
+          assert(span('width') / breathing[0].width < .01);
+          for (const key of ['footX', 'footY', 'shadowY', 'shadowHeight']) {
+            assert(span(key) < .1, `숨쉬는 동안 지면 고정: ${key}`);
+          }
           await p.waitForFunction(() => !document.documentElement.dataset.approach);
           assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
           assert.equal(await p.locator('#naeru-approach').evaluate(e => e.style.transform), '');
@@ -599,13 +622,14 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []);
       } finally { await p.close(); }
     });
-    await check('다가오기: 숨김·풍경 변경·동작 줄이기·화면 회전·Escape', async () => {
+    await check('다가오기: 숨쉬던 중 숨김·풍경 변경·동작 줄이기·화면 회전·Escape', async () => {
       await Promise.all(['hidden', 'scene', 'reduced', 'resize', 'escape'].map(async kind => {
         const p = await makePage();
         try {
           await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
-          await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
-          await p.waitForTimeout(700);
+          await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
+          await p.waitForFunction(() => new DOMMatrix(getComputedStyle(
+            document.querySelector('#naeru-stride')).transform).d > 1.01);
           if (kind === 'hidden') {
             await p.evaluate(() => {
               Object.defineProperty(document, 'hidden', { configurable: true, value: true });
@@ -616,7 +640,12 @@ async function check(name, fn) {
             await p.waitForFunction(() => document.documentElement.dataset.season === 'winter');
           } else if (kind === 'reduced') await p.emulateMedia({ reducedMotion: 'reduce' });
           else if (kind === 'resize') await p.setViewportSize({ width: 390, height: 844 });
-          else await p.keyboard.press('Escape');
+          else {
+            await p.keyboard.press('Escape');
+            assert(await p.locator('#naeru-stride').evaluate(e =>
+              new DOMMatrix(getComputedStyle(e).transform).d > 1.005),
+            '수동 복귀 첫 순간에도 들이쉰 자세를 유지한다');
+          }
           await p.waitForFunction(() => !document.documentElement.dataset.approach);
           assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
           assert.equal(await p.locator('#naeru-stride').evaluate(e => e.style.transform), '');
