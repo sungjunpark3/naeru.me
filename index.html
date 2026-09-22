@@ -88,7 +88,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
      움직여야 정렬이 유지되고, 살짝 확대해서 흔들린 만큼 가장자리에
      빈 틈이 생기지 않게 한다 (기본값 none이면 아무 영향 없음).
      배경·#stage를 같이 넣어야 흔들릴 때 내루미가 배경에서 떨어져 보이지 않는다 */
-  .bg-still, .bg-layer, #stage, #foreground {
+  .bg-still, .bg-layer, #landscape, #stage, #foreground {
     transform: var(--bg-shake, none);
   }
 
@@ -106,6 +106,15 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   .bg-layer.on { opacity: 1; }
   #bgA { background-image: var(--bg-a); }
   #bgB { background-image: var(--bg-b); }
+
+  /* 가을 낮의 나무·산등선·들판. 같은 배경 원본의 하늘만 투명하게 뚫어
+     두었으므로 현재 화면은 같고, 다음 단계에서 뒤의 하늘만 움직일 수 있다. */
+  #landscape { position: fixed; pointer-events: none; }
+  .landscape-layer {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; transition: opacity 2.5s ease;
+  }
+  .landscape-layer.on { opacity: 1; }
 
   /* ── 내루미: #stage가 프레임 사각형(=배경 영상이 cover로 차지하는 상자)이라
      자식은 % 좌표만으로 배치된다. JS 기하 계산 없음.
@@ -550,7 +559,8 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   html[data-motion="still"] :is(.rain, .fall, .naeru, #naeruNt, #tongue, #glow, #frame) {
     display: none !important;
   }
-  html[data-motion="still"] :is(.bg-layer, .foreground-layer, #stage, #naeruStill) { transition: none; }
+  html[data-motion="still"] :is(.bg-layer, .landscape-layer, .foreground-layer,
+    #stage, #naeruStill) { transition: none; }
   html[data-motion="still"] #naeruStill.on { opacity: 1; }
 
   /* 움직임 최소화 설정 존중: 영상 없이 정지 프레임만 표시
@@ -560,7 +570,9 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     .rain, .fall { display: none !important; }
     .naeru, #naeruNt, #tongue { display: none !important; }
     #glow { display: none !important; }
-    .bg-layer, .foreground-layer, #naeruStill { transition: none !important; }
+    .bg-layer, .landscape-layer, .foreground-layer, #naeruStill {
+      transition: none !important;
+    }
     #frame { display: none !important; }
   }
 </style>
@@ -572,6 +584,12 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
 
 <div id="bgA" class="bg-layer"></div>
 <div id="bgB" class="bg-layer"></div>
+
+<!-- 가을 낮은 하늘·구름 뒤판 위에 나무·산등선·들판 누끼를 얹는다. -->
+<div id="landscape" aria-hidden="true">
+  <img id="landscapeA" class="landscape-layer" alt="">
+  <img id="landscapeB" class="landscape-layer" alt="">
+</div>
 
 <!-- 배경 영상에서 내루미를 지운 자리에 다시 얹는 DOM 내루미.
      배경 위, .rain/.vignette 아래 — 구워져 있던 내루미 위로 비·비네트가
@@ -814,7 +832,7 @@ function createSceneMotion(restart, cleanup) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "0529c64d0e3b";
+  var ASSET_V = "93e279ccb9d1";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -975,6 +993,9 @@ function createSceneMotion(restart, cleanup) {
   var still = document.getElementById("naeruStill");
   var hd = document.getElementById("naeruHd");
   var stage = document.getElementById("stage");
+  var landscape = document.getElementById("landscape");
+  var landscapes = [document.getElementById("landscapeA"),
+    document.getElementById("landscapeB")];
   var foreground = document.getElementById("foreground");
   var fronts = [document.getElementById("foregroundA"), document.getElementById("foregroundB")];
   var slot = 0, active = null, activeSeason = null, requested = null;
@@ -1002,7 +1023,9 @@ function createSceneMotion(restart, cleanup) {
       if (request === hdRequest) hd.dataset.status = "failed";
     });
   }
-  function layout() { layoutFrameBox(stage); layoutFrameBox(foreground); }
+  function layout() {
+    layoutFrameBox(stage); layoutFrameBox(landscape); layoutFrameBox(foreground);
+  }
   addEventListener("resize", layout); layout();
 
   function sceneReady(ready) {
@@ -1085,8 +1108,10 @@ function createSceneMotion(restart, cleanup) {
   function showScene(variant, season) {
     var token = ++generation, nextSlot = active ? 1 - slot : slot;
     var key = variant + "/" + season, url = bgOf(variant, season);
+    var landscapeUrl = season === "autumn" && variant === "day"
+      ? av("landscape-day-autumn.webp") : null;
     var frontUrl = season === "autumn" ? av("foreground-" + variant + "-autumn.webp") : null;
-    var frontReady = false;
+    var landscapeReady = false, frontReady = false;
     requested = key; stopWatch(); sceneReady(false);
     prepareHD(variant);
     // 첫 화면의 시계와 배경은 날씨 요청을 기다리지 않는다.
@@ -1107,6 +1132,10 @@ function createSceneMotion(restart, cleanup) {
         ? 'url("' + av("snow-near.png") + '")' : "none");
       bgs[nextSlot].style.backgroundImage = 'url("' + url + '")';
       bgs[nextSlot].classList.add("on"); bgs[oldSlot].classList.remove("on");
+      if (landscapeReady) landscapes[nextSlot].src = landscapeUrl;
+      landscapes[nextSlot].classList.toggle("on", landscapeReady);
+      landscapes[oldSlot].classList.remove("on");
+      root.dataset.landscape = landscapeReady ? "ready" : landscapeUrl ? "failed" : "none";
       // 전경도 이 장면의 로드가 끝난 뒤 함께 표시한다. 오래된 요청의 응답은
       // 위의 generation 검사로 버리며, 실패하면 꽃 없는 완성된 들판을 쓴다.
       if (frontReady) fronts[nextSlot].src = frontUrl;
@@ -1127,16 +1156,20 @@ function createSceneMotion(restart, cleanup) {
         var old = videos[oldSlot]; old.pause(); old.removeAttribute("src"); old.load();
       }, noMotion ? 0 : 2700);
     }
-    // 전경 지연이 시계·배경을 끝없이 붙잡지 않도록 상한을 둔다. 늦은 원화는
-    // 이미 시작한 장면에 끼워 넣지 않고 다음 장면 전환에서 사용한다.
-    var frontLoaded = frontUrl ? new Promise(function (resolve) {
-      var timeout = setTimeout(function () { resolve(false); }, 4000);
-      decodeImage(frontUrl).then(function () {
-        clearTimeout(timeout); resolve(true);
-      }).catch(function () { clearTimeout(timeout); resolve(false); });
-    }) : Promise.resolve(false);
-    Promise.all([decodeImage(url), decodeImage(stillOf(variant)), frontLoaded]).then(function (loaded) {
-      frontReady = loaded[2];
+    // 풍경 레이어·전경 지연이 시계와 배경을 끝없이 붙잡지 않도록 상한을 둔다.
+    // 늦은 원화는 이미 시작한 장면에 끼워 넣지 않고 다음 전환에서 사용한다.
+    function loadOptional(imageUrl) {
+      if (!imageUrl) return Promise.resolve(false);
+      return new Promise(function (resolve) {
+        var timeout = setTimeout(function () { resolve(false); }, 4000);
+        decodeImage(imageUrl).then(function () {
+          clearTimeout(timeout); resolve(true);
+        }).catch(function () { clearTimeout(timeout); resolve(false); });
+      });
+    }
+    Promise.all([decodeImage(url), decodeImage(stillOf(variant)),
+      loadOptional(landscapeUrl), loadOptional(frontUrl)]).then(function (loaded) {
+      landscapeReady = loaded[2]; frontReady = loaded[3];
       if (token !== generation) return;
       if (noMotion || fallback || document.hidden) { commit(null); return; }
       // 첫 접속은 정지본을 먼저 띄우고 디코딩된 영상으로 교체한다.

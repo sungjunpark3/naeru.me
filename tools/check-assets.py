@@ -22,6 +22,7 @@ args = parser.parse_args()
 
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
 images.update({f"foreground-{v}-autumn.webp": FRAME_SIZE for v in VARIANTS})
+images["landscape-day-autumn.webp"] = FRAME_SIZE
 for v in VARIANTS:
     images.update({f"naeru-{v}.png": CROP_SIZE,
                    f"naeru-{v}-hd.webp": (4608, 3968),
@@ -44,9 +45,14 @@ for name in runtime:
     if name in images:
         with Image.open(p) as im:
             assert im.size == images[name], f"크기 불일치: {name} {im.size}"
-            if name.endswith(("-hd.webp", "-close.webp")) or name.startswith("foreground-"):
+            if (name.endswith(("-hd.webp", "-close.webp")) or
+                    name.startswith(("foreground-", "landscape-"))):
                 assert im.mode == "RGBA", f"투명 자산 알파 누락: {name}"
                 assert im.getchannel("A").getextrema() == (0, 255), name
+            if name == "landscape-day-autumn.webp":
+                alpha = im.getchannel("A")
+                assert alpha.getpixel((1920, 500)) == 0, "중앙 하늘이 투명하지 않음"
+                assert alpha.getpixel((1920, 1900)) == 255, "들판이 불투명하지 않음"
             if name.startswith("foreground-"):
                 # 열린 하늘·중앙 통로에는 전경의 네모판·알파 먼지가 없어야 한다.
                 alpha = im.getchannel("A")

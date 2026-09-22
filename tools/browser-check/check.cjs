@@ -85,6 +85,16 @@ async function check(name, fn) {
               assert.equal(state.variant, band + (w === 'rain' ? '-rain' : ''));
               assert.notEqual(state.filter, 'none');
               assert.equal(state.still, '1'); assert.equal(state.video, false);
+              const layered = season === 'autumn' && state.variant === 'day';
+              assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape),
+                layered ? 'ready' : 'none');
+              assert.equal(await p.locator('.landscape-layer.on').count(), layered ? 1 : 0);
+              if (layered) {
+                assert.match(await p.locator('.landscape-layer.on').getAttribute('src'),
+                  /landscape-day-autumn\.webp/);
+                assert.deepEqual(await p.locator('#landscape').boundingBox(),
+                  await p.locator('#stage').boundingBox());
+              }
               assert.equal(await p.evaluate(() => document.documentElement.dataset.foreground),
                 season === 'autumn' ? 'ready' : 'none');
               assert.equal(await p.locator('.foreground-layer.on').count(), season === 'autumn' ? 1 : 0);
@@ -100,6 +110,56 @@ async function check(name, fn) {
           } finally { await p.close(); }
         }));
       }
+    });
+    await check('가을 낮 풍경 레이어: 실패·시간 초과·장면 전환에도 원본 배경 유지', async () => {
+      await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
+        const p = await makePage({ reducedMotion: 'reduce' });
+        let release;
+        const held = new Promise(resolve => { release = resolve; });
+        await p.route('**/landscape-day-autumn.webp?*', async route => {
+          if (kind === 'failed') return route.abort();
+          await held;
+          await route.fulfill({ path: path.join(repo, 'img/landscape-day-autumn.webp') });
+        });
+        try {
+          await p.goto(base + '/?s=autumn&v=day&w=clear', { waitUntil: 'domcontentloaded' });
+          if (kind === 'scene') {
+            await p.click('#settings-open'); await p.selectOption('#setting-band', 'night');
+            await p.waitForFunction(() => document.body.dataset.variant === 'night' &&
+              document.documentElement.dataset.sceneReady === 'true');
+            release(); await p.waitForTimeout(300);
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape), 'none');
+          } else {
+            await p.waitForFunction(() => document.documentElement.dataset.sceneReady === 'true');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape), 'failed');
+            assert.equal(await p.locator('.landscape-layer.on').count(), 0);
+            assert.match(await p.locator('.bg-layer.on').evaluate(e => e.style.backgroundImage),
+              /bg-day-autumn\.jpg/);
+            if (kind === 'slow') {
+              release(); await p.waitForTimeout(300);
+              assert.equal(await p.locator('.landscape-layer.on').count(), 0);
+            }
+          }
+          assert.deepEqual(p.errors, []);
+        } finally { release(); await p.close(); }
+      }));
+    });
+    await check('가을 낮 풍경 레이어: 분리 전후 정지 화면 픽셀 일치', async () => {
+      const p = await makePage({ reducedMotion: 'reduce' });
+      try {
+        await open(p, 's=autumn&v=day&w=clear&ball=0&flit=0&ff=0');
+        await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
+          document.querySelector('#naeruStill').naturalWidth === 4608);
+        await p.addStyleTag({ content: '* { transition: none !important; }' });
+        await p.evaluate(() => [...document.body.children].forEach(e => {
+          if (!e.matches('.bg-still, .bg-layer, #landscape')) e.style.visibility = 'hidden';
+        }));
+        const layered = await p.screenshot({ animations: 'disabled' });
+        await p.locator('.landscape-layer.on').evaluate(e => { e.style.visibility = 'hidden'; });
+        const original = await p.screenshot({ animations: 'disabled' });
+        assert.equal(Buffer.compare(layered, original), 0);
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { await p.close(); }
     });
     await check('가을 전경: 실패·시간 초과·오래된 응답에도 장면과 입력 유지', async () => {
       await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
