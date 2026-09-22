@@ -35,7 +35,8 @@ images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
 images.update({f"{kind}-{depth}.png": (512, 1024)
                for kind in ["rain", "snow"] for depth in ["far", "near"]})
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
-runtime = sorted([*images, *videos, "alpha-probe.webm"])
+sky_videos = ["sky-day-autumn.mp4"]
+runtime = sorted([*images, *videos, *sky_videos, "alpha-probe.webm"])
 digest = hashlib.sha256()
 foreground_alpha = None
 for name in runtime:
@@ -102,6 +103,26 @@ if args.videos:
         assert stream["r_frame_rate"] == "24/1", name
         assert stream["codec_name"] == ("vp9" if name.endswith("webm") else "hevc"), name
     print(f"영상 {len(videos)}개: 크롭·코덱·24fps·{N_FRAMES}프레임 PASS")
+    for name in sky_videos:
+        result = subprocess.check_output([
+            "ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+            "-show_entries", "stream=codec_name,width,height,nb_read_frames,r_frame_rate",
+            "-of", "json", str(REPO / "img" / name)
+        ], text=True)
+        stream = json.loads(result)["streams"][0]
+        assert (stream["width"], stream["height"]) == (1920, 1080), name
+        assert int(stream["nb_read_frames"]) == 288, name
+        assert stream["r_frame_rate"] == "24/1", name
+        assert stream["codec_name"] == "h264", name
+        decoded = []
+        for frame in [0, 287]:
+            decoded.append(subprocess.check_output([
+                "ffmpeg", "-v", "error", "-i", str(REPO / "img" / name),
+                "-vf", f"select=eq(n\\,{frame})", "-frames:v", "1",
+                "-f", "rawvideo", "-pix_fmt", "rgb24", "-"
+            ]))
+        assert decoded[0] == decoded[1], f"루프 끝점 불일치: {name}"
+    print("구름 영상 1개: 1920×1080·H.264·24fps·288프레임·끝점 일치 PASS")
 
 version = digest.hexdigest()[:12]
 pattern = r'(var ASSET_V = ")[^"]+(";)'

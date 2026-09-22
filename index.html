@@ -88,7 +88,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
      움직여야 정렬이 유지되고, 살짝 확대해서 흔들린 만큼 가장자리에
      빈 틈이 생기지 않게 한다 (기본값 none이면 아무 영향 없음).
      배경·#stage를 같이 넣어야 흔들릴 때 내루미가 배경에서 떨어져 보이지 않는다 */
-  .bg-still, .bg-layer, #landscape, #stage, #foreground {
+  .bg-still, .bg-layer, #skyMotion, #landscape, #stage, #foreground {
     transform: var(--bg-shake, none);
   }
 
@@ -106,6 +106,15 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   .bg-layer.on { opacity: 1; }
   #bgA { background-image: var(--bg-a); }
   #bgB { background-image: var(--bg-b); }
+
+  /* 가을 낮 하늘. 정적 원본을 뒤에 남겨 두고 첫 프레임 재생 뒤에만
+     천천히 나타나므로 다운로드·디코딩 실패 때도 장면은 완성된 채 유지된다. */
+  #skyMotion {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; object-position: center; pointer-events: none;
+    opacity: 0; transition: opacity 2.5s ease;
+  }
+  #skyMotion.on { opacity: 1; }
 
   /* 가을 낮의 나무·산등선·들판. 같은 배경 원본의 하늘만 투명하게 뚫어
      두었으므로 현재 화면은 같고, 다음 단계에서 뒤의 하늘만 움직일 수 있다. */
@@ -559,8 +568,9 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   html[data-motion="still"] :is(.rain, .fall, .naeru, #naeruNt, #tongue, #glow, #frame) {
     display: none !important;
   }
-  html[data-motion="still"] :is(.bg-layer, .landscape-layer, .foreground-layer,
-    #stage, #naeruStill) { transition: none; }
+  html[data-motion="still"] #skyMotion { display: none; }
+  html[data-motion="still"] :is(.bg-layer, #skyMotion, .landscape-layer,
+    .foreground-layer, #stage, #naeruStill) { transition: none; }
   html[data-motion="still"] #naeruStill.on { opacity: 1; }
 
   /* 움직임 최소화 설정 존중: 영상 없이 정지 프레임만 표시
@@ -570,9 +580,10 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     .rain, .fall { display: none !important; }
     .naeru, #naeruNt, #tongue { display: none !important; }
     #glow { display: none !important; }
-    .bg-layer, .landscape-layer, .foreground-layer, #naeruStill {
+    .bg-layer, #skyMotion, .landscape-layer, .foreground-layer, #naeruStill {
       transition: none !important;
     }
+    #skyMotion { display: none !important; }
     #frame { display: none !important; }
   }
 </style>
@@ -584,6 +595,10 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
 
 <div id="bgA" class="bg-layer"></div>
 <div id="bgB" class="bg-layer"></div>
+
+<!-- 구름 영상은 정적 배경과 풍경 누끼 사이에서 가을 맑은 낮에만 재생된다. -->
+<video id="skyMotion" aria-hidden="true" muted loop playsinline
+       preload="none"></video>
 
 <!-- 가을 낮은 하늘·구름 뒤판 위에 나무·산등선·들판 누끼를 얹는다. -->
 <div id="landscape" aria-hidden="true">
@@ -832,7 +847,7 @@ function createSceneMotion(restart, cleanup) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "93e279ccb9d1";
+  var ASSET_V = "243caf7541ba";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1242,6 +1257,61 @@ function createSceneMotion(restart, cleanup) {
   (function tick() {
     setTimeout(function () { render(); tick(); }, 60000 - Date.now() % 60000 + 50);
   })();
+})();
+</script>
+
+<script>
+/* ── 가을 낮 구름 ────────────────────────────────────────────────
+   정적 배경과 풍경 누끼 사이에서 12초 영상을 반복한다. 영상의 첫·마지막
+   디코딩 프레임은 같고, 종료 직전 들어온 구름의 위치·속도가 다음 첫 프레임과
+   이어진다. 다른 장면·숨은 탭·동작 줄이기에서는 파일 자체를 내려놓는다. */
+(function () {
+  var root = document.documentElement;
+  var video = document.getElementById("skyMotion");
+  var request = 0, timeout = 0, onReady = null, onError = null;
+
+  function detach() {
+    clearTimeout(timeout); timeout = 0;
+    if (onReady) video.removeEventListener("loadeddata", onReady);
+    if (onError) video.removeEventListener("error", onError);
+    onReady = onError = null;
+  }
+  function release(state) {
+    request++; detach(); video.pause(); video.classList.remove("on");
+    video.removeAttribute("src"); video.load();
+    root.dataset.skyMotion = state || "none";
+  }
+  function restart() {
+    var eligible = root.dataset.season === "autumn" &&
+      document.body.dataset.variant === "day" &&
+      root.dataset.landscape === "ready";
+    if (!eligible) { root.dataset.skyMotion = "none"; return; }
+
+    var token = ++request;
+    root.dataset.skyMotion = "loading";
+    function failed() {
+      if (token !== request) return;
+      release("failed");
+    }
+    onError = failed;
+    onReady = function () {
+      if (token !== request) return;
+      detach();
+      video.play().then(function () {
+        if (token !== request || !sceneMotionAllowed()) return;
+        video.classList.add("on");
+        root.dataset.skyMotion = "playing";
+      }).catch(failed);
+    };
+    video.addEventListener("loadeddata", onReady);
+    video.addEventListener("error", onError);
+    timeout = setTimeout(failed, 8000);
+    video.src = "img/sky-day-autumn.mp4?v=" + root.dataset.av;
+    video.load();
+  }
+
+  var motion = createSceneMotion(restart, function () { release("none"); });
+  motion.start();
 })();
 </script>
 

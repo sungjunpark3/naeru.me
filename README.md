@@ -37,6 +37,8 @@ python3 -m http.server 8000 --bind 127.0.0.1
 네 시간대의 맑음·비에 맞춰 색을 입혔고, 다른 계절의 배경은 기존 그림을 쓴다.
 사계절 배경의 고정 그림자를 제거하고, 점프해도 지면에 남는 DOM 그림자를 쓴다.
 [그림자·고해상도 제작과 검증](docs/SHADOW-HD-2026-09-16.md)에 정리했다.
+가을의 맑은 낮에는 나무·산등선·들판 뒤에서 12초 구름 영상이 반복된다.
+첫·마지막 프레임과 구름의 진행 방향을 맞춰 루프 경계가 보이지 않게 했다.
 
 ## 그림 수정·검사
 
@@ -54,7 +56,11 @@ tools/naeru-split/.venv/bin/python tools/check-assets.py
 tools/naeru-split/.venv/bin/python tools/season/repaint.py --seasons winter
 tools/naeru-split/.venv/bin/python tools/check-assets.py --update-version
 
-# 영상 크기·코덱·24fps·316프레임까지 검사
+# 가을 낮 풍경 누끼와 12초 구름 영상 재생성
+tools/naeru-split/.venv/bin/python tools/clouds/build.py
+tools/naeru-split/.venv/bin/python tools/check-assets.py --update-version
+
+# 캐릭터·구름 영상의 크기·코덱·프레임 수와 구름 루프 끝점 검사
 tools/naeru-split/.venv/bin/python tools/check-assets.py --videos
 ```
 

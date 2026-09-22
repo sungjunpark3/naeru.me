@@ -1,3 +1,4 @@
 # 현재 배경 제작·검증 환경. HEVC 인코딩에는 macOS ffmpeg가 필요하다.
 numpy==2.5.2
 Pillow==12.3.0
+opencv-python-headless==5.0.0.93
