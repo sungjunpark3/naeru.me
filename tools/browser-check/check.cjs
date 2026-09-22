@@ -376,7 +376,7 @@ async function check(name, fn) {
         } finally { await p.close(); }
       }));
     });
-    await check('다가오기: 네 화면비에서 접근·원본 영상 동작·자동 복귀', async () => {
+    await check('다가오기: 네 화면비에서 접근·눈 맞춤·자동 복귀', async () => {
       await Promise.all([[1920, 1080], [390, 844], [844, 390], [2560, 1080]].map(async ([width, height]) => {
         const p = await makePage({ viewport: { width, height } });
         try {
@@ -399,28 +399,6 @@ async function check(name, fn) {
           assert.equal(close.flowers, '1'); assert.equal(close.shadow, close.approach);
           assert.deepEqual(await p.locator('#foreground').boundingBox(), foregroundBox);
           assert.equal(close.width, width); await shot(p, `approach-${width}-close`);
-          const movement = await p.evaluate(() => new Promise(resolve => {
-            const body = document.querySelector('#naeru-stride');
-            const shadow = document.querySelector('#naeru-shadow');
-            const frames = [];
-            function sample() {
-              if (document.documentElement.dataset.approach !== 'close') return resolve(frames);
-              const b = body.getBoundingClientRect(), s = shadow.getBoundingClientRect();
-              frames.push({ time: document.querySelector('#naeruCloseVideo').currentTime,
-                height: b.height, width: b.width,
-                footX: b.x + b.width * .479167, footY: b.y + b.height * .790323,
-                shadowY: s.y, shadowHeight: s.height });
-              requestAnimationFrame(sample);
-            }
-            sample();
-          }));
-          assert(movement.length > 30);
-          assert(movement.at(-1).time > 12.8, '팔·혀 동작을 한 주기 끝까지 재생한다');
-          const span = key => Math.max(...movement.map(f => f[key])) -
-            Math.min(...movement.map(f => f[key]));
-          for (const key of ['height', 'width', 'footX', 'footY', 'shadowY', 'shadowHeight']) {
-            assert(span(key) < .1, `원본 영상 재생 중 DOM과 지면 고정: ${key}`);
-          }
           await p.waitForFunction(() => !document.documentElement.dataset.approach);
           assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
           assert.equal(await p.locator('#naeru-approach').evaluate(e => e.style.transform), '');
@@ -451,9 +429,9 @@ async function check(name, fn) {
             await p.waitForTimeout(1800); await shot(p, `autumn-${band}-${width}-walking`);
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
             assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'hd');
-            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'motion');
-            assert.equal(await p.locator('#naeruCloseVideo').evaluate(e => e.videoWidth), 2304);
-            assert.equal(await p.locator('#naeruCloseVideo').evaluate(e => e.style.opacity), '1');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'closeup');
+            assert.equal(await p.locator('#naeruClose').evaluate(e => e.naturalWidth), 4608);
+            assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '1');
             assert.notEqual(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '1');
             assert.equal(await video.evaluate(v => v.style.opacity), '0');
             assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
@@ -463,7 +441,7 @@ async function check(name, fn) {
             await shot(p, `autumn-${band}-${width}-close`);
             await p.waitForFunction(() => !document.documentElement.dataset.approach);
             await playing(p);
-            assert.equal(await p.locator('#naeruCloseVideo').evaluate(e => e.style.opacity), '0');
+            assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '0');
             assert.match(await p.locator('#naeruStill').getAttribute('src'), /-hd\.webp/);
             assert.equal(await video.evaluate(v => v.dataset.pauseOwner), undefined);
             await shot(p, `autumn-${band}-${width}-returned`);
@@ -472,71 +450,9 @@ async function check(name, fn) {
         }));
       }
     });
-    await check('근접 영상: 실패·늦은 로드·이전 장면 응답·재생 거절·중단', async () => {
-      await Promise.all(['failed', 'slow', 'scene', 'rejected', 'stalled'].map(async kind => {
-        const p = await makePage(); p.setDefaultTimeout(30000);
-        let release;
-        const held = new Promise(resolve => { release = resolve; });
-        if (['failed', 'slow', 'scene'].includes(kind)) {
-          await p.route('**/naeru-day-close.webm?*', async route => {
-            if (kind === 'failed') return route.abort();
-            await held;
-            await route.fulfill({ path: path.join(repo, 'img/naeru-day-close.webm') });
-          });
-        }
-        if (kind === 'rejected') await p.addInitScript(() => {
-          const play = HTMLMediaElement.prototype.play;
-          HTMLMediaElement.prototype.play = function () {
-            return this.id === 'naeruCloseVideo' ? Promise.reject(new Error('test')) : play.call(this);
-          };
-        });
-        try {
-          await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
-          if (kind === 'scene') {
-            await p.click('#settings-open'); await p.selectOption('#setting-band', 'night');
-            await p.waitForFunction(() => document.querySelector('#naeruCloseVideo').dataset.variant === 'night' &&
-              document.querySelector('#naeruCloseVideo').dataset.status === 'ready');
-            release(); await p.waitForTimeout(300);
-            assert.match(await p.locator('#naeruCloseVideo').getAttribute('src'), /naeru-night-close\.webm/);
-            await p.keyboard.press('Escape');
-          }
-          await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
-          if (kind === 'failed' || kind === 'slow') {
-            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'original-motion');
-            await p.waitForFunction(() => {
-              const v = document.querySelector('video.naeru.on');
-              return !v.paused && v.currentTime > 1;
-            });
-            if (kind === 'slow') {
-              release();
-              await p.waitForFunction(() => document.querySelector('#naeruCloseVideo').dataset.status === 'ready');
-              assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'original-motion');
-              assert.equal(await p.locator('#naeruCloseVideo').evaluate(v => v.style.opacity), '0');
-            }
-          } else {
-            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'motion');
-            if (kind === 'stalled') {
-              await p.waitForFunction(() => document.querySelector('#naeruCloseVideo').currentTime > 1);
-              await p.locator('#naeruCloseVideo').evaluate(v => v.pause());
-            }
-          }
-          await p.waitForFunction(() => !document.documentElement.dataset.approach);
-          await playing(p);
-          assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
-          assert(await p.locator('#naeruCloseVideo').evaluate(v => v.paused && v.style.opacity === '0'));
-          if (kind === 'slow') {
-            await p.evaluate(() => document.dispatchEvent(new Event('naeru:approach')));
-            await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
-            assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'motion');
-          }
-          assert.deepEqual(p.errors, []);
-        } finally { release(); await p.close(); }
-      }));
-    });
     await check('고해상도: 실패·늦은 로드·풍경 전환 중 오래된 응답', async () => {
       await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
         const p = await makePage(); p.setDefaultTimeout(30000);
-        await p.route(/\/naeru-.*\.(webm|mp4)\?/, route => route.abort());
         let release;
         const held = new Promise(resolve => { release = resolve; });
         await p.route('**/naeru-day-hd.webp?*', async route => {
@@ -569,7 +485,7 @@ async function check(name, fn) {
             }
             await p.click('#approach-return');
             await p.waitForFunction(() => !document.documentElement.dataset.approach);
-            assert.equal(await p.locator('#naeruStill').evaluate(e => e.classList.contains('on')), true);
+            await playing(p);
             if (kind === 'slow') {
               await p.evaluate(() => document.dispatchEvent(new Event('naeru:approach')));
               await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
@@ -584,7 +500,6 @@ async function check(name, fn) {
     await check('근접 원화: 실패·지연·이전 장면 응답과 원래 HD 복귀', async () => {
       await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
         const p = await makePage(); p.setDefaultTimeout(30000);
-        await p.route(/\/naeru-.*\.(webm|mp4)\?/, route => route.abort());
         let release;
         const held = new Promise(resolve => { release = resolve; });
         await p.route('**/naeru-day-close.webp?*', async route => {
@@ -619,7 +534,7 @@ async function check(name, fn) {
           assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '0');
           assert.match(await p.locator('#naeruStill').getAttribute('src'), /-hd\.webp/);
           if (kind === 'slow') {
-            assert.equal(await p.locator('#naeruStill').evaluate(e => e.classList.contains('on')), true);
+            await playing(p);
             await p.evaluate(() => document.dispatchEvent(new Event('naeru:approach')));
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
             assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'closeup');
@@ -684,13 +599,13 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []);
       } finally { await p.close(); }
     });
-    await check('다가오기: 원본 동작 중 숨김·풍경 변경·동작 줄이기·화면 회전·Escape', async () => {
+    await check('다가오기: 숨김·풍경 변경·동작 줄이기·화면 회전·Escape', async () => {
       await Promise.all(['hidden', 'scene', 'reduced', 'resize', 'escape'].map(async kind => {
         const p = await makePage();
         try {
           await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
-          await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
-          await p.waitForFunction(() => document.querySelector('#naeruCloseVideo').currentTime > 1);
+          await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
+          await p.waitForTimeout(700);
           if (kind === 'hidden') {
             await p.evaluate(() => {
               Object.defineProperty(document, 'hidden', { configurable: true, value: true });
@@ -701,16 +616,10 @@ async function check(name, fn) {
             await p.waitForFunction(() => document.documentElement.dataset.season === 'winter');
           } else if (kind === 'reduced') await p.emulateMedia({ reducedMotion: 'reduce' });
           else if (kind === 'resize') await p.setViewportSize({ width: 390, height: 844 });
-          else {
-            await p.keyboard.press('Escape');
-            assert(await p.locator('#naeruCloseVideo').evaluate(v =>
-              !v.paused && v.currentTime > 1 && v.style.opacity === '1'),
-            '수동 복귀도 재생 중인 영상에서 자연스럽게 이어진다');
-          }
+          else await p.keyboard.press('Escape');
           await p.waitForFunction(() => !document.documentElement.dataset.approach);
           assert.equal(await p.evaluate(() => naeru.busy || naeru.hold), false);
           assert.equal(await p.locator('#naeru-stride').evaluate(e => e.style.transform), '');
-          assert(await p.locator('#naeruCloseVideo').evaluate(v => v.paused && v.style.opacity === '0'));
           assert.equal(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '0');
           assert.equal(await p.evaluate(() => [...document.querySelectorAll('video.naeru')]
             .every(v => !v.style.opacity)), true);
@@ -885,15 +794,7 @@ async function check(name, fn) {
           window.testPoseTime = .1;
           const time = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
           Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
-            configurable: true,
-            get() {
-              if (this.classList.contains('naeru')) return window.testPoseTime;
-              if (this.id === 'naeruCloseVideo' && window.closeStartedAt != null) {
-                return Math.min(316 / 24, (performance.now() - window.closeStartedAt) / 1000);
-              }
-              return time.get.call(this);
-            },
-            set: time.set
+            configurable: true, get() { return window.testPoseTime; }, set: time.set
           });
           // 재생 감시에도 가상 재생을 알린다. 실제 벽시계의 timeupdate를
           // 기다리면 수 분을 건너뛴 검사에서 영상 실패 폴백으로 바뀐다.
@@ -912,9 +813,6 @@ async function check(name, fn) {
             new MutationObserver(() => {
               if (document.documentElement.dataset.approach === 'walking') {
                 window.visits.push(performance.now());
-                window.closeStartedAt = null;
-              } else if (document.documentElement.dataset.approach === 'close') {
-                window.closeStartedAt = performance.now();
               }
             }).observe(document.documentElement, { attributes: true,
               attributeFilter: ['data-approach'] });
@@ -923,7 +821,7 @@ async function check(name, fn) {
         await open(p, 's=autumn&v=day&w=clear&ball=0&flit=0&ff=0');
         await p.waitForFunction(() => window.visits.length === 1);
         await p.clock.pauseAt(new Date(await p.evaluate(() => Date.now() + 1000)));
-        await p.clock.runFor(22000);
+        await p.clock.runFor(11000);
         assert.deepEqual(p.errors, []);
         async function advanceBeforeVisit(startedAt) {
           const elapsed = await p.evaluate(() => performance.now());
@@ -942,7 +840,6 @@ async function check(name, fn) {
         assert.equal(await p.evaluate(() => window.visits.length), 2);
         const visits = await p.evaluate(() => window.visits);
         assert(visits[1] - visits[0] >= 305000);
-        await p.clock.runFor(14000);
         await advanceBeforeVisit(visits[1]);
         assert.equal(await p.evaluate(() => window.visits.length), 2);
         await p.clock.runFor(12000);

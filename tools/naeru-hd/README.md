@@ -4,13 +4,13 @@
 정지 애니메이션용 RealESRGAN_x4plus_anime_6B로 눈·입의 선을 복원하고,
 animevideov3로 최종 크기를 만든다. 누끼의 넓은 반투명 띠도 좁힌다.
 결과는 `img/naeru-<variant>-hd.webp`이며 정지 화면과 근접 원화 실패 시 사용한다.
-`build.py`는 정지본, `motion.py`는 원본 동작 전체를 복원한다.
+영상 전체를 업스케일하는 도구는 아니다.
 
 눈 안의 밝은 가로 띠는 `../naeru-split/eyes.py`로 제거한다. 같은 원화와
 윤곽 추적을 영상·정지본·혀 동작·HD 입력에 함께 적용하며, 원본 알파는 보존한다.
 근접 원화에도 동일한 built-in imagegen 눈 편집을 반영했다.
 
-영상 실패 시에는 작은 원화의 선까지 확대하지 않도록 별도의 얇은 선 원화를 쓴다.
+근접에서는 작은 원화의 선까지 확대하지 않도록 별도의 얇은 선 원화를 쓴다.
 built-in imagegen으로 기존 원화의 선 굵기를 조정한 입력을
 `source/naeru-close-day.png`에 보존했다. `closeup.py`는 생성된 알파의 바깥 점을
 제거하고 크롭·눈 위치를 맞춘 뒤, 같은 형태에 시간대 조명을 적용한다.
@@ -20,27 +20,6 @@ built-in imagegen으로 기존 원화의 선 굵기를 조정한 입력을
 tools/naeru-split/.venv/bin/python tools/naeru-hd/closeup.py
 tools/naeru-split/.venv/bin/python tools/check-assets.py --update-version
 ```
-
-## 원본 팔·혀 동작
-
-`motion.py`는 눈 수정이 끝난 `../naeru-split/build/eyes/day/`의 316프레임을
-SRVGG animevideov3로 4배 복원한다. 2304×1984, 24fps, 약 13.17초다.
-낮 프레임 복원 후 기존 시간대 원화의 색 대응으로 새벽·노을·밤을 만든다.
-네 시간대의 포즈·알파는 같고, 원본 팔·혀·몸 움직임과 선 굵기를 유지한다.
-정지원화를 변형하지 않는다. 원본의 모션 블러는 업스케일 후에도 남는다.
-
-```sh
-# 입력 프레임은 naeru-split의 추출과 eyes.py를 먼저 실행해 준비한다.
-tools/naeru-split/.venv/bin/python tools/naeru-hd/motion.py --stage restore
-tools/naeru-split/.venv/bin/python tools/naeru-hd/motion.py --stage encode
-tools/naeru-split/.venv/bin/python tools/check-assets.py --update-version --videos
-```
-
-복원 PNG는 무시되는 `build/motion/`에 남긴다. 인코딩만 다시 실행할 수 있다.
-기본 `--stage all`은 두 단계를 순서대로 수행한다. VP9는 straight alpha,
-Safari용 HEVC는 premultiplied alpha이며 macOS VideoToolbox를 사용한다.
-결과는 `img/naeru-{dawn,day,dusk,night}-close.{webm,mp4}`다.
-접근 중 첫 프레임으로 전환하고 도착 후 한 번 재생한다.
 
 ## 재현
 
