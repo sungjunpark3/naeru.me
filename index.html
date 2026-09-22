@@ -200,7 +200,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     opacity: 0; transition: opacity 2.5s ease;
   }
   .naeru.on, #naeruStill.on { opacity: 1; }
-  #naeruHd, #naeruClose {
+  #naeruHd, #naeruClose, #naeruCloseVideo {
     position: absolute; inset: 0; width: 100%; height: 100%;
     opacity: 0; pointer-events: none;
   }
@@ -212,7 +212,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     #foreground { isolation: isolate; }
     .foreground-layer { mix-blend-mode: plus-lighter; }
     html[data-approach] #naeru-face { isolation: isolate; }
-    html[data-approach] :is(.naeru, #naeruStill, #naeruHd, #naeruClose) {
+    html[data-approach] :is(.naeru, #naeruStill, #naeruHd, #naeruClose, #naeruCloseVideo) {
       mix-blend-mode: plus-lighter;
     }
   }
@@ -586,6 +586,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     <img id="naeruStill" alt="">
     <img id="naeruHd" alt="" aria-hidden="true">
     <img id="naeruClose" alt="" aria-hidden="true">
+    <video id="naeruCloseVideo" aria-hidden="true" muted playsinline preload="auto"></video>
     <img id="naeruNt" alt="">
     <img id="tongue" alt="">
     <div id="naeru-head"></div>
@@ -812,7 +813,7 @@ function createSceneMotion(restart, cleanup) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "0529c64d0e3b";
+  var ASSET_V = "0a6a51bbc132";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1039,6 +1040,7 @@ function createSceneMotion(restart, cleanup) {
       function finish(fmt) {
         if (done) return;
         done = true; clearTimeout(timeout); format = fmt;
+        root.dataset.videoFormat = fmt;
         probe.pause(); probe.removeAttribute("src"); probe.load(); resolve(fmt);
       }
       probe.addEventListener("loadeddata", function () {
@@ -2299,7 +2301,7 @@ function createSceneMotion(restart, cleanup) {
 
 <script>
 /* ── 가을: 뉴트럴 포즈에서 다가와 눈 맞추기 ───────────────────
-   6걸음 → 가까이서 6초 동안 두 번 숨쉬기 → 5걸음으로 복귀. 화면 크기로 끝 위치를
+   6걸음 → 가까이서 원본 팔·혀 동작 한 주기 → 5걸음으로 복귀. 화면 크기로 끝 위치를
    계산하되 배경·꽃은 기존 cover 상자를 그대로 쓴다. 새 보행 영상 없이
    보폭의 가감속·체중 이동을 합성하는 시범 동작이다. */
 (function () {
@@ -2308,7 +2310,9 @@ function createSceneMotion(restart, cleanup) {
   var approach = document.getElementById("naeru-approach");
   var hd = document.getElementById("naeruHd");
   var closeup = document.getElementById("naeruClose");
+  var closeVideo = document.getElementById("naeruCloseVideo");
   var portrait = hd, closeRequest = 0;
+  var videoRequest = 0, motionVideo = null;
   var baseImage = null, useHD = false;
   var stride = document.getElementById("naeru-stride");
   var move = document.getElementById("naeru-move");
@@ -2321,7 +2325,7 @@ function createSceneMotion(restart, cleanup) {
   var visitGap = 5 * 60 * 1000, nextVisit = performance.now() + visitGap;
   var readyAt = performance.now(), geometry = null, progress = 0;
   var phase = "", phaseStart = 0, returnFrom = 1;
-  var breath = 0, returnBreath = 0, breathPeriod = 3000;
+  var played = 0, lastFrame = 0, advancedAt = 0;
 
   function eligible() {
     return root.dataset.season === "autumn" && document.body.dataset.weather === "clear" &&
@@ -2332,8 +2336,24 @@ function createSceneMotion(restart, cleanup) {
     if (!eligible() || root.dataset.sceneReady !== "true") return;
     var version = "?v=" + root.dataset.av;
     var variant = document.body.dataset.variant;
-    // 작은 영상의 굵은 선을 그대로 확대하지 않는다. 근접용 원화는 접근할 수
-    // 있는 장면에서만 준비하고, 평소 정지본에는 기존 HD를 계속 사용한다.
+    // 원본 포즈를 프레임별로 복원한 영상이다. 코덱은 일반 영상의 알파 검사
+    // 결과를 재사용하며, 정지 모드에서는 근접 영상을 요청하지 않는다.
+    var format = root.dataset.videoFormat;
+    if (format && closeVideo.dataset.variant !== variant) {
+      var videoGeneration = ++videoRequest;
+      closeVideo.dataset.variant = variant; closeVideo.dataset.status = "loading";
+      closeVideo.onloadeddata = function () {
+        if (videoGeneration === videoRequest && closeVideo.readyState >= 2) {
+          closeVideo.dataset.status = "ready";
+        }
+      };
+      closeVideo.onerror = function () {
+        if (videoGeneration === videoRequest) closeVideo.dataset.status = "failed";
+      };
+      closeVideo.src = "img/naeru-" + variant + "-close." + format + version;
+      closeVideo.load();
+    }
+    // 영상까지 실패했을 때의 근접 정지원화도 준비한다.
     if (closeup.dataset.variant !== variant) {
       var request = ++closeRequest, image = new Image();
       closeup.dataset.variant = variant; closeup.dataset.status = "loading";
@@ -2364,13 +2384,16 @@ function createSceneMotion(restart, cleanup) {
     if (pending === "auto" && root.dataset.sceneReady !== "true") pending = null;
     if (window.naeruReduced()) pending = null;
     running = false; reserved = false; geometry = null; progress = 0;
-    breath = 0; returnBreath = 0;
+    closeVideo.pause();
+    if (closeVideo.readyState >= 1) closeVideo.currentTime = 0;
+    motionVideo = null; played = 0;
     delete root.dataset.approach;
     delete root.dataset.approachQuality;
     delete root.dataset.approachArt;
     if (baseImage) baseImage.style.opacity = "";
     baseImage = null; useHD = false;
-    hd.style.opacity = "0"; closeup.style.opacity = "0"; portrait = hd;
+    hd.style.opacity = "0"; closeup.style.opacity = "0";
+    closeVideo.style.opacity = "0"; portrait = hd;
     if (hd.dataset.status === "ready" && hd.dataset.variant === document.body.dataset.variant) {
       document.getElementById("naeruStill").src = hd.src;
     }
@@ -2406,8 +2429,8 @@ function createSceneMotion(restart, cleanup) {
     window.naeruShadow.travel(approach.style.transform);
     window.naeruShadow.lift(lift * .4);
     if (useHD) {
-      // 아직 작은 거리에서 근접용 뉴트럴 원화로 연결한다. 눈·발 위치는 제작
-      // 단계에서 맞췄으므로 얼굴이 커진 뒤 형태나 선 굵기가 갑자기 바뀌지 않는다.
+      // 아직 작은 거리에서 근접 영상의 첫 프레임으로 연결한다. 도착 후에는
+      // 같은 영상 안에서 움직이므로 큰 얼굴 위에서 다른 원화로 바뀌지 않는다.
       var mix = Math.max(0, Math.min(1, (p - .04) / .20));
       mix = mix * mix * (3 - 2 * mix);
       portrait.style.opacity = mix.toFixed(4);
@@ -2418,44 +2441,42 @@ function createSceneMotion(restart, cleanup) {
     phase = next; phaseStart = now; root.dataset.approach = next;
     controls();
   }
-  function breathe(amount) {
-    breath = amount;
-    // 발끝을 고정한 채 몸통이 살짝 넓어지고 상체가 올라온다. 매번 pose()가
-    // 보폭을 먼저 설정하므로 변형이 누적되지 않고 얼굴 비율도 거의 유지된다.
-    stride.style.transform += " scale(" + (1 + amount * .006).toFixed(5) + "," +
-      (1 + amount * .014).toFixed(5) + ")";
-  }
   function returnHome() {
     if (!running || phase === "returning") return;
-    returnBreath = breath;
     returnFrom = progress; changePhase("returning", performance.now());
   }
   function animate(now) {
     var elapsed = now - phaseStart;
-    var t = Math.min(1, elapsed /
-      (phase === "walking" ? 4200 : phase === "close" ? breathPeriod * 2 : 3400));
+    var t = Math.min(1, elapsed / (phase === "walking" ? 4200 : 3400));
     if (phase === "close") {
       pose(1, 0, 0);
-      // 1.2초 들숨 + 1.8초 날숨. 두 호흡 모두 원래 자세에서 시작하고 끝나
-      // 도착·자동 복귀 때 몸이 튀지 않는다. 그림자와 앞풀은 지면에 남는다.
-      var cycle = (t * 2) % 1;
-      var air = cycle < .4 ? cycle / .4 : (1 - cycle) / .6;
-      breathe((1 - Math.cos(air * Math.PI)) / 2);
-      if (t === 1) { returnFrom = 1; changePhase("returning", now); }
+      var finished = !motionVideo && elapsed >= 4000;
+      if (motionVideo) {
+        var frame = motionVideo.currentTime, duration = motionVideo.duration || 316 / 24;
+        var delta = frame - lastFrame;
+        if (delta < 0) delta += duration; // 일반 영상 폴백은 loop가 켜져 있다.
+        if (delta > .001) { played += delta; advancedAt = now; }
+        lastFrame = frame;
+        finished = motionVideo.ended || played >= duration - 1 / 24 ||
+          now - advancedAt >= 5000 || elapsed >= (duration + 8) * 1000;
+        if (finished) motionVideo.pause();
+      }
+      if (finished) { returnFrom = 1; changePhase("returning", now); }
     } else {
       var steps = phase === "walking" ? 6 : 5;
       var beat = t * steps, foot = beat % 1;
       var walked = (Math.floor(beat) + (1 - Math.cos(foot * Math.PI)) / 2) / steps;
       var envelope = Math.min(1, t * 12, (1 - t) * 12);
       pose(phase === "walking" ? walked : returnFrom * (1 - walked), beat, envelope);
-      if (phase === "returning" && returnBreath) {
-        // 숨을 들이쉬는 도중 돌아가기를 눌러도 원래 크기로 갑자기 줄지 않는다.
-        var settle = Math.min(1, elapsed / 400);
-        breathe(returnBreath * (1 - settle * settle * (3 - 2 * settle)));
-      }
       if (t === 1) {
         if (phase === "returning") { reset(); return; }
         changePhase("close", now);
+        played = 0; advancedAt = now;
+        if (motionVideo) {
+          lastFrame = motionVideo.currentTime;
+          // 팔·혀·몸의 변형은 영상 자체에 있다. DOM은 도착 위치를 유지한다.
+          motionVideo.play().catch(function () {});
+        }
       }
     }
     motion.frame(animate);
@@ -2465,10 +2486,17 @@ function createSceneMotion(restart, cleanup) {
     baseImage = frozenVideo || document.getElementById("naeruStill");
     var variant = document.body.dataset.variant;
     var closeReady = closeup.dataset.variant === variant && closeup.dataset.status === "ready";
-    portrait = closeReady ? closeup : hd;
-    useHD = closeReady || (hd.dataset.variant === variant && hd.dataset.status === "ready");
+    var videoReady = closeVideo.dataset.variant === variant &&
+      closeVideo.dataset.status === "ready" && closeVideo.readyState >= 2 && !closeVideo.seeking;
+    // 영상 준비가 늦으면 이번 방문은 일반 영상의 실제 동작을 쓴다.
+    // 출발 후에는 선택을 고정해 가까운 얼굴의 화풍·형태가 갑자기 바뀌지 않게 한다.
+    motionVideo = videoReady ? closeVideo : frozenVideo;
+    portrait = videoReady ? closeVideo : closeReady ? closeup : hd;
+    useHD = videoReady || (!motionVideo && (closeReady ||
+      (hd.dataset.variant === variant && hd.dataset.status === "ready")));
     root.dataset.approachQuality = useHD ? "hd" : "original";
-    root.dataset.approachArt = closeReady ? "closeup" : useHD ? "restored" : "original";
+    root.dataset.approachArt = motionVideo ? (videoReady ? "motion" : "original-motion") :
+      closeReady ? "closeup" : useHD ? "restored" : "original";
     nextVisit = performance.now() + visitGap;
     window.naeru.busy = true; window.naeru.hold = true;
     var box = move.getBoundingClientRect();
@@ -2523,7 +2551,8 @@ function createSceneMotion(restart, cleanup) {
     if (performance.now() - readyAt < 2800) { motion.later(tryPending, 100); return; }
     // HD는 최대 5초까지만 기다리고, 실패·지연 시 기존 영상으로 이번 인사를 한다.
     // 시작 후 뒤늦게 도착한 그림으로 바꾸면 가까운 얼굴이 갑자기 튀므로 다음에 쓴다.
-    if ((hd.dataset.status === "loading" || closeup.dataset.status === "loading") &&
+    if ((closeVideo.dataset.status === "loading" || hd.dataset.status === "loading" ||
+         closeup.dataset.status === "loading") &&
         performance.now() - readyAt < 5000) {
       motion.later(tryPending, 100); return;
     }

@@ -34,6 +34,8 @@ images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
 images.update({f"{kind}-{depth}.png": (512, 1024)
                for kind in ["rain", "snow"] for depth in ["far", "near"]})
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
+videos += [f"naeru-{v}-close.{fmt}" for v in ["dawn", "day", "dusk", "night"]
+           for fmt in ["webm", "mp4"]]
 runtime = sorted([*images, *videos, "alpha-probe.webm"])
 digest = hashlib.sha256()
 foreground_alpha = None
@@ -91,7 +93,8 @@ if args.videos:
             "-of", "json", str(REPO / "img" / name)
         ], text=True)
         stream = json.loads(result)["streams"][0]
-        assert (stream["width"], stream["height"]) == CROP_SIZE, name
+        size = (2304, 1984) if "-close." in name else CROP_SIZE
+        assert (stream["width"], stream["height"]) == size, name
         assert int(stream["nb_read_frames"]) == N_FRAMES, name
         assert stream["r_frame_rate"] == "24/1", name
         assert stream["codec_name"] == ("vp9" if name.endswith("webm") else "hevc"), name
