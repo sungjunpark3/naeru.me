@@ -85,22 +85,24 @@ async function check(name, fn) {
               assert.equal(state.variant, band + (w === 'rain' ? '-rain' : ''));
               assert.notEqual(state.filter, 'none');
               assert.equal(state.still, '1'); assert.equal(state.video, false);
-              const layered = season === 'autumn' && w === 'clear';
+              const layered = ['autumn', 'winter'].includes(season) && w === 'clear';
               assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape),
                 layered ? 'ready' : 'none');
               assert.equal(await p.locator('.landscape-layer.on').count(), layered ? 1 : 0);
               if (layered) {
                 assert.match(await p.locator('.landscape-layer.on').getAttribute('src'),
-                  new RegExp(`landscape-${band}-autumn\\.webp`));
+                  new RegExp(`landscape-${band}-${season}\\.webp`));
                 assert.deepEqual(await p.locator('#landscape').boundingBox(),
                   await p.locator('#stage').boundingBox());
               }
+              const foreground = season === 'autumn' ||
+                (season === 'winter' && w === 'clear');
               assert.equal(await p.evaluate(() => document.documentElement.dataset.foreground),
-                season === 'autumn' ? 'ready' : 'none');
-              assert.equal(await p.locator('.foreground-layer.on').count(), season === 'autumn' ? 1 : 0);
-              if (season === 'autumn') {
+                foreground ? 'ready' : 'none');
+              assert.equal(await p.locator('.foreground-layer.on').count(), foreground ? 1 : 0);
+              if (foreground) {
                 assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
-                  new RegExp(`foreground-${state.variant}-autumn\\.webp`));
+                  new RegExp(`foreground-${state.variant}-${season}\\.webp`));
               }
               await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
                 document.querySelector('#naeruStill').naturalWidth === 4608);
@@ -146,27 +148,29 @@ async function check(name, fn) {
         } finally { release(); await p.close(); }
       }));
     });
-    await check('가을 맑음 네 시간대: 정지본에서 영상으로 즉시 교체', async () => {
-      for (const band of ['dawn', 'day', 'dusk', 'night']) {
+    await check('가을·겨울 맑음 네 시간대: 정지본에서 영상으로 즉시 교체', async () => {
+      for (const season of ['autumn', 'winter']) {
+        for (const band of ['dawn', 'day', 'dusk', 'night']) {
         const p = await makePage();
         const requested = [];
         p.on('request', request => requested.push(request.url()));
         try {
-          await open(p, `s=autumn&v=${band}&w=clear&act=0&ball=0&flit=0&ff=0`);
+          await open(p, `s=${season}&v=${band}&w=clear&act=0&ball=0&flit=0&ff=0`);
           assert.match(await p.locator('.bg-layer.on').evaluate(e => e.style.backgroundImage),
-            new RegExp(`sky-${band}-autumn\\.webp`));
+            new RegExp(`sky-${band}-${season}\\.webp`));
           assert.equal(requested.some(url =>
-            url.includes(`bg-${band}-autumn.jpg`)), false);
+            url.includes(`bg-${band}-${season}.jpg`)), false);
           await p.waitForFunction(() =>
             document.documentElement.dataset.skyMotion === 'playing');
-          const state = await p.locator('#skyMotion').evaluate(async (video, band) => {
+          const state = await p.locator('#skyMotion').evaluate(
+            async (video, { band, season }) => {
             video.pause(); video.currentTime = 0;
             await new Promise(resolve => {
               if (video.currentTime === 0 && video.readyState >= 2) return resolve();
               video.addEventListener('seeked', resolve, { once: true });
             });
             const image = new Image();
-            image.src = `img/sky-${band}-autumn.webp?v=${
+            image.src = `img/sky-${band}-${season}.webp?v=${
               document.documentElement.dataset.av}`;
             await image.decode();
             const canvas = document.createElement('canvas');
@@ -184,22 +188,28 @@ async function check(name, fn) {
             return { difference: difference / still.length,
               transition: getComputedStyle(video).transitionDuration,
               opacity: getComputedStyle(video).opacity };
-          }, band);
+          }, { band, season });
           assert(state.difference < 2,
-            `${band} 첫 프레임 차이: ${state.difference}`);
+            `${season}/${band} 첫 프레임 차이: ${state.difference}`);
           assert.equal(state.transition, '0s');
           assert.equal(state.opacity, '1');
-          await shot(p, `autumn-${band}-cloud-first`);
+          await shot(p, `${season}-${band}-cloud-first`);
           assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
         } finally { await p.close(); }
       }
+      }
     });
-    await check('가을 맑음 구름: 60초 영상 재생·장면 이탈 정리', async () => {
+    await check('가을·겨울 맑음 구름: 60초 영상 재생·장면 이탈 정리', async () => {
+      for (const season of ['autumn', 'winter']) {
       const p = await makePage({ viewport: { width: 1920, height: 1080 } });
       try {
-        await open(p, 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0');
+        await open(p, `s=${season}&v=day&w=clear&act=0&ball=0&flit=0&ff=0`);
         await p.waitForFunction(() =>
           document.documentElement.dataset.skyMotion === 'playing');
+        await p.waitForFunction(() => {
+          const video = document.querySelector('#skyMotion');
+          return !video.paused && video.currentTime > 0;
+        });
         const before = await p.locator('#skyMotion').evaluate(v => ({
           src: v.currentSrc, duration: v.duration, time: v.currentTime,
           width: v.videoWidth, height: v.videoHeight, paused: v.paused,
@@ -208,7 +218,7 @@ async function check(name, fn) {
         }));
         await p.waitForTimeout(600);
         const after = await p.locator('#skyMotion').evaluate(v => v.currentTime);
-        assert.match(before.src, /sky-day-autumn\.mp4/);
+        assert.match(before.src, new RegExp(`sky-day-${season}\\.mp4`));
         assert(Math.abs(before.duration - 60) < .05);
         assert.deepEqual([before.width, before.height], [1920, 1080]);
         assert.equal(before.paused, false);
@@ -216,7 +226,7 @@ async function check(name, fn) {
         assert.equal(before.fit, 'cover');
         assert(after > before.time + .2);
         assert.equal(await p.locator('.landscape-layer.on').count(), 1);
-        await shot(p, 'autumn-day-cloud-motion');
+        await shot(p, `${season}-day-cloud-motion`);
 
         await p.click('#settings-open');
         await p.selectOption('#setting-season', 'summer');
@@ -228,14 +238,15 @@ async function check(name, fn) {
         assert.equal(await p.locator('#skyMotion').evaluate(v => v.paused), true);
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
+      }
     });
-    await check('가을 맑음 구름: 실패·동작 줄이기·다른 장면은 정적 폴백', async () => {
-      for (const kind of ['failed', 'reduced', 'rain', 'summer']) {
+    await check('가을·겨울 구름: 실패·동작 줄이기·강수 장면은 정적 폴백', async () => {
+      for (const kind of ['failed', 'reduced', 'rain', 'winter-rain', 'summer']) {
         const reducedMotion = kind === 'reduced' ? 'reduce' : 'no-preference';
         const p = await makePage({ reducedMotion });
         let requested = 0;
         p.on('request', request => {
-          if (request.url().includes('sky-day-autumn.mp4')) requested++;
+          if (/sky-day-(autumn|winter)\.mp4/.test(request.url())) requested++;
         });
         if (kind === 'failed') {
           await p.route('**/sky-day-autumn.mp4?*', route => route.abort());
@@ -243,6 +254,8 @@ async function check(name, fn) {
         try {
           const query = kind === 'rain'
             ? 's=autumn&v=day&w=rain'
+            : kind === 'winter-rain'
+              ? 's=winter&v=day&w=rain'
             : kind === 'summer'
               ? 's=summer&v=day&w=clear'
               : 's=autumn&v=day&w=clear';

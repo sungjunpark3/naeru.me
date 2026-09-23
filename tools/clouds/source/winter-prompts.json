@@ -1,0 +1,23 @@
+{
+  "mode": "built-in imagegen",
+  "variants": {
+    "dawn": {
+      "sky": "cold pale blue-lavender dawn; faint warm horizon",
+      "clouds": "cool pale blue-gray and lavender; restrained rose-gray undersides"
+    },
+    "day": {
+      "sky": "crisp pale winter blue; brighter near snowy horizon",
+      "clouds": "pale blue-white highlights; soft blue-gray undersides"
+    },
+    "dusk": {
+      "sky": "cool lavender-gray; faint muted peach-gold horizon",
+      "clouds": "cool lavender-gray; faint peach lower edges"
+    },
+    "night": {
+      "sky": "deep navy moonless night; preserve fixed stars",
+      "clouds": "deep navy and charcoal-blue; exclude all stars"
+    }
+  },
+  "sky_prompt": "Edit only the open sky of the supplied clear-winter landscape. Remove every cloud and replace it with the time-specific cold winter gradient. Preserve the exact snowy landscape, composition, lighting, painterly style and 16:9 framing. At night preserve the fixed star field. No precipitation, new objects or text.",
+  "cloud_prompt": "Create one aligned transparent RGBA winter cloud layer from the supplied clear-winter reference. Isolate and repaint only the fair-weather clouds with the time-specific lighting. Remove every landscape element. Preserve cloud scale, broad placement, soft painterly edges and horizontal edge coverage. Everything else must be transparent. Exclude stars, precipitation, lightning, sun, moon, text and rectangular haze."
+}

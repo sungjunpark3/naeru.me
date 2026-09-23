@@ -15,6 +15,8 @@ sys.path.insert(0, str(REPO / "tools" / "naeru-split"))
 from coords import CROP_ORIGIN, CROP_SIZE, FRAME_SIZE, N_FRAMES, VARIANTS
 
 SEASONS = ["spring", "summer", "autumn", "winter"]
+CLEAR_VARIANTS = ["dawn", "day", "dusk", "night"]
+MOVING_SKY_SEASONS = ["autumn", "winter"]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--update-version", action="store_true")
 parser.add_argument("--videos", action="store_true", help="두 코덱의 실제 프레임 수도 검사")
@@ -22,9 +24,12 @@ args = parser.parse_args()
 
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
 images.update({f"foreground-{v}-autumn.webp": FRAME_SIZE for v in VARIANTS})
-for v in ["dawn", "day", "dusk", "night"]:
-    images[f"landscape-{v}-autumn.webp"] = FRAME_SIZE
-    images[f"sky-{v}-autumn.webp"] = (1920, 1080)
+images.update({f"foreground-{v}-winter.webp": FRAME_SIZE
+               for v in CLEAR_VARIANTS})
+for season in MOVING_SKY_SEASONS:
+    for v in CLEAR_VARIANTS:
+        images[f"landscape-{v}-{season}.webp"] = FRAME_SIZE
+        images[f"sky-{v}-{season}.webp"] = (1920, 1080)
 for v in VARIANTS:
     images.update({f"naeru-{v}.png": CROP_SIZE,
                    f"naeru-{v}-hd.webp": (4608, 3968),
@@ -37,11 +42,11 @@ images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
 images.update({f"{kind}-{depth}.png": (512, 1024)
                for kind in ["rain", "snow"] for depth in ["far", "near"]})
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
-sky_videos = [f"sky-{v}-autumn.mp4"
-              for v in ["dawn", "day", "dusk", "night"]]
+sky_videos = [f"sky-{v}-{season}.mp4"
+              for season in MOVING_SKY_SEASONS for v in CLEAR_VARIANTS]
 runtime = sorted([*images, *videos, *sky_videos, "alpha-probe.webm"])
 digest = hashlib.sha256()
-foreground_alpha = None
+foreground_alpha = {}
 for name in runtime:
     p = REPO / "img" / name
     assert p.is_file() and p.stat().st_size, f"누락: {name}"
@@ -63,30 +68,34 @@ for name in runtime:
                 assert alpha.crop((0, 0, 3840, 1000)).getbbox() is None, name
                 assert alpha.crop((2150, 0, 2450, 2160)).getbbox() is None, name
                 signature = hashlib.sha256(alpha.tobytes()).digest()
-                if foreground_alpha is None:
-                    foreground_alpha = signature
-                assert signature == foreground_alpha, f"시간대별 전경 형태 불일치: {name}"
+                season = "winter" if name.endswith("-winter.webp") else "autumn"
+                foreground_alpha.setdefault(season, signature)
+                assert signature == foreground_alpha[season], \
+                    f"시간대별 전경 형태 불일치: {name}"
             im.verify()
 
 # 구름 영상은 누끼 뒤에 놓이지만, 첫 화면에서 누끼가 나타나는 동안에도
 # 구름이 풀밭·나무 위에 비치지 않아야 한다.
-for variant in ["dawn", "day", "dusk", "night"]:
-    with Image.open(REPO / f"img/sky-{variant}-autumn.webp") as image:
-        sky_poster = image.convert("RGB")
-    with Image.open(REPO / f"img/bg-{variant}-autumn.jpg") as image:
-        autumn_original = image.convert("RGB").resize(
-            sky_poster.size, Image.Resampling.LANCZOS)
-    with Image.open(
-            REPO / f"img/landscape-{variant}-autumn.webp") as image:
-        opaque_landscape = image.getchannel("A").resize(
-            sky_poster.size, Image.Resampling.LANCZOS)
-    opaque_landscape = opaque_landscape.point(
-        lambda value: 255 if value > 250 else 0)
-    landscape_difference = ImageChops.difference(sky_poster, autumn_original)
-    landscape_mae = sum(ImageStat.Stat(
-        landscape_difference, mask=opaque_landscape).mean) / 3
-    assert landscape_mae < 2, \
-        f"풍경 위 구름 잔상: {variant} MAE={landscape_mae:.2f}"
+for season in MOVING_SKY_SEASONS:
+    for variant in CLEAR_VARIANTS:
+        with Image.open(
+                REPO / f"img/sky-{variant}-{season}.webp") as image:
+            sky_poster = image.convert("RGB")
+        with Image.open(
+                REPO / f"img/bg-{variant}-{season}.jpg") as image:
+            original = image.convert("RGB").resize(
+                sky_poster.size, Image.Resampling.LANCZOS)
+        with Image.open(
+                REPO / f"img/landscape-{variant}-{season}.webp") as image:
+            opaque_landscape = image.getchannel("A").resize(
+                sky_poster.size, Image.Resampling.LANCZOS)
+        opaque_landscape = opaque_landscape.point(
+            lambda value: 255 if value > 250 else 0)
+        landscape_difference = ImageChops.difference(sky_poster, original)
+        landscape_mae = sum(ImageStat.Stat(
+            landscape_difference, mask=opaque_landscape).mean) / 3
+        assert landscape_mae < 2, \
+            f"풍경 위 구름 잔상: {season}/{variant} MAE={landscape_mae:.2f}"
 
 html_path = REPO / "index.html"
 html = html_path.read_text()

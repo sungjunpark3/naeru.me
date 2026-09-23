@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""가을 맑은 네 시간대의 풍경 누끼와 끊김 없는 구름 영상을 만든다.
+"""가을·겨울 맑은 네 시간대의 풍경 누끼와 구름 영상을 만든다.
 
-day-outline.jpg는 사용자가 표시한 경계 참고본이다. 네 시간대의 풍경 구도는
-같아서 풍경 마스크를 공유한다. 빈 하늘과 구름 RGBA는 built-in imagegen으로
-만들었고, 이 스크립트가 각 원본 색상에 맞춰 최종 웹 자산으로 합성한다.
+day-outline.jpg는 사용자가 표시한 경계 참고본이다. 계절과 시간대의 풍경
+구도는 같아서 풍경 마스크를 공유한다. 빈 하늘과 구름 RGBA는 built-in
+imagegen으로 만들었고, 이 스크립트가 원본 색상에 맞춰 웹 자산으로 합성한다.
 """
 import argparse
 import io
@@ -24,6 +24,7 @@ DURATION = 60
 N_FRAMES = FPS * DURATION
 CLOUD_TRAVEL = 700
 VARIANTS = ["dawn", "day", "dusk", "night"]
+SEASONS = ["autumn", "winter"]
 
 
 def load_rgb(path, size):
@@ -31,9 +32,13 @@ def load_rgb(path, size):
     return np.asarray(image.resize(size, Image.Resampling.LANCZOS), np.float32)
 
 
-def build_landscape(variant):
+def source_prefix(variant, season):
+    return variant if season == "autumn" else f"{season}-{variant}"
+
+
+def build_landscape(variant, season):
     source = Image.open(
-        REPO / f"img/bg-{variant}-autumn.jpg").convert("RGB")
+        REPO / f"img/bg-{variant}-{season}.jpg").convert("RGB")
     assert source.size == FRAME_SIZE
 
     mask = Image.open(HERE / "source/day-landscape-mask.png").convert("L")
@@ -45,7 +50,7 @@ def build_landscape(variant):
 
     landscape = source.convert("RGBA")
     landscape.putalpha(mask)
-    output = REPO / f"img/landscape-{variant}-autumn.webp"
+    output = REPO / f"img/landscape-{variant}-{season}.webp"
     landscape.save(output, lossless=True, exact=True, method=6)
 
     # 풍경의 불투명 픽셀과 정적 합성 결과는 원본과 정확히 같아야 한다.
@@ -58,26 +63,27 @@ def build_landscape(variant):
     composite = Image.alpha_composite(
         source.convert("RGBA"), decoded).convert("RGB")
     assert ImageChops.difference(composite, source).getbbox() is None
-    print(f"landscape {variant}/autumn: "
+    print(f"landscape {variant}/{season}: "
           f"{output.stat().st_size / 1024:.0f} KiB")
 
 
-def prepare_cloud_layers(variant):
+def prepare_cloud_layers(variant, season):
+    prefix = source_prefix(variant, season)
     original = load_rgb(
-        REPO / f"img/bg-{variant}-autumn.jpg", VIDEO_SIZE)
+        REPO / f"img/bg-{variant}-{season}.jpg", VIDEO_SIZE)
     clear_sky = load_rgb(
-        HERE / f"source/{variant}-clear-sky.png", VIDEO_SIZE)
+        HERE / f"source/{prefix}-clear-sky.png", VIDEO_SIZE)
     clouds = Image.open(
-        HERE / f"source/{variant}-clouds.png").convert("RGBA")
+        HERE / f"source/{prefix}-clouds.png").convert("RGBA")
     clouds = np.asarray(
         clouds.resize(VIDEO_SIZE, Image.Resampling.LANCZOS), np.float32)
     cloud_mask = Image.open(
-        HERE / f"source/{variant}-cloud-mask.png").convert("L")
+        HERE / f"source/{prefix}-cloud-mask.png").convert("L")
     cloud_mask = np.asarray(
         cloud_mask.resize(VIDEO_SIZE, Image.Resampling.LANCZOS), np.float32)
 
     landscape = Image.open(
-        REPO / f"img/landscape-{variant}-autumn.webp").convert("RGBA")
+        REPO / f"img/landscape-{variant}-{season}.webp").convert("RGBA")
     landscape = np.asarray(
         landscape.resize(VIDEO_SIZE, Image.Resampling.LANCZOS), np.float32)
     sky = 1 - landscape[:, :, 3] / 255
@@ -145,8 +151,8 @@ def render_cloud_frame(base, color, alpha, sky, progress):
     return np.clip(frame, 0, 255).astype(np.uint8)
 
 
-def build_cloud_video(variant):
-    base, color, alpha, sky = prepare_cloud_layers(variant)
+def build_cloud_video(variant, season):
+    base, color, alpha, sky = prepare_cloud_layers(variant, season)
     first = render_cloud_frame(base, color, alpha, sky, 0)
     last = render_cloud_frame(base, color, alpha, sky, 1)
     assert np.array_equal(first, last), "루프 원본의 첫·마지막 프레임이 다름"
@@ -155,7 +161,7 @@ def build_cloud_video(variant):
     assert np.array_equal(first[ground], base_frame[ground]), \
         "하늘 밖 풍경에 구름 픽셀이 남음"
 
-    output = REPO / f"img/sky-{variant}-autumn.mp4"
+    output = REPO / f"img/sky-{variant}-{season}.mp4"
     command = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "rawvideo", "-pixel_format", "rgb24",
@@ -191,20 +197,21 @@ def build_cloud_video(variant):
         "ffmpeg", "-v", "error", "-i", str(output),
         "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"
     ])
-    poster_output = REPO / f"img/sky-{variant}-autumn.webp"
+    poster_output = REPO / f"img/sky-{variant}-{season}.webp"
     Image.open(io.BytesIO(poster_png)).convert("RGB").save(
         poster_output, lossless=True, exact=True, method=6)
-    print(f"sky {variant}/autumn: "
+    print(f"sky {variant}/{season}: "
           f"{output.stat().st_size / 1024 / 1024:.1f} MiB, "
           f"{DURATION}s, {FPS}fps, decoded endpoints identical")
-    print(f"sky {variant}/autumn poster: "
+    print(f"sky {variant}/{season} poster: "
           f"{poster_output.stat().st_size / 1024:.0f} KiB")
 
 
 parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--season", choices=SEASONS, default="autumn")
 parser.add_argument("variants", nargs="*", choices=VARIANTS,
                     default=VARIANTS)
 args = parser.parse_args()
 for selected_variant in args.variants:
-    build_landscape(selected_variant)
-    build_cloud_video(selected_variant)
+    build_landscape(selected_variant, args.season)
+    build_cloud_video(selected_variant, args.season)

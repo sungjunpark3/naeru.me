@@ -1,9 +1,9 @@
-"""가을 앞풀을 지운 배경과 투명 전경을 같은 조명·좌표로 만든다.
+"""가을·겨울 앞풀을 지운 배경과 투명 전경을 같은 조명·좌표로 만든다.
 
-원화 두 장은 built-in imagegen으로 제작했다. 생성기를 다시 호출하지 않고
-보존한 원화로 재현한다. 실행: tools/season/repaint.py --seasons autumn
-day-reference.jpg는 분리 전 가을 낮이며 조명 변환의 기준이다.
-실제 제작 프롬프트는 source/prompts.json에 보존한다.
+계절별 원화는 built-in imagegen으로 제작했다. 생성기를 다시 호출하지 않고
+보존한 원화로 재현한다. 실행: tools/season/repaint.py --seasons autumn winter
+각 reference.jpg는 분리 전 낮 풍경이며 조명 변환의 기준이다. 실제 제작
+프롬프트는 source/prompts.json에 보존한다.
 """
 from pathlib import Path
 
@@ -27,12 +27,15 @@ RIGHT = [(2048, 735), (1990, 758), (1942, 749), (1906, 787),
          (1430, 1152), (2048, 1152)]
 
 
-class AutumnForeground:
-    def __init__(self):
-        self.reference = np.asarray(Image.open(HERE / 'source/day-reference.jpg')
+class SeasonalForeground:
+    def __init__(self, season, prefix):
+        self.season = season
+        self.reference = np.asarray(Image.open(
+            HERE / f'source/{prefix}-reference.jpg')
                                     .convert('RGB'), np.float32)
-        clean = Image.open(HERE / 'source/day-clean.png').convert('RGB').resize(
-            SIZE, Image.Resampling.LANCZOS)
+        clean = Image.open(
+            HERE / f'source/{prefix}-clean.png').convert('RGB').resize(
+                SIZE, Image.Resampling.LANCZOS)
         clean = np.asarray(clean, np.float32)
         mask = Image.new('L', (2048, 1152))
         draw = ImageDraw.Draw(mask)
@@ -51,7 +54,8 @@ class AutumnForeground:
         matrix = np.linalg.lstsq(design, reference_small[context] / 255, rcond=None)[0]
         self.clean = np.clip(clean @ matrix[:3] + matrix[3] * 255, 0, 255)
 
-        plants = Image.open(HERE / 'source/day-plants.png').convert('RGBA')
+        plants = Image.open(
+            HERE / f'source/{prefix}-plants.png').convert('RGBA')
         rgba = np.asarray(plants).copy()
         alpha = rgba[:, :, 3]
         count, labels, stats, _ = cv2.connectedComponentsWithStats((alpha > 32).astype(np.uint8))
@@ -84,9 +88,9 @@ class AutumnForeground:
         background = original * (1 - self.coverage) + clean * self.coverage
         Image.fromarray(np.rint(background).astype(np.uint8)).save(background_path, quality=95)
 
-        # 꽃은 나무보다 분홍·보라가 강하다. 전체 풍경의 선형식을 외삽하면
-        # 밤 꽃이 갈색으로 변하므로 원래 앞풀의 가까운 색에서 조명 비율을
-        # 얻는다. 33³ 색상표를 보간해 새 꽃의 명암·붓질과 알파는 보존한다.
+        # 앞풀은 배경보다 고유색과 눈의 밝기가 강하다. 전체 풍경의 선형식을
+        # 외삽하지 않고 원래 앞풀의 가까운 색에서 조명 비율을 얻는다. 33³
+        # 색상표를 보간해 새 식물의 명암·붓질과 알파는 보존한다.
         area = self.coverage[::8, ::8, 0] > .5
         source_colors = self.reference[::8, ::8][area]
         target_colors = original[::8, ::8][area]
@@ -107,9 +111,19 @@ class AutumnForeground:
         colors[np.asarray(self.alpha) == 0] = 0
         plants = Image.fromarray(colors)
         plants.putalpha(self.alpha)
-        output = background_path.parent / f'foreground-{variant}-autumn.webp'
+        output = background_path.parent / f'foreground-{variant}-{self.season}.webp'
         plants.save(output, quality=95, method=6)
         assert np.array_equal(np.asarray(Image.open(output).getchannel('A')),
                               np.asarray(self.alpha)), output
         print(f'    foreground {variant}: lighting MAE {error:.2f}/255, '
               f'{output.stat().st_size / 1024:.0f} KiB', flush=True)
+
+
+class AutumnForeground(SeasonalForeground):
+    def __init__(self):
+        super().__init__('autumn', 'day')
+
+
+class WinterForeground(SeasonalForeground):
+    def __init__(self):
+        super().__init__('winter', 'winter-day')
