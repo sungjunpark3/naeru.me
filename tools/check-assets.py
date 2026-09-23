@@ -111,18 +111,18 @@ if args.videos:
         ], text=True)
         stream = json.loads(result)["streams"][0]
         assert (stream["width"], stream["height"]) == (1920, 1080), name
-        assert int(stream["nb_read_frames"]) == 288, name
+        assert int(stream["nb_read_frames"]) == 1440, name
         assert stream["r_frame_rate"] == "24/1", name
         assert stream["codec_name"] == "h264", name
         decoded = []
-        for frame in [0, 287]:
+        for frame in [0, 1439]:
             decoded.append(subprocess.check_output([
                 "ffmpeg", "-v", "error", "-i", str(REPO / "img" / name),
                 "-vf", f"select=eq(n\\,{frame})", "-frames:v", "1",
                 "-f", "rawvideo", "-pix_fmt", "rgb24", "-"
             ]))
         assert decoded[0] == decoded[1], f"루프 끝점 불일치: {name}"
-    print("구름 영상 1개: 1920×1080·H.264·24fps·288프레임·끝점 일치 PASS")
+    print("구름 영상 1개: 1920×1080·H.264·24fps·1440프레임·끝점 일치 PASS")
 
 version = digest.hexdigest()[:12]
 pattern = r'(var ASSET_V = ")[^"]+(";)'

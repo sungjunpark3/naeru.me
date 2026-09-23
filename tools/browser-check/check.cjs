@@ -161,7 +161,7 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });
-    await check('가을 낮 구름: 12초 영상 재생·장면 이탈 정리', async () => {
+    await check('가을 낮 구름: 60초 영상 재생·장면 이탈 정리', async () => {
       const p = await makePage({ viewport: { width: 1920, height: 1080 } });
       try {
         await open(p, 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0');
@@ -176,7 +176,7 @@ async function check(name, fn) {
         await p.waitForTimeout(600);
         const after = await p.locator('#skyMotion').evaluate(v => v.currentTime);
         assert.match(before.src, /sky-day-autumn\.mp4/);
-        assert(Math.abs(before.duration - 12) < .05);
+        assert(Math.abs(before.duration - 60) < .05);
         assert.deepEqual([before.width, before.height], [1920, 1080]);
         assert.equal(before.paused, false);
         assert.equal(before.muted && before.loop && before.inline, true);
