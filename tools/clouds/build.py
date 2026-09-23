@@ -98,13 +98,14 @@ def prepare_cloud_layers():
     keep = cv2.dilate(
         keep.astype(np.uint8), np.ones((7, 7), np.uint8))
     alpha = coarse * keep
-    solid = coarse > .35
+    # keep에서 버린 들판 성분을 다시 살리지 않는다.
+    solid = (coarse > .35) & (keep > 0)
     alpha[solid] = np.maximum(alpha[solid], coarse[solid])
     alpha = np.clip(alpha, 0, 1)
 
     # 영상은 전체 화면이지만 DOM 풍경 누끼가 이 위를 같은 좌표로 덮는다.
     base = original * (1 - sky[:, :, None]) + clear_sky * sky[:, :, None]
-    return base, clouds[:, :, :3], alpha
+    return base, clouds[:, :, :3], alpha, sky
 
 
 def shift(layer, distance):
@@ -119,7 +120,7 @@ def smooth(value):
     return value * value * (3 - 2 * value)
 
 
-def render_cloud_frame(base, color, alpha, progress):
+def render_cloud_frame(base, color, alpha, sky, progress):
     fade = smooth((progress - .7) / .3)
     layers = [
         (CLOUD_TRAVEL * progress, 1 - fade),
@@ -127,7 +128,9 @@ def render_cloud_frame(base, color, alpha, progress):
     ]
     frame = base.copy()
     for distance, opacity in layers:
-        moved_alpha = shift(alpha, distance) * opacity
+        # 풍경 누끼가 아직 나타나지 않은 첫 화면에서도 구름은 하늘 안에만
+        # 있어야 한다. 이동한 뒤 고정된 하늘 개구부로 다시 마스킹한다.
+        moved_alpha = shift(alpha, distance) * opacity * sky
         moved_color = shift(color, distance)
         frame = (moved_color * moved_alpha[:, :, None] +
                  frame * (1 - moved_alpha[:, :, None]))
@@ -135,10 +138,14 @@ def render_cloud_frame(base, color, alpha, progress):
 
 
 def build_cloud_video():
-    base, color, alpha = prepare_cloud_layers()
-    first = render_cloud_frame(base, color, alpha, 0)
-    last = render_cloud_frame(base, color, alpha, 1)
+    base, color, alpha, sky = prepare_cloud_layers()
+    first = render_cloud_frame(base, color, alpha, sky, 0)
+    last = render_cloud_frame(base, color, alpha, sky, 1)
     assert np.array_equal(first, last), "루프 원본의 첫·마지막 프레임이 다름"
+    ground = sky == 0
+    base_frame = np.clip(base, 0, 255).astype(np.uint8)
+    assert np.array_equal(first[ground], base_frame[ground]), \
+        "하늘 밖 풍경에 구름 픽셀이 남음"
 
     output = REPO / "img/sky-day-autumn.mp4"
     command = [
@@ -157,7 +164,7 @@ def build_cloud_video():
     for index in range(N_FRAMES):
         progress = index / (N_FRAMES - 1)
         process.stdin.write(
-            render_cloud_frame(base, color, alpha, progress).tobytes())
+            render_cloud_frame(base, color, alpha, sky, progress).tobytes())
     process.stdin.close()
     assert process.wait() == 0, "ffmpeg 인코딩 실패"
 

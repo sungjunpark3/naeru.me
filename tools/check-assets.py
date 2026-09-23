@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageStat
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools" / "naeru-split"))
@@ -65,6 +65,23 @@ for name in runtime:
                     foreground_alpha = signature
                 assert signature == foreground_alpha, f"시간대별 전경 형태 불일치: {name}"
             im.verify()
+
+# 구름 영상은 누끼 뒤에 놓이지만, 첫 화면에서 누끼가 나타나는 동안에도
+# 구름이 풀밭·나무 위에 비치지 않아야 한다.
+with Image.open(REPO / "img/sky-day-autumn.webp") as image:
+    sky_poster = image.convert("RGB")
+with Image.open(REPO / "img/bg-day-autumn.jpg") as image:
+    autumn_original = image.convert("RGB").resize(
+        sky_poster.size, Image.Resampling.LANCZOS)
+with Image.open(REPO / "img/landscape-day-autumn.webp") as image:
+    opaque_landscape = image.getchannel("A").resize(
+        sky_poster.size, Image.Resampling.LANCZOS)
+opaque_landscape = opaque_landscape.point(
+    lambda value: 255 if value > 250 else 0)
+landscape_difference = ImageChops.difference(sky_poster, autumn_original)
+landscape_mae = sum(ImageStat.Stat(
+    landscape_difference, mask=opaque_landscape).mean) / 3
+assert landscape_mae < 2, f"풍경 위 구름 잔상: MAE={landscape_mae:.2f}"
 
 html_path = REPO / "index.html"
 html = html_path.read_text()

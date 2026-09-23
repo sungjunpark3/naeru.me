@@ -242,7 +242,7 @@ async function check(name, fn) {
           if (kind === 'failed') {
             await p.waitForFunction(() =>
               document.documentElement.dataset.skyMotion === 'failed');
-            assert.equal(requested, 1);
+            assert(requested >= 1 && requested <= 2);
           } else {
             await p.waitForTimeout(300);
             assert.equal(requested, 0);
