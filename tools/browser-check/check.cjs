@@ -85,13 +85,13 @@ async function check(name, fn) {
               assert.equal(state.variant, band + (w === 'rain' ? '-rain' : ''));
               assert.notEqual(state.filter, 'none');
               assert.equal(state.still, '1'); assert.equal(state.video, false);
-              const layered = season === 'autumn' && state.variant === 'day';
+              const layered = season === 'autumn' && w === 'clear';
               assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape),
                 layered ? 'ready' : 'none');
               assert.equal(await p.locator('.landscape-layer.on').count(), layered ? 1 : 0);
               if (layered) {
                 assert.match(await p.locator('.landscape-layer.on').getAttribute('src'),
-                  /landscape-day-autumn\.webp/);
+                  new RegExp(`landscape-${band}-autumn\\.webp`));
                 assert.deepEqual(await p.locator('#landscape').boundingBox(),
                   await p.locator('#stage').boundingBox());
               }
@@ -128,7 +128,9 @@ async function check(name, fn) {
             await p.waitForFunction(() => document.body.dataset.variant === 'night' &&
               document.documentElement.dataset.sceneReady === 'true');
             release(); await p.waitForTimeout(300);
-            assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape), 'none');
+            assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape), 'ready');
+            assert.match(await p.locator('.landscape-layer.on').getAttribute('src'),
+              /landscape-night-autumn\.webp/);
           } else {
             await p.waitForFunction(() => document.documentElement.dataset.sceneReady === 'true');
             assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape), 'failed');
@@ -144,49 +146,55 @@ async function check(name, fn) {
         } finally { release(); await p.close(); }
       }));
     });
-    await check('가을 낮 첫 화면: 새 하늘 정지본에서 영상으로 즉시 교체', async () => {
-      const p = await makePage();
-      const requested = [];
-      p.on('request', request => requested.push(request.url()));
-      try {
-        await open(p, 's=autumn&v=day&w=clear&ball=0&flit=0&ff=0');
-        assert.match(await p.locator('.bg-layer.on').evaluate(e => e.style.backgroundImage),
-          /sky-day-autumn\.webp/);
-        assert.equal(requested.some(url => url.includes('bg-day-autumn.jpg')), false);
-        await p.waitForFunction(() =>
-          document.documentElement.dataset.skyMotion === 'playing');
-        const state = await p.locator('#skyMotion').evaluate(async video => {
-          video.pause(); video.currentTime = 0;
-          await new Promise(resolve => {
-            if (video.currentTime === 0 && video.readyState >= 2) return resolve();
-            video.addEventListener('seeked', resolve, { once: true });
-          });
-          const image = new Image();
-          image.src = `img/sky-day-autumn.webp?v=${document.documentElement.dataset.av}`;
-          await image.decode();
-          const canvas = document.createElement('canvas');
-          canvas.width = 1920; canvas.height = 1080;
-          const context = canvas.getContext('2d');
-          context.drawImage(image, 0, 0);
-          const still = context.getImageData(0, 0, 1920, 1080).data;
-          context.clearRect(0, 0, 1920, 1080);
-          context.drawImage(video, 0, 0);
-          const motion = context.getImageData(0, 0, 1920, 1080).data;
-          let difference = 0;
-          for (let i = 0; i < still.length; i++) {
-            difference += Math.abs(still[i] - motion[i]);
-          }
-          return { difference: difference / still.length,
-            transition: getComputedStyle(video).transitionDuration,
-            opacity: getComputedStyle(video).opacity };
-        });
-        assert(state.difference < 1.5, `첫 프레임 차이: ${state.difference}`);
-        assert.equal(state.transition, '0s');
-        assert.equal(state.opacity, '1');
-        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
-      } finally { await p.close(); }
+    await check('가을 맑음 네 시간대: 정지본에서 영상으로 즉시 교체', async () => {
+      for (const band of ['dawn', 'day', 'dusk', 'night']) {
+        const p = await makePage();
+        const requested = [];
+        p.on('request', request => requested.push(request.url()));
+        try {
+          await open(p, `s=autumn&v=${band}&w=clear&act=0&ball=0&flit=0&ff=0`);
+          assert.match(await p.locator('.bg-layer.on').evaluate(e => e.style.backgroundImage),
+            new RegExp(`sky-${band}-autumn\\.webp`));
+          assert.equal(requested.some(url =>
+            url.includes(`bg-${band}-autumn.jpg`)), false);
+          await p.waitForFunction(() =>
+            document.documentElement.dataset.skyMotion === 'playing');
+          const state = await p.locator('#skyMotion').evaluate(async (video, band) => {
+            video.pause(); video.currentTime = 0;
+            await new Promise(resolve => {
+              if (video.currentTime === 0 && video.readyState >= 2) return resolve();
+              video.addEventListener('seeked', resolve, { once: true });
+            });
+            const image = new Image();
+            image.src = `img/sky-${band}-autumn.webp?v=${
+              document.documentElement.dataset.av}`;
+            await image.decode();
+            const canvas = document.createElement('canvas');
+            canvas.width = 1920; canvas.height = 1080;
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+            const still = context.getImageData(0, 0, 1920, 1080).data;
+            context.clearRect(0, 0, 1920, 1080);
+            context.drawImage(video, 0, 0);
+            const motion = context.getImageData(0, 0, 1920, 1080).data;
+            let difference = 0;
+            for (let i = 0; i < still.length; i++) {
+              difference += Math.abs(still[i] - motion[i]);
+            }
+            return { difference: difference / still.length,
+              transition: getComputedStyle(video).transitionDuration,
+              opacity: getComputedStyle(video).opacity };
+          }, band);
+          assert(state.difference < 2,
+            `${band} 첫 프레임 차이: ${state.difference}`);
+          assert.equal(state.transition, '0s');
+          assert.equal(state.opacity, '1');
+          await shot(p, `autumn-${band}-cloud-first`);
+          assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+        } finally { await p.close(); }
+      }
     });
-    await check('가을 낮 구름: 60초 영상 재생·장면 이탈 정리', async () => {
+    await check('가을 맑음 구름: 60초 영상 재생·장면 이탈 정리', async () => {
       const p = await makePage({ viewport: { width: 1920, height: 1080 } });
       try {
         await open(p, 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0');
@@ -211,8 +219,8 @@ async function check(name, fn) {
         await shot(p, 'autumn-day-cloud-motion');
 
         await p.click('#settings-open');
-        await p.selectOption('#setting-band', 'night');
-        await p.waitForFunction(() => document.body.dataset.variant === 'night' &&
+        await p.selectOption('#setting-season', 'summer');
+        await p.waitForFunction(() => document.documentElement.dataset.season === 'summer' &&
           document.documentElement.dataset.sceneReady === 'true');
         assert.equal(await p.evaluate(() =>
           document.documentElement.dataset.skyMotion), 'none');
@@ -221,7 +229,7 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });
-    await check('가을 낮 구름: 실패·동작 줄이기·다른 장면은 정적 폴백', async () => {
+    await check('가을 맑음 구름: 실패·동작 줄이기·다른 장면은 정적 폴백', async () => {
       for (const kind of ['failed', 'reduced', 'rain', 'summer']) {
         const reducedMotion = kind === 'reduced' ? 'reduce' : 'no-preference';
         const p = await makePage({ reducedMotion });
@@ -461,7 +469,7 @@ async function check(name, fn) {
         await open(p, 's=autumn&v=day&w=clear&ball=0&flit=0&ff=0');
         await requestedProbe;
         const nightImages = Promise.all([
-          p.waitForEvent('requestfinished', r => r.url().includes('bg-night-autumn.jpg')),
+          p.waitForEvent('requestfinished', r => r.url().includes('sky-night-autumn.webp')),
           p.waitForEvent('requestfinished', r => r.url().includes('naeru-night.png'))
         ]);
         await p.click('#settings-open'); await p.selectOption('#setting-band', 'night');

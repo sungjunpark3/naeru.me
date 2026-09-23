@@ -22,8 +22,9 @@ args = parser.parse_args()
 
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
 images.update({f"foreground-{v}-autumn.webp": FRAME_SIZE for v in VARIANTS})
-images["landscape-day-autumn.webp"] = FRAME_SIZE
-images["sky-day-autumn.webp"] = (1920, 1080)
+for v in ["dawn", "day", "dusk", "night"]:
+    images[f"landscape-{v}-autumn.webp"] = FRAME_SIZE
+    images[f"sky-{v}-autumn.webp"] = (1920, 1080)
 for v in VARIANTS:
     images.update({f"naeru-{v}.png": CROP_SIZE,
                    f"naeru-{v}-hd.webp": (4608, 3968),
@@ -36,7 +37,8 @@ images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
 images.update({f"{kind}-{depth}.png": (512, 1024)
                for kind in ["rain", "snow"] for depth in ["far", "near"]})
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
-sky_videos = ["sky-day-autumn.mp4"]
+sky_videos = [f"sky-{v}-autumn.mp4"
+              for v in ["dawn", "day", "dusk", "night"]]
 runtime = sorted([*images, *videos, *sky_videos, "alpha-probe.webm"])
 digest = hashlib.sha256()
 foreground_alpha = None
@@ -51,7 +53,7 @@ for name in runtime:
                     name.startswith(("foreground-", "landscape-"))):
                 assert im.mode == "RGBA", f"투명 자산 알파 누락: {name}"
                 assert im.getchannel("A").getextrema() == (0, 255), name
-            if name == "landscape-day-autumn.webp":
+            if name.startswith("landscape-"):
                 alpha = im.getchannel("A")
                 assert alpha.getpixel((1920, 500)) == 0, "중앙 하늘이 투명하지 않음"
                 assert alpha.getpixel((1920, 1900)) == 255, "들판이 불투명하지 않음"
@@ -68,20 +70,23 @@ for name in runtime:
 
 # 구름 영상은 누끼 뒤에 놓이지만, 첫 화면에서 누끼가 나타나는 동안에도
 # 구름이 풀밭·나무 위에 비치지 않아야 한다.
-with Image.open(REPO / "img/sky-day-autumn.webp") as image:
-    sky_poster = image.convert("RGB")
-with Image.open(REPO / "img/bg-day-autumn.jpg") as image:
-    autumn_original = image.convert("RGB").resize(
-        sky_poster.size, Image.Resampling.LANCZOS)
-with Image.open(REPO / "img/landscape-day-autumn.webp") as image:
-    opaque_landscape = image.getchannel("A").resize(
-        sky_poster.size, Image.Resampling.LANCZOS)
-opaque_landscape = opaque_landscape.point(
-    lambda value: 255 if value > 250 else 0)
-landscape_difference = ImageChops.difference(sky_poster, autumn_original)
-landscape_mae = sum(ImageStat.Stat(
-    landscape_difference, mask=opaque_landscape).mean) / 3
-assert landscape_mae < 2, f"풍경 위 구름 잔상: MAE={landscape_mae:.2f}"
+for variant in ["dawn", "day", "dusk", "night"]:
+    with Image.open(REPO / f"img/sky-{variant}-autumn.webp") as image:
+        sky_poster = image.convert("RGB")
+    with Image.open(REPO / f"img/bg-{variant}-autumn.jpg") as image:
+        autumn_original = image.convert("RGB").resize(
+            sky_poster.size, Image.Resampling.LANCZOS)
+    with Image.open(
+            REPO / f"img/landscape-{variant}-autumn.webp") as image:
+        opaque_landscape = image.getchannel("A").resize(
+            sky_poster.size, Image.Resampling.LANCZOS)
+    opaque_landscape = opaque_landscape.point(
+        lambda value: 255 if value > 250 else 0)
+    landscape_difference = ImageChops.difference(sky_poster, autumn_original)
+    landscape_mae = sum(ImageStat.Stat(
+        landscape_difference, mask=opaque_landscape).mean) / 3
+    assert landscape_mae < 2, \
+        f"풍경 위 구름 잔상: {variant} MAE={landscape_mae:.2f}"
 
 html_path = REPO / "index.html"
 html = html_path.read_text()
@@ -140,7 +145,8 @@ if args.videos:
                 "-f", "rawvideo", "-pix_fmt", "rgb24", "-"
             ]))
         assert decoded[0] == decoded[1], f"루프 끝점 불일치: {name}"
-    print("구름 영상 1개: 1920×1080·H.264·24fps·1440프레임·끝점 일치 PASS")
+    print(f"구름 영상 {len(sky_videos)}개: "
+          "1920×1080·H.264·24fps·1440프레임·끝점 일치 PASS")
 
 version = digest.hexdigest()[:12]
 pattern = r'(var ASSET_V = ")[^"]+(";)'
