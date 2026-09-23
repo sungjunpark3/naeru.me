@@ -5,6 +5,7 @@ day-outline.jpg는 사용자가 표시한 경계 참고본이다. 풍경 마스�
 구름 RGBA는 built-in imagegen으로 만들었고, 이 스크립트가 원본 색상에 맞춰
 최종 웹 자산으로 합성한다.
 """
+import io
 import subprocess
 from pathlib import Path
 
@@ -169,8 +170,19 @@ def build_cloud_video():
     capture.release()
     assert ok and np.array_equal(decoded_first, decoded_last), \
         "인코딩된 루프의 첫·마지막 프레임이 다름"
+    # ffmpeg와 브라우저의 영상 색 변환에 맞춘 첫 프레임을 정지본으로 쓴다.
+    # OpenCV의 YUV 변환은 평균 약 2단계 밝기 차이가 생겨 교체 순간이 보인다.
+    poster_png = subprocess.check_output([
+        "ffmpeg", "-v", "error", "-i", str(output),
+        "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"
+    ])
+    poster_output = REPO / "img/sky-day-autumn.webp"
+    Image.open(io.BytesIO(poster_png)).convert("RGB").save(
+        poster_output, lossless=True, exact=True, method=6)
     print(f"sky day/autumn: {output.stat().st_size / 1024 / 1024:.1f} MiB, "
           f"{DURATION}s, {FPS}fps, decoded endpoints identical")
+    print(f"sky day/autumn poster: "
+          f"{poster_output.stat().st_size / 1024:.0f} KiB")
 
 
 build_landscape()

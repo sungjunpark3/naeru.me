@@ -23,6 +23,7 @@ args = parser.parse_args()
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
 images.update({f"foreground-{v}-autumn.webp": FRAME_SIZE for v in VARIANTS})
 images["landscape-day-autumn.webp"] = FRAME_SIZE
+images["sky-day-autumn.webp"] = (1920, 1080)
 for v in VARIANTS:
     images.update({f"naeru-{v}.png": CROP_SIZE,
                    f"naeru-{v}-hd.webp": (4608, 3968),

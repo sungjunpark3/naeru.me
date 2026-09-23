@@ -107,12 +107,12 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   #bgA { background-image: var(--bg-a); }
   #bgB { background-image: var(--bg-b); }
 
-  /* 가을 낮 하늘. 정적 원본을 뒤에 남겨 두고 첫 프레임 재생 뒤에만
-     천천히 나타나므로 다운로드·디코딩 실패 때도 장면은 완성된 채 유지된다. */
+  /* 가을 낮 하늘. 뒤의 정지본이 영상 첫 프레임과 같으므로 페이드 없이
+     즉시 교체해도 화면이 튀지 않는다. 실패하면 같은 정지본을 유지한다. */
   #skyMotion {
     position: fixed; inset: 0; width: 100%; height: 100%;
     object-fit: cover; object-position: center; pointer-events: none;
-    opacity: 0; transition: opacity 2.5s ease;
+    opacity: 0; transition: none;
   }
   #skyMotion.on { opacity: 1; }
 
@@ -847,7 +847,7 @@ function createSceneMotion(restart, cleanup) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "23f29e7cca06";
+  var ASSET_V = "2c3b80d6a5a6";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1018,7 +1018,10 @@ function createSceneMotion(restart, cleanup) {
   var hdRequest = 0;
   var format = null, formatPromise = null, stopWatch = function () {};
   function av(file) { return "img/" + file + "?v=" + ASSET_V; }
-  function bgOf(v, s) { return av("bg-" + v + "-" + s + ".jpg"); }
+  function bgOf(v, s) {
+    return s === "autumn" && v === "day"
+      ? av("sky-day-autumn.webp") : av("bg-" + v + "-" + s + ".jpg");
+  }
   function stillOf(v) {
     return av("naeru-" + v + (hd.dataset.variant === v && hd.dataset.status === "ready"
       ? "-hd.webp" : ".png"));
@@ -1297,15 +1300,17 @@ function createSceneMotion(restart, cleanup) {
     onReady = function () {
       if (token !== request) return;
       detach();
+      video.currentTime = 0;
+      video.classList.add("on");
       video.play().then(function () {
         if (token !== request || !sceneMotionAllowed()) return;
-        video.classList.add("on");
         root.dataset.skyMotion = "playing";
       }).catch(failed);
     };
     video.addEventListener("loadeddata", onReady);
     video.addEventListener("error", onError);
     timeout = setTimeout(failed, 8000);
+    video.poster = "img/sky-day-autumn.webp?v=" + root.dataset.av;
     video.src = "img/sky-day-autumn.mp4?v=" + root.dataset.av;
     video.load();
   }

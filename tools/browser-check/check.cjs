@@ -134,7 +134,7 @@ async function check(name, fn) {
             assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape), 'failed');
             assert.equal(await p.locator('.landscape-layer.on').count(), 0);
             assert.match(await p.locator('.bg-layer.on').evaluate(e => e.style.backgroundImage),
-              /bg-day-autumn\.jpg/);
+              /sky-day-autumn\.webp/);
             if (kind === 'slow') {
               release(); await p.waitForTimeout(300);
               assert.equal(await p.locator('.landscape-layer.on').count(), 0);
@@ -144,20 +144,45 @@ async function check(name, fn) {
         } finally { release(); await p.close(); }
       }));
     });
-    await check('가을 낮 풍경 레이어: 분리 전후 정지 화면 픽셀 일치', async () => {
-      const p = await makePage({ reducedMotion: 'reduce' });
+    await check('가을 낮 첫 화면: 새 하늘 정지본에서 영상으로 즉시 교체', async () => {
+      const p = await makePage();
+      const requested = [];
+      p.on('request', request => requested.push(request.url()));
       try {
         await open(p, 's=autumn&v=day&w=clear&ball=0&flit=0&ff=0');
-        await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
-          document.querySelector('#naeruStill').naturalWidth === 4608);
-        await p.addStyleTag({ content: '* { transition: none !important; }' });
-        await p.evaluate(() => [...document.body.children].forEach(e => {
-          if (!e.matches('.bg-still, .bg-layer, #landscape')) e.style.visibility = 'hidden';
-        }));
-        const layered = await p.screenshot({ animations: 'disabled' });
-        await p.locator('.landscape-layer.on').evaluate(e => { e.style.visibility = 'hidden'; });
-        const original = await p.screenshot({ animations: 'disabled' });
-        assert.equal(Buffer.compare(layered, original), 0);
+        assert.match(await p.locator('.bg-layer.on').evaluate(e => e.style.backgroundImage),
+          /sky-day-autumn\.webp/);
+        assert.equal(requested.some(url => url.includes('bg-day-autumn.jpg')), false);
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.skyMotion === 'playing');
+        const state = await p.locator('#skyMotion').evaluate(async video => {
+          video.pause(); video.currentTime = 0;
+          await new Promise(resolve => {
+            if (video.currentTime === 0 && video.readyState >= 2) return resolve();
+            video.addEventListener('seeked', resolve, { once: true });
+          });
+          const image = new Image();
+          image.src = `img/sky-day-autumn.webp?v=${document.documentElement.dataset.av}`;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = 1920; canvas.height = 1080;
+          const context = canvas.getContext('2d');
+          context.drawImage(image, 0, 0);
+          const still = context.getImageData(0, 0, 1920, 1080).data;
+          context.clearRect(0, 0, 1920, 1080);
+          context.drawImage(video, 0, 0);
+          const motion = context.getImageData(0, 0, 1920, 1080).data;
+          let difference = 0;
+          for (let i = 0; i < still.length; i++) {
+            difference += Math.abs(still[i] - motion[i]);
+          }
+          return { difference: difference / still.length,
+            transition: getComputedStyle(video).transitionDuration,
+            opacity: getComputedStyle(video).opacity };
+        });
+        assert(state.difference < 1.5, `첫 프레임 차이: ${state.difference}`);
+        assert.equal(state.transition, '0s');
+        assert.equal(state.opacity, '1');
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });
