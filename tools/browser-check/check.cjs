@@ -705,12 +705,24 @@ async function check(name, fn) {
               owner: v.dataset.pauseOwner, paused: v.paused }));
             assert.equal(frozen.owner, 'approach'); assert(frozen.paused);
             assert(frozen.time <= 8 / 24 || frozen.time >= 308 / 24);
-            await p.waitForTimeout(1800); await shot(p, `autumn-${band}-${width}-walking`);
+            await p.waitForTimeout(1800);
+            const incoming = await p.locator('#naeruCloseRig').evaluate(canvas => {
+              const box = canvas.getBoundingClientRect();
+              return { opacity: +canvas.style.opacity, width: canvas.width,
+                height: canvas.height, displayWidth: box.width,
+                displayHeight: box.height };
+            });
+            assert(incoming.opacity > .95);
+            assert(incoming.width >= incoming.displayWidth);
+            assert(incoming.height >= incoming.displayHeight);
+            assert.equal(await video.evaluate(v => v.style.opacity), '0');
+            await shot(p, `autumn-${band}-${width}-walking`);
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
             assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'hd');
             assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'closeup');
             assert.equal(await p.locator('#naeruClose').evaluate(e => e.naturalWidth), 4608);
-            assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '1');
+            assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '0');
+            assert.equal(await p.locator('#naeruCloseRig').evaluate(e => e.style.opacity), '1');
             assert.notEqual(await p.locator('#naeruHd').evaluate(e => e.style.opacity), '1');
             assert.equal(await video.evaluate(v => v.style.opacity), '0');
             assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
@@ -721,6 +733,7 @@ async function check(name, fn) {
             await p.waitForFunction(() => !document.documentElement.dataset.approach);
             await playing(p);
             assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '0');
+            assert.equal(await p.locator('#naeruCloseRig').evaluate(e => e.style.opacity), '0');
             assert.match(await p.locator('#naeruStill').getAttribute('src'), /-hd\.webp/);
             assert.equal(await video.evaluate(v => v.dataset.pauseOwner), undefined);
             await shot(p, `autumn-${band}-${width}-returned`);
@@ -741,6 +754,10 @@ async function check(name, fn) {
           assert.equal(await p.locator('#approach-setting').evaluate(e => e.hidden), false);
           assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
             new RegExp(`foreground-${band}-winter\\.webp`));
+          await p.waitForTimeout(1800);
+          assert(await p.locator('#naeruCloseRig').evaluate(canvas =>
+            +canvas.style.opacity > .95 && canvas.width >= canvas.getBoundingClientRect().width));
+          assert.equal(await p.locator('video.naeru.on').evaluate(v => v.style.opacity), '0');
           await p.waitForFunction(() =>
             document.documentElement.dataset.approach === 'close');
           assert.equal(await p.evaluate(() =>
@@ -842,7 +859,8 @@ async function check(name, fn) {
             await p.evaluate(() => document.dispatchEvent(new Event('naeru:approach')));
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
             assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'closeup');
-            assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '1');
+            assert.equal(await p.locator('#naeruClose').evaluate(e => e.style.opacity), '0');
+            assert.equal(await p.locator('#naeruCloseRig').evaluate(e => e.style.opacity), '1');
           }
           assert.deepEqual(p.errors, []);
         } finally { release(); await p.close(); }

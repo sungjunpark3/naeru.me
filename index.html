@@ -2573,6 +2573,7 @@ function createSceneMotion(restart, cleanup) {
   var approach = document.getElementById("naeru-approach");
   var hd = document.getElementById("naeruHd");
   var closeup = document.getElementById("naeruClose");
+  var rig = document.getElementById("naeruCloseRig");
   var portrait = hd, closeRequest = 0;
   var baseImage = null, useHD = false;
   var stride = document.getElementById("naeru-stride");
@@ -2674,8 +2675,8 @@ function createSceneMotion(restart, cleanup) {
     window.naeruShadow.travel(approach.style.transform);
     window.naeruShadow.lift(lift * .4);
     if (useHD) {
-      // 아직 작은 거리에서 근접용 뉴트럴 원화로 연결한다. 눈·발 위치는 제작
-      // 단계에서 맞췄으므로 얼굴이 커진 뒤 형태나 선 굵기가 갑자기 바뀌지 않는다.
+      // 접근 시작부터 최종 표시 크기로 준비한 캔버스에 연결한다. 작은 DOM img를
+      // 부모와 함께 확대하면 Safari가 저해상도 래스터를 재사용해 픽셀이 보인다.
       var mix = Math.max(0, Math.min(1, (p - .04) / .20));
       mix = mix * mix * (3 - 2 * mix);
       portrait.style.opacity = mix.toFixed(4);
@@ -2754,6 +2755,7 @@ function createSceneMotion(restart, cleanup) {
       y: innerHeight * .39 - footY - (eye.top - footY) * scale };
     rigReady = closeReady && window.naeruCloseMotion.prepare(closeup,
       box.width * scale, box.height * scale);
+    if (rigReady) portrait = rig;
     back.hidden = false;
     document.getElementById("greeting").hidden = true;
     document.getElementById("naeru-touch").setAttribute("aria-label", "내루미를 제자리로 보내기");
