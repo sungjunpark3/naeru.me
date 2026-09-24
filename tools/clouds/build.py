@@ -41,7 +41,9 @@ def build_landscape(variant, season):
         REPO / f"img/bg-{variant}-{season}.jpg").convert("RGB")
     assert source.size == FRAME_SIZE
 
-    mask = Image.open(HERE / "source/day-landscape-mask.png").convert("L")
+    mask_name = "winter-landscape-mask.png" if season == "winter" \
+        else "day-landscape-mask.png"
+    mask = Image.open(HERE / f"source/{mask_name}").convert("L")
     mask = mask.resize(FRAME_SIZE, Image.Resampling.LANCZOS)
     # 생성 마스크의 불투명 내부값 253을 255로 정규화하되 경계 알파는 유지한다.
     mask = mask.point(lambda value: 0 if value <= 4 else

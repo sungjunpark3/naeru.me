@@ -54,9 +54,8 @@ tools/naeru-split/.venv/bin/pip install -r tools/requirements-assets.txt
 # 파일·이미지 크기·좌표 계약·배포 차단 규칙·내용 해시 검사
 tools/naeru-split/.venv/bin/python tools/check-assets.py
 
-# 겨울 배경 8장만 재생성한 뒤 캐시 판번호 갱신
-tools/naeru-split/.venv/bin/python tools/season/repaint.py --seasons winter
-tools/naeru-split/.venv/bin/python tools/check-assets.py --update-version
+# 겨울 원화 8종·앞풀 8종·풍경 마스크 재생성
+tools/naeru-split/.venv/bin/python tools/winter/build.py
 
 # 가을 맑은 네 시간대의 풍경 누끼와 60초 구름 영상 재생성
 tools/naeru-split/.venv/bin/python tools/clouds/build.py dawn day dusk night

@@ -24,8 +24,7 @@ args = parser.parse_args()
 
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
 images.update({f"foreground-{v}-autumn.webp": FRAME_SIZE for v in VARIANTS})
-images.update({f"foreground-{v}-winter.webp": FRAME_SIZE
-               for v in CLEAR_VARIANTS})
+images.update({f"foreground-{v}-winter.webp": FRAME_SIZE for v in VARIANTS})
 for season in MOVING_SKY_SEASONS:
     for v in CLEAR_VARIANTS:
         images[f"landscape-{v}-{season}.webp"] = FRAME_SIZE

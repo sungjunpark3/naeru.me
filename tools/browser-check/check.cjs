@@ -95,8 +95,7 @@ async function check(name, fn) {
                 assert.deepEqual(await p.locator('#landscape').boundingBox(),
                   await p.locator('#stage').boundingBox());
               }
-              const foreground = season === 'autumn' ||
-                (season === 'winter' && w === 'clear');
+              const foreground = ['autumn', 'winter'].includes(season);
               assert.equal(await p.evaluate(() => document.documentElement.dataset.foreground),
                 foreground ? 'ready' : 'none');
               assert.equal(await p.locator('.foreground-layer.on').count(), foreground ? 1 : 0);
@@ -189,7 +188,9 @@ async function check(name, fn) {
               transition: getComputedStyle(video).transitionDuration,
               opacity: getComputedStyle(video).opacity };
           }, { band, season });
-          assert(state.difference < 2,
+          // H.264의 YUV420 색을 브라우저가 RGB로 되돌릴 때 ffmpeg로 만든
+          // 무손실 poster와 최대 약 3/255의 디코더별 반올림 차이가 난다.
+          assert(state.difference < 3,
             `${season}/${band} 첫 프레임 차이: ${state.difference}`);
           assert.equal(state.transition, '0s');
           assert.equal(state.opacity, '1');
