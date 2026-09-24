@@ -729,6 +729,31 @@ async function check(name, fn) {
         }));
       }
     });
+    await check('다가오기: 겨울 네 시간대의 첫 방문·앞풀·근접 원화', async () => {
+      await Promise.all(['dawn', 'day', 'dusk', 'night'].map(async band => {
+        const p = await makePage({ viewport: { width: 1280, height: 720 } });
+        p.setDefaultTimeout(30000);
+        try {
+          await p.addInitScript(() => { Math.random = () => .99; });
+          await open(p, `s=winter&v=${band}&w=clear&ball=0&flit=0&ff=0`);
+          await p.waitForFunction(() =>
+            document.documentElement.dataset.approach === 'walking');
+          assert.equal(await p.locator('#approach-setting').evaluate(e => e.hidden), false);
+          assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
+            new RegExp(`foreground-${band}-winter\\.webp`));
+          await p.waitForFunction(() =>
+            document.documentElement.dataset.approach === 'close');
+          assert.equal(await p.evaluate(() =>
+            document.documentElement.dataset.approachQuality), 'hd');
+          assert.equal(await p.evaluate(() =>
+            document.documentElement.dataset.approachArt), 'closeup');
+          assert.equal(await p.locator('#naeruClose').evaluate(e => e.naturalWidth), 4608);
+          await p.click('#approach-return');
+          await p.waitForFunction(() => !document.documentElement.dataset.approach);
+          assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+        } finally { await p.close(); }
+      }));
+    });
     await check('고해상도: 실패·늦은 로드·풍경 전환 중 오래된 응답', async () => {
       await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
         const p = await makePage(); p.setDefaultTimeout(30000);
@@ -1037,7 +1062,7 @@ async function check(name, fn) {
         await p.waitForFunction(() => !document.documentElement.dataset.approach);
         assert.deepEqual(p.errors, []);
       } finally { await p.close(); }
-      await Promise.all(['s=winter&v=day&w=clear', 's=spring&v=dusk&w=clear',
+      await Promise.all(['s=spring&v=dusk&w=clear',
         's=autumn&v=day&w=rain', 's=autumn&v=day&w=clear&still=1'].map(async query => {
         const p = await makePage();
         try {

@@ -1051,7 +1051,9 @@ function createSceneMotion(restart, cleanup) {
   addEventListener("resize", layout); layout();
 
   function sceneReady(ready) {
-    root.dataset.sceneReady = String(ready);
+    var value = String(ready);
+    if (root.dataset.sceneReady === value) return;
+    root.dataset.sceneReady = value;
     document.dispatchEvent(new Event("naeru:scene"));
   }
   function decodeImage(url) {
@@ -2561,7 +2563,7 @@ function createSceneMotion(restart, cleanup) {
 </script>
 
 <script>
-/* ── 가을: 뉴트럴 포즈에서 다가와 눈 맞추기 ───────────────────
+/* ── 가을·겨울: 뉴트럴 포즈에서 다가와 눈 맞추기 ─────────────
    6걸음 → 고화질 원화의 몸·팔·혀가 함께 움직이기 → 5걸음으로 복귀. 화면 크기로 끝 위치를
    계산하되 배경·꽃은 기존 cover 상자를 그대로 쓴다. 새 보행 영상 없이
    보폭의 가감속·체중 이동을 합성하는 시범 동작이다. */
@@ -2587,7 +2589,8 @@ function createSceneMotion(restart, cleanup) {
   var rigReady = false, rigPose = [0, 0, 0], returnPose = [0, 0, 0];
 
   function eligible() {
-    return root.dataset.season === "autumn" && document.body.dataset.weather === "clear" &&
+    return ["autumn", "winter"].indexOf(root.dataset.season) >= 0 &&
+           document.body.dataset.weather === "clear" &&
            ["dawn", "day", "dusk", "night"].indexOf(document.body.dataset.variant) >= 0 &&
            !window.naeruReduced() && params.get("act") !== "0";
   }
@@ -2623,8 +2626,9 @@ function createSceneMotion(restart, cleanup) {
   }
   function reset() {
     var owned = running || reserved;
+    // 장면이 바뀌는 동안 이전 장면의 수동 호출 예약을 새 계절로 넘기지 않는다.
+    if (root.dataset.sceneReady !== "true") pending = null;
     if (document.hidden && pending !== "focus") pending = null;
-    if (pending === "auto" && root.dataset.sceneReady !== "true") pending = null;
     if (window.naeruReduced()) pending = null;
     running = false; reserved = false; geometry = null; progress = 0;
     window.naeruCloseMotion.reset();
@@ -2820,8 +2824,7 @@ function createSceneMotion(restart, cleanup) {
       scheduleVisit();
     }, Math.max(1, nextVisit - performance.now()));
   }
-  // scene 이벤트는 플레이어 초기 정지본/영상 확정 때 두 번 올 수 있다.
-  // 예약은 보존하고, 마지막 확정부터 페이드가 끝날 시간을 다시 센다.
+  // 새 장면이 확정된 시점부터 배경 페이드가 끝날 시간을 센다.
   document.addEventListener("naeru:scene", function () {
     readyAt = performance.now(); prepareLayers(); controls();
   });
