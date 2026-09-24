@@ -3005,23 +3005,34 @@ function createSceneMotion(restart, cleanup, ambient) {
 </script>
 
 <script>
-/* ── 들판 산책: 방향키를 처음 누를 때 game/game.js를 불러온다 ────────
+/* ── 들판 산책: 방향키나 들판 탭에서 game/game.js를 처음 불러온다 ──────
    페이지를 옮기지 않고 지금의 배경·영상·그림자 위에서 바로 이어진다.
-   불러오는 동안 누르고 있는 방향키는 넘겨 줘서 첫 입력을 잃지 않는다. */
+   불러오는 동안 누르고 있는 방향키와 첫 탭 위치를 넘겨 첫 입력을 잃지 않는다.
+   내루미 탭(인사)·버튼·설정 창은 기존 동작을 유지한다. */
 (function () {
-  var held = new Set(), loading = false;
+  var held = new Set(), tap = null, loading = false;
   function arrow(key) { return /^Arrow(Up|Down|Left|Right)$/.test(key); }
+  function load() {
+    loading = true;
+    var script = document.createElement("script");
+    script.src = "game/game.js";
+    script.onload = function () { if (window.naeruGame) window.naeruGame.boot(held, tap); };
+    script.onerror = function () {
+      script.remove(); loading = false; held.clear(); tap = null;
+    };
+    document.head.appendChild(script);
+  }
   document.addEventListener("keydown", function (e) {
     if (window.naeruGame || loading || !arrow(e.key)) return;
     if (e.altKey || e.ctrlKey || e.metaKey) return;
-    held.add(e.key); loading = true;
-    var script = document.createElement("script");
-    script.src = "game/game.js";
-    script.onload = function () { if (window.naeruGame) window.naeruGame.boot(held); };
-    script.onerror = function () { script.remove(); loading = false; held.clear(); };
-    document.head.appendChild(script);
+    held.add(e.key); load();
   });
   document.addEventListener("keyup", function (e) { held.delete(e.key); });
+  document.addEventListener("pointerdown", function (e) {
+    if (window.naeruGame || loading || e.pointerType === "mouse" || !e.isPrimary) return;
+    if (e.target.closest("button, a, input, select, dialog, .scene-ui")) return;
+    tap = { x: e.clientX, y: e.clientY, id: e.pointerId }; load();
+  });
 })();
 </script>
 </body>

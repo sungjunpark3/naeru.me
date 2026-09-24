@@ -1,8 +1,10 @@
 /* ── 들판 산책 ────────────────────────────────────────────────────
-   index.html이 첫 방향키에서 불러온다. 페이지를 옮기지 않고 지금 화면의
-   배경·영상·그림자를 그대로 쓴다. 방향키로 들판을 걷고(위·아래는 들판의
-   안쪽·앞쪽), 스페이스로 점프한다. 30초 동안 입력이 없으면 처음 자리로
-   걸어 돌아가며 카메라도 원래 화면으로 물러나고, 그대로 시작페이지가 된다.
+   index.html이 첫 방향키나 첫 들판 탭에서 불러온다. 페이지를 옮기지 않고
+   지금 화면의 배경·영상·그림자를 그대로 쓴다. 방향키로 들판을 걷고(위·아래는
+   들판의 안쪽·앞쪽), 스페이스로 점프한다. 터치에서는 누른 곳으로 걸어가고
+   끌면 손가락을 따라오며, 내루미를 누르면 점프한다. 30초 동안 입력이 없으면
+   처음 자리로 걸어 돌아가며 카메라도 원래 화면으로 물러나고, 그대로
+   시작페이지가 된다.
 
    겹의 소유: #naeru-approach=들판 위치·원근 크기 / #naeru-stride=걸음 /
    #naeru-move=점프 높이 / #naeru-act=도약·착지의 눌림 / #naeru-face=방향.
@@ -30,7 +32,9 @@
   // 지평선에 가까울수록 작게. 저해상도 영상을 과하게 키우지 않도록 앞쪽을 제한한다.
   // 봄·여름은 좌우 앞꽃이 배경에 그려져 있어 그 위로 올라서지 않게 가장자리를 비운다.
   var HORIZON = 0.63, FAR = 0.755, NEAR = 0.835, LEFT = 0.2, RIGHT = 0.86;
-  var ZOOM = 1.3;                             // 산책 중 카메라 확대 — 좌우로 스크롤할 여백
+  // 산책 중 카메라 확대 — 좌우로 스크롤할 여백. 세로 화면은 이미 좌우가 잘려 있어
+  // 확대하지 않아도 여백이 충분하므로 1로 둔다.
+  var ZOOM = 1.3;
   var IDLE_MS = 30000;
   var SPEED_X = 0.15, SPEED_Y = 0.05;         // 프레임 비율/초(원래 크기 기준)
   var STEP_HZ = 3.2;
@@ -43,9 +47,19 @@
     // 모두 화면 중앙이 중심인 상자라 같은 transform이 같은 점을 가리킨다.
     "html[data-game] :is(.bg-still, .bg-layer, #skyMotion, #landscape, #stage," +
     " #foreground, #glow) { transform: var(--game-camera, none); }" +
+    // 화면 크기 배경은 cover로 잘린 부분을 그리지 않아, 옮기면 빈 띠가 드러난다.
+    // 산책 중에는 같은 16:9 프레임 상자로 바꾼다. 비율이 같아 정지 화면은 그대로다.
+    "html[data-game] :is(.bg-still, .bg-layer, #skyMotion) { inset: auto;" +
+    " left: var(--game-frame-left); top: var(--game-frame-top);" +
+    " width: var(--game-frame-width); height: var(--game-frame-height); }" +
     ".clock-wrap, #settings-open { transition: opacity 1.2s ease; }" +
     "html[data-game=play] .clock-wrap { opacity: .18; }" +
-    "html[data-game=play] #settings-open { opacity: .2; }";
+    "html[data-game=play] #settings-open { opacity: .2; }" +
+    // 산책 중 탭·끌기가 확대·당겨서 새로고침·길게 누르기 메뉴로 새지 않게 한다.
+    // 설정 창은 main 밖이라 스크롤을 그대로 쓴다.
+    "html[data-game] :is(main, .bg-still, #naeru-touch) { touch-action: none; }" +
+    "html[data-game] body { -webkit-user-select: none; user-select: none;" +
+    " -webkit-touch-callout: none; }";
   document.head.appendChild(style);
 
   var keys = new Set(), active = false, phase = "", frame = 0, last = 0;
@@ -54,6 +68,8 @@
   var camX = 0, camY = 0, zoom = 1;
   var takeoffAt = -1e9, takeoffForce = 0, landAt = -1e9, landForce = 0;
   var blendUntil = 0, leaping = false;
+  var goal = null, dragId = null;             // 터치로 정한 발끝 목표, 끌고 있는 손가락
+  var frameGeo = "";
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function depth(fy) { return (fy - HORIZON) / (HOME_Y - HORIZON); }
@@ -61,6 +77,33 @@
   function isSpace(e) { return e.key === " " || e.code === "Space"; }
   function formField(el) {
     return el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName);
+  }
+  function frameBox() {
+    var vw = innerWidth, vh = innerHeight, W, H;
+    if (vw / vh >= 16 / 9) { W = vw; H = vw * 9 / 16; } else { H = vh; W = vh * 16 / 9; }
+    return { vw: vw, vh: vh, W: W, H: H, L: (vw - W) / 2, T: (vh - H) / 2 };
+  }
+  function setFrame(b) {
+    var geo = [b.L, b.T, b.W, b.H].join();
+    if (geo === frameGeo) return;
+    frameGeo = geo;
+    root.style.setProperty("--game-frame-left", b.L + "px");
+    root.style.setProperty("--game-frame-top", b.T + "px");
+    root.style.setProperty("--game-frame-width", b.W + "px");
+    root.style.setProperty("--game-frame-height", b.H + "px");
+  }
+  // 누른 화면 위치를 카메라 역변환으로 들판의 발끝 좌표로 바꾼다.
+  // 하늘이나 가장자리를 누르면 가장 가까운 들판 지점으로 간다.
+  function toField(cx, cy) {
+    var b = frameBox(), mx = b.vw / 2, my = b.vh / 2;
+    var px = mx + (cx - mx - camX) / zoom, py = my + (cy - my - camY) / zoom;
+    return { x: clamp((px - b.L) / b.W, LEFT, RIGHT), y: clamp((py - b.T) / b.H, FAR, NEAR) };
+  }
+  // 목표 발끝까지 같은 속도로 곧장 걷는다. 이번 프레임에 닿으면 그 자리에 두고 null.
+  function seek(gx, gy, sc, dt) {
+    var ax = (gx - x) / SPEED_X, ay = (gy - y) / SPEED_Y, left = Math.hypot(ax, ay);
+    if (left <= sc * dt) { x = gx; y = gy; return null; }
+    return [ax / left, ay / left];
   }
   function canStart() {
     return !active && !window.naeruReduced() && !document.hidden &&
@@ -71,10 +114,11 @@
     if (window.naeru) { window.naeru.busy = true; window.naeru.hold = true; }
   }
 
-  function start() {
+  function start(touch) {
     // 정리 코드가 지우기 전의 자세를 기억해 두었다가 이어받는다.
     var moveT = move.style.transform, actT = act.style.transform;
     var flipped = /scaleX\(-1\)/.test(face.style.transform);
+    setFrame(frameBox());                       // 배경 상자를 바꾸기 전에 치수부터
     active = true; phase = "play"; root.dataset.game = "play";
     document.dispatchEvent(new Event("naeru:game"));
     claim();
@@ -91,14 +135,17 @@
     x = HOME_X; y = HOME_Y; leaping = false; beat = 0; walk = 0; lean = 0; lead = 0;
     camX = camY = 0; zoom = 1; lastInput = performance.now();
     if (greeting) greeting.hidden = true;
-    if (message) message.textContent = "들판을 산책해요. 방향키로 걷고 스페이스로 뛰어요.";
+    goal = null; dragId = null;
+    if (message) message.textContent = touch
+      ? "들판을 산책해요. 가고 싶은 곳을 누르고, 내루미를 누르면 뛰어요."
+      : "들판을 산책해요. 방향키로 걷고 스페이스로 뛰어요.";
     last = performance.now();
     frame = requestAnimationFrame(step);
   }
 
   function finish() {
     cancelAnimationFrame(frame);
-    active = false; phase = ""; keys.clear();
+    active = false; phase = ""; keys.clear(); goal = null; dragId = null;
     approach.style.transform = ""; stride.style.transform = "";
     move.style.transform = ""; act.style.transform = ""; act.style.transition = "";
     face.style.transform = "";
@@ -106,6 +153,10 @@
     root.style.removeProperty("--game-camera");
     if (window.naeru) { window.naeru.busy = false; window.naeru.hold = false; }
     delete root.dataset.game;
+    ["left", "top", "width", "height"].forEach(function (k) {
+      root.style.removeProperty("--game-frame-" + k);
+    });
+    frameGeo = "";
     // 멈춰 둔 몸짓·공·나비·다가오기를 새로 시작한다. 다음 방문도 여기서 새로 센다.
     document.dispatchEvent(new Event("naeru:game"));
   }
@@ -117,7 +168,7 @@
   }
   function takeoff(now, force) { takeoffAt = now; takeoffForce = force; }
   function goBack() {
-    phase = "returning"; root.dataset.game = "returning";
+    phase = "returning"; root.dataset.game = "returning"; goal = null;
   }
   function resume() {
     phase = "play"; root.dataset.game = "play";
@@ -131,22 +182,24 @@
     if (window.naeruReduced()) { finish(); return; }
     claim();
 
-    var ix = 0, iy = 0;
+    var ix = 0, iy = 0, sc = depth(y), dir;
     if (phase === "play") {
       ix = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
       iy = (keys.has("ArrowDown") ? 1 : 0) - (keys.has("ArrowUp") ? 1 : 0);
-      if (ix || iy) lastInput = now;
-      if (ix && iy) { ix *= Math.SQRT1_2; iy *= Math.SQRT1_2; }
+      if (ix || iy) {
+        // 방향키가 들어오면 터치 목표보다 우선한다.
+        lastInput = now; goal = null;
+        if (ix && iy) { ix *= Math.SQRT1_2; iy *= Math.SQRT1_2; }
+      } else if (goal) {
+        dir = seek(goal.x, goal.y, sc, dt);
+        if (dir) { ix = dir[0]; iy = dir[1]; } else goal = null;
+      }
       if (now - lastInput >= IDLE_MS && up === 0 && vu === 0) goBack();
     }
-    var sc = depth(y);
     if (phase === "returning") {
-      // 같은 속도로 곧장 처음 자리로. 도착하면 원래 방향을 보도록 공중에서 돈다.
-      var ax = (HOME_X - x) / SPEED_X, ay = (HOME_Y - y) / SPEED_Y;
-      var left = Math.hypot(ax, ay);
-      if (left <= sc * dt) { x = HOME_X; y = HOME_Y; }
-      else { ix = ax / left; iy = ay / left; }
-      if (x === HOME_X && y === HOME_Y && facing !== 1) wantFace = 1;
+      // 처음 자리로 곧장 걷는다. 도착하면 원래 방향을 보도록 공중에서 돈다.
+      dir = seek(HOME_X, HOME_Y, sc, dt);
+      if (dir) { ix = dir[0]; iy = dir[1]; } else if (facing !== 1) wantFace = 1;
     }
 
     var ox = x, oy = y;
@@ -156,7 +209,8 @@
     var moving = Math.abs(x - ox) + Math.abs(y - oy) > 1e-6;
 
     // 방향 전환은 공중에서만 한다. 땅에 있으면 작게 폴짝 뛰어 돈다.
-    if (ix) wantFace = ix < 0 ? 1 : -1;
+    // 거의 세로로만 걸을 때 좌우 성분이 조금 섞여도 돌지 않게 한다.
+    if (Math.abs(ix) > 0.2) wantFace = ix < 0 ? 1 : -1;
     if (wantFace === facing) wantFace = 0;
     var grounded = up === 0 && vu === 0;
     if (wantFace && grounded) { vu = TURN_V; takeoff(now, 0.4); }
@@ -224,10 +278,11 @@
   /* 카메라: 확대한 채 몸을 따라가되 배경 끝이 보이지 않게 가둔다. 점프는
      따라 올라가지 않는다. 돌아갈 때는 원래 화면(확대 1, 이동 0)으로 물러난다. */
   function camera(dt, sc) {
-    var vw = innerWidth, vh = innerHeight, W, H;
-    if (vw / vh >= 16 / 9) { W = vw; H = vw * 9 / 16; } else { H = vh; W = vh * 16 / 9; }
+    var b = frameBox(), vw = b.vw, vh = b.vh, W = b.W, H = b.H;
+    setFrame(b);
     var returning = phase === "returning";
-    zoom += ((returning ? 1 : ZOOM) - zoom) * (1 - Math.exp(-dt * (returning ? 1.6 : 2.2)));
+    var zoomTo = returning || vw < vh ? 1 : ZOOM;
+    zoom += (zoomTo - zoom) * (1 - Math.exp(-dt * (returning ? 1.6 : 2.2)));
     if (Math.abs(zoom - 1) < 0.0005 && returning) zoom = 1;
     lead += (-facing * 0.05 * W - lead) * (1 - Math.exp(-dt * 1.5));
     var tx = 0, ty = 0;
@@ -263,15 +318,44 @@
     else if (!e.repeat) jump();
   });
   document.addEventListener("keyup", function (e) { keys.delete(e.key); });
+
+  // 터치·펜만 받는다. 데스크톱 마우스 클릭은 기존 시작페이지 동작을 유지한다.
+  // 멈춰 있을 때의 내루미 탭은 기존 인사로 두고, 산책 중에는 점프가 된다.
+  document.addEventListener("pointerdown", function (e) {
+    if (e.pointerType === "mouse" || !e.isPrimary || panel.open) return;
+    var naeru = e.target.closest("#naeru-touch");
+    if (!naeru && e.target.closest("button, a, input, select, dialog, .scene-ui")) return;
+    if (!active) {
+      if (naeru || !canStart()) return;
+      start(true);
+    }
+    lastInput = performance.now();
+    if (phase === "returning") resume();
+    if (naeru) { jump(); return; }
+    goal = toField(e.clientX, e.clientY); dragId = e.pointerId;
+  });
+  document.addEventListener("pointermove", function (e) {
+    if (!active || e.pointerId !== dragId || phase !== "play") return;
+    lastInput = performance.now(); goal = toField(e.clientX, e.clientY);
+  });
+  function release(e) { if (e.pointerId === dragId) dragId = null; }
+  document.addEventListener("pointerup", release);
+  document.addEventListener("pointercancel", release);
+  // 첫 탭은 산책 전에 시작돼 touch-action이 아직 기본값이다. 끄는 동안 화면이
+  // 당겨지지 않게 막는다. 설정 창이 열려 있으면 그 스크롤을 그대로 둔다.
+  document.addEventListener("touchmove", function (e) {
+    if (active && !panel.open && e.cancelable) e.preventDefault();
+  }, { passive: false });
   addEventListener("blur", function () { keys.clear(); });
   document.addEventListener("visibilitychange", function () { if (document.hidden) keys.clear(); });
 
   window.naeruGame = {
-    // 로더가 불러오는 동안 누르고 있던 방향키를 넘겨받는다.
-    boot: function (held) {
+    // 로더가 불러오는 동안 누르고 있던 방향키와 첫 탭 위치를 넘겨받는다.
+    boot: function (held, tap) {
       if (!canStart()) return;
       held.forEach(function (key) { if (isArrow(key)) keys.add(key); });
-      start();
+      start(Boolean(tap));
+      if (tap) { goal = toField(tap.x, tap.y); dragId = tap.id; }
     },
     get active() { return active; }
   };
