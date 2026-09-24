@@ -57,7 +57,7 @@ tools/naeru-split/.venv/bin/python tools/check-assets.py
 # 겨울 원화 8종·앞풀 8종·풍경 마스크 재생성
 tools/naeru-split/.venv/bin/python tools/winter/build.py
 
-# 새로 그린 겨울 맑은 낮 전신 원화에서 정지본·몸짓·근접본 재생성
+# 새로 그린 겨울 전신 원화에서 맑은 네 시간대 정지본·몸짓·근접본 재생성
 tools/naeru-split/.venv/bin/python tools/winter-naeru/build.py
 
 # 가을 맑은 네 시간대의 풍경 누끼와 60초 구름 영상 재생성

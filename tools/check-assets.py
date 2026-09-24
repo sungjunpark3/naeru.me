@@ -41,11 +41,13 @@ images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
 images.update({f"{kind}-{depth}.png": (512, 1024)
                for kind in ["rain", "snow"] for depth in ["far", "near"]})
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
-images.update({"naeru-winter-day.png": CROP_SIZE,
-               "naeru-winter-day-hd.webp": (4608, 3968),
-               "naeru-winter-day-close.webp": (4608, 3968),
-               "naeru-winter-day-nt.png": CROP_SIZE})
-videos.extend([f"naeru-winter-day.{fmt}" for fmt in ["webm", "mp4"]])
+for v in CLEAR_VARIANTS:
+    images.update({f"naeru-winter-{v}.png": CROP_SIZE,
+                   f"naeru-winter-{v}-hd.webp": (4608, 3968),
+                   f"naeru-winter-{v}-close.webp": (4608, 3968),
+                   f"naeru-winter-{v}-nt.png": CROP_SIZE})
+    videos.extend([
+        f"naeru-winter-{v}.{fmt}" for fmt in ["webm", "mp4"]])
 sky_videos = [f"sky-{v}-{season}.mp4"
               for season in MOVING_SKY_SEASONS for v in CLEAR_VARIANTS]
 runtime = sorted([*images, *videos, *sky_videos, "alpha-probe.webm"])
@@ -77,6 +79,21 @@ for name in runtime:
                 assert signature == foreground_alpha[season], \
                     f"시간대별 전경 형태 불일치: {name}"
             im.verify()
+
+# 겨울 의상은 한 전신 원화에서 조명만 바꾼다. 네 시간대의 실루엣이
+# 달라지거나 평상시·근접본 사이에서 그림이 바뀌면 접근 중 튀어 보인다.
+winter_alpha = None
+for variant in CLEAR_VARIANTS:
+    hd_path = REPO / f"img/naeru-winter-{variant}-hd.webp"
+    close_path = REPO / f"img/naeru-winter-{variant}-close.webp"
+    assert hd_path.read_bytes() == close_path.read_bytes(), \
+        f"평상시·근접 원화 불일치: {variant}"
+    with Image.open(hd_path) as image:
+        signature = hashlib.sha256(
+            image.getchannel("A").tobytes()).digest()
+    if winter_alpha is None:
+        winter_alpha = signature
+    assert signature == winter_alpha, f"겨울 시간대별 형태 불일치: {variant}"
 
 # 구름 영상은 누끼 뒤에 놓이지만, 첫 화면에서 누끼가 나타나는 동안에도
 # 구름이 풀밭·나무 위에 비치지 않아야 한다.

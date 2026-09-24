@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""새로 그린 겨울 낮 내루미 한 장으로 정지본과 몸짓 영상을 만든다.
+"""새로 그린 겨울 내루미 한 장으로 맑은 네 시간대 자산을 만든다.
 
 기존 내루미 위에 장신구를 얹지 않는다. 모자·목도리·몸이 한 그림인
-``source/naeru-winter-day-master.png``만 모든 출력의 색 원본으로 쓴다.
+``source/naeru-winter-day-master.png``만 형태 원본으로 쓰고 시간대별로
+조명만 바꾼다.
 """
 from pathlib import Path
+import argparse
 import json
 import shutil
 import subprocess
@@ -18,14 +20,15 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 SOURCE = HERE / "source"
 BUILD = HERE / "build"
-FRAMES = BUILD / "frames"
 MASTER = SOURCE / "naeru-winter-day-master.png"
 REFERENCE = REPO / "tools/naeru-hd/source/naeru-close-day.png"
 REFERENCE_HD = REPO / "img/naeru-day-hd.webp"
+LIGHTING_SOURCE = REPO / "tools/naeru-hd/source"
 SIZE = (576, 496)
 HD_SIZE = (4608, 3968)
 N_FRAMES = 316
 FPS = 24
+VARIANTS = ("dawn", "day", "dusk", "night")
 
 
 def main_component(image):
@@ -76,10 +79,52 @@ def place_master():
     return portrait
 
 
-def save_stills(portrait):
+def lighting_models():
+    """기존 네 시간대 원화의 RGB 대응으로 선형 조명 변환을 구한다."""
+    day = np.asarray(
+        Image.open(LIGHTING_SOURCE / "naeru-day.png").convert("RGBA"),
+        dtype=np.float32)
+    mask = cv2.erode(
+        (day[:, :, 3] == 255).astype(np.uint8),
+        np.ones((7, 7), np.uint8)) > 0
+    source = day[:, :, :3][mask] / 255
+    design = np.column_stack((source, np.ones(len(source))))
+    models = {"day": None}
+    for variant in VARIANTS:
+        if variant == "day":
+            continue
+        target = np.asarray(Image.open(
+            LIGHTING_SOURCE / f"naeru-{variant}.png").convert("RGBA"),
+            dtype=np.float32)[:, :, :3][mask] / 255
+        matrix = np.linalg.lstsq(design, target, rcond=None)[0]
+        darkest = source.mean(axis=1) <= np.quantile(
+            source.mean(axis=1), .015)
+        floor = np.median(target[darkest], axis=0)
+        error = np.mean(np.abs(np.maximum(design @ matrix, floor) - target))
+        models[variant] = (matrix, floor)
+        print(f"{variant} lighting MAE: {error * 255:.2f}/255")
+    return models
+
+
+def apply_lighting(portrait, variant, models):
+    """큰 원화의 메모리 사용량을 제한하며 색만 바꾸고 알파는 유지한다."""
+    if variant == "day":
+        return portrait.copy()
+    rgba = np.asarray(portrait.convert("RGBA")).copy()
+    matrix, floor = models[variant]
+    for top in range(0, rgba.shape[0], 256):
+        section = rgba[top:top + 256, :, :3].astype(np.float32)
+        adjusted = section @ matrix[:3] + matrix[3] * 255
+        rgba[top:top + 256, :, :3] = np.rint(np.clip(
+            np.maximum(adjusted, floor * 255), 0, 255)).astype(np.uint8)
+    rgba[rgba[:, :, 3] == 0] = 0
+    return Image.fromarray(rgba)
+
+
+def save_stills(portrait, variant):
     paths = [
-        REPO / "img/naeru-winter-day-hd.webp",
-        REPO / "img/naeru-winter-day-close.webp",
+        REPO / f"img/naeru-winter-{variant}-hd.webp",
+        REPO / f"img/naeru-winter-{variant}-close.webp",
     ]
     for path in paths:
         portrait.save(path, quality=97, method=6)
@@ -91,8 +136,10 @@ def save_stills(portrait):
     # 정지본·영상·근접본이 모두 같은 새 그림에서 출발한다.
     runtime = portrait.convert("RGBa").resize(
         SIZE, Image.Resampling.LANCZOS).convert("RGBA")
-    runtime.save(REPO / "img/naeru-winter-day.png", optimize=True)
-    runtime.save(REPO / "img/naeru-winter-day-nt.png", optimize=True)
+    runtime.save(
+        REPO / f"img/naeru-winter-{variant}.png", optimize=True)
+    runtime.save(
+        REPO / f"img/naeru-winter-{variant}-nt.png", optimize=True)
     return runtime
 
 
@@ -190,8 +237,9 @@ def pulse(value, start, end):
     return np.sin(phase * np.pi) ** 2
 
 
-def render_frames(runtime):
-    FRAMES.mkdir(parents=True, exist_ok=True)
+def render_frames(runtime, variant):
+    frames = BUILD / "frames" / variant
+    frames.mkdir(parents=True, exist_ok=True)
     xx, yy, tongue, right, left = motion_weights()
     for index in range(N_FRAMES):
         time = index / (N_FRAMES - 1)
@@ -207,39 +255,40 @@ def render_frames(runtime):
         else:
             maps = source_map(xx, yy, (tongue, right, left), motion)
             frame = warp(runtime, maps)
-        frame.save(FRAMES / f"{index + 1:04d}.png", optimize=True)
+        frame.save(frames / f"{index + 1:04d}.png", optimize=True)
 
-    first = Image.open(FRAMES / "0001.png").convert("RGBA")
-    last = Image.open(FRAMES / f"{N_FRAMES:04d}.png").convert("RGBA")
+    first = Image.open(frames / "0001.png").convert("RGBA")
+    last = Image.open(frames / f"{N_FRAMES:04d}.png").convert("RGBA")
     assert np.array_equal(np.asarray(runtime), np.asarray(first))
     assert np.array_equal(np.asarray(first), np.asarray(last))
-    print(f"frames: {N_FRAMES}, first/last identical")
+    print(f"{variant} frames: {N_FRAMES}, first/last identical")
+    return frames
 
 
-def encode_videos():
-    webm = REPO / "img/naeru-winter-day.webm"
+def encode_videos(variant, frames):
+    webm = REPO / f"img/naeru-winter-{variant}.webm"
     subprocess.run([
         "ffmpeg", "-v", "error", "-y", "-framerate", str(FPS),
-        "-i", str(FRAMES / "%04d.png"), "-c:v", "libvpx-vp9",
+        "-i", str(frames / "%04d.png"), "-c:v", "libvpx-vp9",
         "-pix_fmt", "yuva420p", "-crf", "30", "-b:v", "0",
         "-auto-alt-ref", "0", "-row-mt", "1", "-deadline", "good",
         "-cpu-used", "2", str(webm),
     ], check=True)
-    mp4 = REPO / "img/naeru-winter-day.mp4"
+    mp4 = REPO / f"img/naeru-winter-{variant}.mp4"
     command = [
         "ffmpeg", "-v", "error", "-y", "-framerate", str(FPS),
-        "-i", str(FRAMES / "%04d.png"), "-vf", "premultiply=inplace=1",
+        "-i", str(frames / "%04d.png"), "-vf", "premultiply=inplace=1",
         "-c:v", "hevc_videotoolbox", "-pix_fmt", "bgra",
         "-alpha_quality", "0.85", "-q:v", "40", "-tag:v", "hvc1",
         "-movflags", "+faststart", str(mp4),
     ]
     encoded = subprocess.run(command).returncode == 0 and mp4.stat().st_size > 0
     if not encoded:
-        prores = BUILD / "naeru-winter-day-prores.mov"
-        hevc = BUILD / "naeru-winter-day-hevc.mov"
+        prores = BUILD / f"naeru-winter-{variant}-prores.mov"
+        hevc = BUILD / f"naeru-winter-{variant}-hevc.mov"
         subprocess.run([
             "ffmpeg", "-v", "error", "-y", "-framerate", str(FPS),
-            "-i", str(FRAMES / "%04d.png"), "-c:v", "prores_ks",
+            "-i", str(frames / "%04d.png"), "-c:v", "prores_ks",
             "-profile:v", "4", "-pix_fmt", "yuva444p10le", str(prores),
         ], check=True)
         subprocess.run([
@@ -259,11 +308,20 @@ def encode_videos():
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "variants", nargs="*", choices=VARIANTS,
+        default=list(VARIANTS), help="기본값: 맑은 네 시간대 전부")
+    args = parser.parse_args()
     BUILD.mkdir(parents=True, exist_ok=True)
-    portrait = place_master()
-    runtime = save_stills(portrait)
-    render_frames(runtime)
-    encode_videos()
+    master = place_master()
+    models = lighting_models()
+    for variant in args.variants:
+        print(f"\n[{variant}]")
+        portrait = apply_lighting(master, variant, models)
+        runtime = save_stills(portrait, variant)
+        frames = render_frames(runtime, variant)
+        encode_videos(variant, frames)
 
 
 if __name__ == "__main__":
