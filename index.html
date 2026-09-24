@@ -811,32 +811,38 @@ function sceneMotionAllowed() {
   }
   return !reduced && !document.hidden && root.dataset.sceneReady === "true";
 }
-function createSceneMotion(restart, cleanup) {
+/* 들판 산책(game/game.js) 동안에는 내루미의 몸짓·공·나비·다가오기를 멈춘다.
+   구름·반딧불이 같은 풍경(ambient)은 영상을 내려놓지 않도록 계속 둔다. */
+function createSceneMotion(restart, cleanup, ambient) {
   var frames = new Set(), timers = new Set();
+  function allowed() {
+    return sceneMotionAllowed() && (ambient || !document.documentElement.dataset.game);
+  }
   function stop() {
     frames.forEach(function (id) { window.cancelAnimationFrame(id); });
     timers.forEach(function (id) { window.clearTimeout(id); });
     frames.clear(); timers.clear();
     cleanup();
   }
-  function start() { stop(); if (sceneMotionAllowed()) restart(); }
+  function start() { stop(); if (allowed()) restart(); }
   document.addEventListener("naeru:scene", start);
   document.addEventListener("visibilitychange", start);
+  if (!ambient) document.addEventListener("naeru:game", start);
   return {
     start: start,
     frame: function (fn) {
-      if (!sceneMotionAllowed()) return 0;
+      if (!allowed()) return 0;
       var id = window.requestAnimationFrame(function (now) {
         frames.delete(id);
-        if (sceneMotionAllowed()) fn(now);
+        if (allowed()) fn(now);
       });
       frames.add(id); return id;
     },
     later: function (fn, ms) {
-      if (!sceneMotionAllowed()) return 0;
+      if (!allowed()) return 0;
       var id = window.setTimeout(function () {
         timers.delete(id);
-        if (sceneMotionAllowed()) fn();
+        if (allowed()) fn();
       }, ms);
       timers.add(id); return id;
     }
@@ -1335,7 +1341,7 @@ function createSceneMotion(restart, cleanup) {
     video.load();
   }
 
-  var motion = createSceneMotion(restart, function () { release("none"); });
+  var motion = createSceneMotion(restart, function () { release("none"); }, true);
   motion.start();
 })();
 </script>
@@ -2265,7 +2271,7 @@ function createSceneMotion(restart, cleanup) {
   var motion = createSceneMotion(check, function () {
     running = false;
     bugs.forEach(function (b) { b.el.style.opacity = "0"; });
-  });
+  }, true);
   var requestAnimationFrame = motion.frame, setTimeout = motion.later;
   motion.start();
 })();
@@ -2995,6 +3001,27 @@ function createSceneMotion(restart, cleanup) {
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden) renderFocus();
   });
+})();
+</script>
+
+<script>
+/* ── 들판 산책: 방향키를 처음 누를 때 game/game.js를 불러온다 ────────
+   페이지를 옮기지 않고 지금의 배경·영상·그림자 위에서 바로 이어진다.
+   불러오는 동안 누르고 있는 방향키는 넘겨 줘서 첫 입력을 잃지 않는다. */
+(function () {
+  var held = new Set(), loading = false;
+  function arrow(key) { return /^Arrow(Up|Down|Left|Right)$/.test(key); }
+  document.addEventListener("keydown", function (e) {
+    if (window.naeruGame || loading || !arrow(e.key)) return;
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    held.add(e.key); loading = true;
+    var script = document.createElement("script");
+    script.src = "game/game.js";
+    script.onload = function () { if (window.naeruGame) window.naeruGame.boot(held); };
+    script.onerror = function () { script.remove(); loading = false; held.clear(); };
+    document.head.appendChild(script);
+  });
+  document.addEventListener("keyup", function (e) { held.delete(e.key); });
 })();
 </script>
 </body>
