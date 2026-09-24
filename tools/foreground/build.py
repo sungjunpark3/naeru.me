@@ -28,8 +28,9 @@ RIGHT = [(2048, 735), (1990, 758), (1942, 749), (1906, 787),
 
 
 class SeasonalForeground:
-    def __init__(self, season, prefix):
+    def __init__(self, season, prefix, replace_background=True):
         self.season = season
+        self.replace_background = replace_background
         self.reference = np.asarray(Image.open(
             HERE / f'source/{prefix}-reference.jpg')
                                     .convert('RGB'), np.float32)
@@ -85,8 +86,10 @@ class SeasonalForeground:
         matrix = np.linalg.lstsq(design, target, rcond=None)[0]
         error = np.mean(np.abs(design @ matrix - target)) * 255
         clean = np.clip(self.clean @ matrix[:3] + matrix[3] * 255, 0, 255)
-        background = original * (1 - self.coverage) + clean * self.coverage
-        Image.fromarray(np.rint(background).astype(np.uint8)).save(background_path, quality=95)
+        if self.replace_background:
+            background = original * (1 - self.coverage) + clean * self.coverage
+            Image.fromarray(np.rint(background).astype(np.uint8)).save(
+                background_path, quality=95)
 
         # 앞풀은 배경보다 고유색과 눈의 밝기가 강하다. 전체 풍경의 선형식을
         # 외삽하지 않고 원래 앞풀의 가까운 색에서 조명 비율을 얻는다. 33³
@@ -126,4 +129,6 @@ class AutumnForeground(SeasonalForeground):
 
 class WinterForeground(SeasonalForeground):
     def __init__(self):
-        super().__init__('winter', 'winter-day')
+        # 포근한 겨울 원화는 앞풀이 없는 깨끗한 설원으로 제작됐다. 배경을
+        # 다시 칠하지 않고 투명 전경의 시간대별 조명만 변환한다.
+        super().__init__('winter', 'winter-day', replace_background=False)

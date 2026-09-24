@@ -2,22 +2,22 @@
   "mode": "built-in imagegen",
   "variants": {
     "dawn": {
-      "sky": "cold pale blue-lavender dawn; faint warm horizon",
-      "clouds": "cool pale blue-gray and lavender; restrained rose-gray undersides"
+      "sky": "soft periwinkle and lavender-blue dawn; restrained peach-ivory horizon",
+      "clouds": "peach, ivory and pale lavender with soft blue shadows"
     },
     "day": {
-      "sky": "crisp pale winter blue; brighter near snowy horizon",
-      "clouds": "pale blue-white highlights; soft blue-gray undersides"
+      "sky": "milky powder blue; pale blue-ivory near the snowy horizon",
+      "clouds": "soft ivory-white highlights with pale lavender-blue shadows"
     },
     "dusk": {
-      "sky": "cool lavender-gray; faint muted peach-gold horizon",
-      "clouds": "cool lavender-gray; faint peach lower edges"
+      "sky": "muted lavender and mauve; soft apricot and peach-gold horizon",
+      "clouds": "apricot, blush and ivory with mauve and violet shadows"
     },
     "night": {
-      "sky": "deep navy moonless night; preserve fixed stars",
-      "clouds": "deep navy and charcoal-blue; exclude all stars"
+      "sky": "rich gentle indigo-to-navy night; preserve restrained fixed stars",
+      "clouds": "muted indigo, navy and lavender-blue; exclude all stars"
     }
   },
-  "sky_prompt": "Edit only the open sky of the supplied clear-winter landscape. Remove every cloud and replace it with the time-specific cold winter gradient. Preserve the exact snowy landscape, composition, lighting, painterly style and 16:9 framing. At night preserve the fixed star field. No precipitation, new objects or text.",
-  "cloud_prompt": "Create one aligned transparent RGBA winter cloud layer from the supplied clear-winter reference. Isolate and repaint only the fair-weather clouds with the time-specific lighting. Remove every landscape element. Preserve cloud scale, broad placement, soft painterly edges and horizontal edge coverage. Everything else must be transparent. Exclude stars, precipitation, lightning, sun, moon, text and rectangular haze."
+  "sky_prompt": "Remove every cloud from the supplied cozy clear-winter plate and reconstruct the time-specific pastel sky gradient. Preserve the exact snowy landscape, composition, lighting, matte gouache style and 16:9 framing. At night preserve the fixed star field. No precipitation, new objects or text.",
+  "cloud_prompt": "Extract only the open-sky fair-weather clouds from the supplied clear-winter plate onto genuine RGBA transparency. Preserve their exact time-specific color, scale, position and soft painterly edges. Remove every landscape element and exclude stars, precipitation, lightning, sun, moon, text and rectangular haze."
 }

@@ -1,27 +1,31 @@
 {
   "mode": "built-in imagegen",
-  "composition": "All eight plates share one 16:9 winter woodland composition with an open center for Naeru.",
+  "composition": "All eight plates share one cozy 16:9 pastel winter clearing with a wide open center for Naeru.",
   "clear_day": {
     "output": "day.png",
-    "prompt": "Repaint the reference as unmistakable midwinter: bare deciduous branches, snow-covered evergreens, a deep fresh snowfield and distant winter mountains under a crisp icy noon sky. Preserve the open central meadow, camera and soft storybook background-painting style. Remove summer foliage, flowers and lush grass. No character or text."
+    "prompt": "Preserve the central clearing, mountain horizon and side-framing trees while repainting winter with rounded snow-laden evergreens and shrubs, thick snow pillows, broad matte gouache brushwork and a milky blue, lavender, ivory and blush pastel palette. Keep the scene plush and cozy rather than thin or barren."
   },
   "clear_time_edits": {
-    "dawn.png": "Preserve the exact day geometry and change only winter dawn light: cold lavender-blue sky, restrained peach horizon, blue snow shadows and faint warm rim light.",
-    "dusk.png": "Preserve the exact day geometry and change only winter dusk light: apricot and rose near the horizon, lavender upper sky, long cool snow shadows and subtle warm tree edges.",
-    "night.png": "Preserve the exact day geometry and change only winter night light: deep navy sky with restrained stars, moonlit blue snow and legible dark tree silhouettes."
+    "dawn.png": "Preserve the day geometry and style; use pale periwinkle and lavender dawn with restrained peach-rose light near the horizon.",
+    "dusk.png": "Preserve the day geometry and style; use muted lavender above and warm apricot, rose and peach-gold near the horizon.",
+    "night.png": "Preserve the day geometry and style; use a rich gentle indigo sky, restrained stars, dim moonlit clouds and luminous lavender-blue snow without black shadows."
   },
   "snow_weather": {
-    "day-rain.png": "Preserve the exact winter geometry and repaint a static overcast snow-weather day with layered blue-gray snow clouds and flat cold light. Do not paint falling flakes; the DOM precipitation layer supplies them.",
-    "dawn-rain.png": "Preserve the exact geometry of day-rain and shift it to predawn blue-lavender light with only a faint muted warm horizon.",
-    "dusk-rain.png": "Preserve the exact geometry of day-rain and shift it to dim stormy dusk with muted violet-gray clouds and a weak rose-brown horizon.",
-    "night-rain.png": "Preserve the exact geometry of day-rain and shift it to a dark navy snow-cloud night with soft blue snow visibility and no stars."
+    "day-rain.png": "Preserve the exact cozy clear-day geometry and repaint only the weather and illumination as a hushed overcast snow day with layered blue-gray and muted lavender snow clouds. Do not paint falling flakes.",
+    "dawn-rain.png": "Preserve the exact overcast geometry and clouds; shift only the lighting to blue-lavender predawn with a faint muted peach-gray horizon.",
+    "dusk-rain.png": "Preserve the exact overcast geometry and clouds; shift only the lighting to smoky lavender and mauve dusk with a weak rose-apricot horizon.",
+    "night-rain.png": "Preserve the exact overcast geometry and clouds; shift only the lighting to deep indigo snow-cloud night with clearly legible blue-lavender snow and no stars."
   },
   "foreground": {
     "output": "foreground.png",
-    "prompt": "Create a transparent winter foreground overlay only in the lower left and lower right corners: dormant twigs, sparse evergreen needles, dried seed heads, frost and small snow caps. Keep the center open and all upper areas transparent; no ground plane, snow bank, background, character, haze or detached alpha speckles. Lower the final clusters so the tallest left tips begin near 55% height and the right near 67%."
+    "prompt": "Create a genuine-transparent foreground overlay matching the cozy day plate: low rounded snow-capped evergreen foliage, a few dormant twigs and small seed heads only in the extreme lower corners. Keep the middle and all upper areas transparent; no ground plane, landscape, character, haze or detached speckles."
   },
   "landscape": {
     "output": "landscape.png",
-    "prompt": "Extract the complete winter landscape as transparent RGBA while removing only the sky and clouds. Preserve exact snowfield, mountains, trees, trunks, overhanging branches and antialiased boundaries."
+    "prompt": "Extract the complete day landscape as transparent RGBA while removing only the sky and clouds. Preserve exact snowfield, mountains, trees, trunks, branches, shrubs, snow caps, alignment and antialiased boundaries."
+  },
+  "cloud_layers": {
+    "location": "../../clouds/source/winter-{time}-{clear-sky,clouds}.png",
+    "prompt": "For each clear time plate, create one cloudless sky base with all non-sky geometry fixed and one genuine-transparent extraction of only the open-sky clouds with exact time-specific color, position and soft edges."
   }
 }

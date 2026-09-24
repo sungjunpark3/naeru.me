@@ -49,7 +49,9 @@ def save_backgrounds():
 def save_foregrounds():
     foreground = clean_alpha(Image.open(SOURCE / "foreground.png"), 500)
     lowered = Image.new("RGBA", foreground.size)
-    lowered.paste(foreground, (0, 32))
+    # 시계·날씨 영역과 중앙 통로를 침범하지 않도록 전경을 화면 아래쪽에
+    # 고정한다. 4K 런타임에서 상단 1,000px는 완전히 투명해야 한다.
+    lowered.paste(foreground, (0, 176))
     foreground = lowered
     foreground = foreground.convert("RGBa").resize(
         SIZE, Image.Resampling.LANCZOS).convert("RGBA")
@@ -60,9 +62,8 @@ def save_foregrounds():
         SIZE, Image.Resampling.LANCZOS)
     clean_path = REPO / "tools/foreground/source/winter-day-clean.png"
     clean.save(clean_path)
-    reference = Image.alpha_composite(clean.convert("RGBA"), foreground).convert("RGB")
     reference_path = REPO / "tools/foreground/source/winter-day-reference.jpg"
-    reference.save(reference_path, quality=95, subsampling=0)
+    clean.save(reference_path, quality=95, subsampling=0)
 
     sys.path.insert(0, str(REPO / "tools/foreground"))
     from build import WinterForeground
