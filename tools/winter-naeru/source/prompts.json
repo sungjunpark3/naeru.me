@@ -1,0 +1,13 @@
+{
+  "mode": "built-in imagegen",
+  "design": {
+    "reference": "../../naeru-hd/source/naeru-close-day.png",
+    "output": "naeru-day-dressed.png",
+    "prompt": "Preserve the exact transparent Naeru sprite, pose, solid oval eyes without eyelid marks, tongue, arms, body and soft painted style. Add a compact muted-cranberry knitted beanie with a warm-cream ribbed brim and pom-pom, plus a matching scarf wrapped behind the tongue. Keep the face visible and keep the scarf tail short, narrow and entirely between the tongue and right arm. No other clothes, snow, background, shadow or text."
+  },
+  "accessories": {
+    "reference": "naeru-day-dressed.png",
+    "output": "naeru-day-accessories-raw.png",
+    "prompt": "Remove the entire character and preserve only the visible hat and scarf at the exact original canvas coordinates on genuine transparency. Do not move, resize, restyle, extend or reveal hidden portions."
+  }
+}

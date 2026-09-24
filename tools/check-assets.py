@@ -41,6 +41,11 @@ images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
 images.update({f"{kind}-{depth}.png": (512, 1024)
                for kind in ["rain", "snow"] for depth in ["far", "near"]})
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
+images.update({"naeru-winter-day.png": CROP_SIZE,
+               "naeru-winter-day-hd.webp": (4608, 3968),
+               "naeru-winter-day-close.webp": (4608, 3968),
+               "naeru-winter-day-nt.png": CROP_SIZE})
+videos.extend([f"naeru-winter-day.{fmt}" for fmt in ["webm", "mp4"]])
 sky_videos = [f"sky-{v}-{season}.mp4"
               for season in MOVING_SKY_SEASONS for v in CLEAR_VARIANTS]
 runtime = sorted([*images, *videos, *sky_videos, "alpha-probe.webm"])

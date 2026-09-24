@@ -847,7 +847,7 @@ function createSceneMotion(restart, cleanup) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "644ca63d1b7c";
+  var ASSET_V = "1435029e1092";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1026,8 +1026,14 @@ function createSceneMotion(restart, cleanup) {
       ? av("sky-" + v + "-" + s + ".webp")
       : av("bg-" + v + "-" + s + ".jpg");
   }
-  function stillOf(v) {
-    return av("naeru-" + v + (hd.dataset.variant === v && hd.dataset.status === "ready"
+  function characterOf(v, s) {
+    return s === "winter" && v === "day" ? "winter-day" : v;
+  }
+  window.naeruAsset = characterOf;
+  function stillOf(v, s) {
+    var character = characterOf(v, s);
+    return av("naeru-" + character +
+      (hd.dataset.variant === character && hd.dataset.status === "ready"
       ? "-hd.webp" : ".png"));
   }
   function prepareHD(variant) {
@@ -1040,7 +1046,8 @@ function createSceneMotion(restart, cleanup) {
     image.decode().then(function () {
       if (request !== hdRequest) return;
       hd.src = image.src; hd.dataset.status = "ready";
-      if (active === variant && !root.dataset.approach) still.src = image.src;
+      if (active && characterOf(active, activeSeason) === variant &&
+          !root.dataset.approach) still.src = image.src;
     }).catch(function () {
       if (request === hdRequest) hd.dataset.status = "failed";
     });
@@ -1123,7 +1130,7 @@ function createSceneMotion(restart, cleanup) {
         }
         stopWatch(); fallback = true;
         videos.forEach(function (x) { x.pause(); x.classList.remove("on"); });
-        still.src = stillOf(active); still.classList.add("on");
+        still.src = stillOf(active, activeSeason); still.classList.add("on");
       }, 1800);
     }
     judge();
@@ -1132,6 +1139,7 @@ function createSceneMotion(restart, cleanup) {
   function showScene(variant, season) {
     var token = ++generation, nextSlot = active ? 1 - slot : slot;
     var key = variant + "/" + season, url = bgOf(variant, season);
+    var character = characterOf(variant, season);
     var landscapeUrl = movingSky(variant, season)
       ? av("landscape-" + variant + "-" + season + ".webp") : null;
     var frontUrl = season === "autumn"
@@ -1140,11 +1148,11 @@ function createSceneMotion(restart, cleanup) {
         ? av("foreground-" + variant + "-winter.webp") : null;
     var landscapeReady = false, frontReady = false;
     requested = key; stopWatch(); sceneReady(false);
-    prepareHD(variant);
+    prepareHD(character);
     // 첫 화면의 시계와 배경은 날씨 요청을 기다리지 않는다.
     if (!active) {
       root.style.setProperty("--still", 'url("' + url + '")');
-      still.src = stillOf(variant); still.classList.add("on");
+      still.src = stillOf(variant, season); still.classList.add("on");
     }
     function commit(video) {
       if (token !== generation) return;
@@ -1169,7 +1177,7 @@ function createSceneMotion(restart, cleanup) {
       fronts[nextSlot].classList.toggle("on", frontReady);
       fronts[oldSlot].classList.remove("on");
       root.dataset.foreground = frontReady ? "ready" : frontUrl ? "failed" : "none";
-      still.src = stillOf(variant);
+      still.src = stillOf(variant, season);
       still.classList.toggle("on", !video);
       videos.forEach(function (v) {
         v.classList.toggle("on", v === video);
@@ -1194,7 +1202,7 @@ function createSceneMotion(restart, cleanup) {
         }).catch(function () { clearTimeout(timeout); resolve(false); });
       });
     }
-    Promise.all([decodeImage(url), decodeImage(stillOf(variant)),
+    Promise.all([decodeImage(url), decodeImage(stillOf(variant, season)),
       loadOptional(landscapeUrl), loadOptional(frontUrl)]).then(function (loaded) {
       landscapeReady = loaded[2]; frontReady = loaded[3];
       if (token !== generation) return;
@@ -1207,7 +1215,8 @@ function createSceneMotion(restart, cleanup) {
         // 여기서 반환만 하면 requested와 active가 달라 복귀 후에도 전환이 막힌다.
         if (noMotion || document.hidden) { commit(null); return; }
         var video = videos[nextSlot];
-        video.poster = stillOf(variant); video.src = av("naeru-" + variant + "." + fmt);
+        video.poster = stillOf(variant, season);
+        video.src = av("naeru-" + character + "." + fmt);
         delete video.dataset.pauseOwner;
         video.play().catch(function () {});
         firstFrame(video).then(function (ok) {
@@ -1225,7 +1234,7 @@ function createSceneMotion(restart, cleanup) {
     v.addEventListener("error", function () {
       if (!v.classList.contains("on") || !v.getAttribute("src")) return;
       fallback = true; stopWatch(); v.pause(); v.classList.remove("on");
-      still.src = stillOf(active); still.classList.add("on");
+      still.src = stillOf(active, activeSeason); still.classList.add("on");
     });
   });
 
@@ -2315,14 +2324,17 @@ function createSceneMotion(restart, cleanup) {
   var ready = false, loadedFor = null;
 
   function preload(variant) {
-    if (loadedFor === variant) return;
-    loadedFor = variant;
+    var asset = window.naeruAsset
+      ? window.naeruAsset(variant, document.documentElement.dataset.season)
+      : variant;
+    if (loadedFor === asset) return;
+    loadedFor = asset;
     ready = false;
     var left = 2;
     function ok() { if (--left === 0) ready = true; }
     nt.onload = tong.onload = ok;
     nt.onerror = tong.onerror = function () { loadedFor = null; };  // 다음에 다시
-    nt.src   = "img/naeru-" + variant + "-nt.png" + ver();
+    nt.src   = "img/naeru-" + asset + "-nt.png" + ver();
     tong.src = "img/tongue-" + variant + ".png" + ver();
   }
 
@@ -2599,12 +2611,13 @@ function createSceneMotion(restart, cleanup) {
     if (!eligible() || root.dataset.sceneReady !== "true") return;
     var version = "?v=" + root.dataset.av;
     var variant = document.body.dataset.variant;
+    var asset = window.naeruAsset(variant, root.dataset.season);
     // 작은 영상의 굵은 선을 그대로 확대하지 않는다. 근접용 원화는 접근할 수
     // 있는 장면에서만 준비하고, 평소 정지본에는 기존 HD를 계속 사용한다.
-    if (closeup.dataset.variant !== variant) {
+    if (closeup.dataset.variant !== asset) {
       var request = ++closeRequest, image = new Image();
-      closeup.dataset.variant = variant; closeup.dataset.status = "loading";
-      image.src = "img/naeru-" + variant + "-close.webp" + version;
+      closeup.dataset.variant = asset; closeup.dataset.status = "loading";
+      image.src = "img/naeru-" + asset + "-close.webp" + version;
       image.decode().then(function () {
         if (request !== closeRequest) return;
         closeup.src = image.src; closeup.dataset.status = "ready";
@@ -2640,7 +2653,9 @@ function createSceneMotion(restart, cleanup) {
     if (baseImage) baseImage.style.opacity = "";
     baseImage = null; useHD = false;
     hd.style.opacity = "0"; closeup.style.opacity = "0"; portrait = hd;
-    if (hd.dataset.status === "ready" && hd.dataset.variant === document.body.dataset.variant) {
+    var asset = window.naeruAsset(
+      document.body.dataset.variant, root.dataset.season);
+    if (hd.dataset.status === "ready" && hd.dataset.variant === asset) {
       document.getElementById("naeruStill").src = hd.src;
     }
     approach.style.transform = ""; stride.style.transform = "";
@@ -2734,9 +2749,10 @@ function createSceneMotion(restart, cleanup) {
     pending = null; running = true; visited = true;
     baseImage = frozenVideo || document.getElementById("naeruStill");
     var variant = document.body.dataset.variant;
-    var closeReady = closeup.dataset.variant === variant && closeup.dataset.status === "ready";
+    var asset = window.naeruAsset(variant, root.dataset.season);
+    var closeReady = closeup.dataset.variant === asset && closeup.dataset.status === "ready";
     portrait = closeReady ? closeup : hd;
-    useHD = closeReady || (hd.dataset.variant === variant && hd.dataset.status === "ready");
+    useHD = closeReady || (hd.dataset.variant === asset && hd.dataset.status === "ready");
     root.dataset.approachQuality = useHD ? "hd" : "original";
     root.dataset.approachArt = closeReady ? "closeup" : useHD ? "restored" : "original";
     nextVisit = performance.now() + visitGap;

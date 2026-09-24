@@ -105,12 +105,46 @@ async function check(name, fn) {
               }
               await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
                 document.querySelector('#naeruStill').naturalWidth === 4608);
+              const character = season === 'winter' && band === 'day' && w === 'clear'
+                ? 'winter-day' : state.variant;
+              assert.match(await p.locator('#naeruStill').getAttribute('src'),
+                new RegExp(`naeru-${character}-hd\\.webp`));
               assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
               await shot(p, `${season}-${band}-${w}`);
             }
           } finally { await p.close(); }
         }));
       }
+    });
+    await check('겨울 맑은 낮: 모자·목도리 몸짓과 장면 한정', async () => {
+      const p = await makePage({ viewport: { width: 1440, height: 900 } });
+      try {
+        await open(p, 's=winter&v=day&w=clear&act=0&ball=0&flit=0&ff=0');
+        await playing(p);
+        assert.match(await p.locator('video.naeru.on').getAttribute('src'),
+          /naeru-winter-day\.(webm|mp4)/);
+        await p.waitForFunction(() =>
+          document.querySelector('#naeruHd').dataset.status === 'ready');
+        assert.match(await p.locator('#naeruHd').getAttribute('src'),
+          /naeru-winter-day-hd\.webp/);
+        await p.waitForTimeout(1600);
+        await shot(p, 'winter-day-outfit-motion');
+
+        await open(p, 's=winter&v=day&w=rain&act=0&ball=0&flit=0&ff=0');
+        await playing(p);
+        assert.match(await p.locator('video.naeru.on').getAttribute('src'),
+          /naeru-day-rain\.(webm|mp4)/);
+        assert.doesNotMatch(await p.locator('#naeruHd').getAttribute('src'),
+          /naeru-winter-day-hd\.webp/);
+
+        await open(p, 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0');
+        await playing(p);
+        assert.match(await p.locator('video.naeru.on').getAttribute('src'),
+          /naeru-day\.(webm|mp4)/);
+        assert.doesNotMatch(await p.locator('#naeruHd').getAttribute('src'),
+          /naeru-winter-day-hd\.webp/);
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { await p.close(); }
     });
     await check('가을 낮 풍경 레이어: 실패·시간 초과·장면 전환에도 원본 배경 유지', async () => {
       await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
@@ -766,6 +800,13 @@ async function check(name, fn) {
           assert.equal(await p.evaluate(() =>
             document.documentElement.dataset.approachArt), 'closeup');
           assert.equal(await p.locator('#naeruClose').evaluate(e => e.naturalWidth), 4608);
+          const character = band === 'day' ? 'winter-day' : band;
+          assert.match(await p.locator('#naeruClose').getAttribute('src'),
+            new RegExp(`naeru-${character}-close\\.webp`));
+          assert.match(await p.locator('#naeruCloseRig').getAttribute('data-source'),
+            new RegExp(`naeru-${character}-close\\.webp`));
+          await p.waitForTimeout(2500);
+          await shot(p, `winter-${band}-approach-close`);
           await p.click('#approach-return');
           await p.waitForFunction(() => !document.documentElement.dataset.approach);
           assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
