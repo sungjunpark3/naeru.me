@@ -1,13 +1,6 @@
 {
   "mode": "built-in imagegen",
-  "design": {
-    "reference": "../../naeru-hd/source/naeru-close-day.png",
-    "output": "naeru-day-dressed.png",
-    "prompt": "Preserve the exact transparent Naeru sprite, pose, solid oval eyes without eyelid marks, tongue, arms, body and soft painted style. Add a compact muted-cranberry knitted beanie with a warm-cream ribbed brim and pom-pom, plus a matching scarf wrapped behind the tongue. Keep the face visible and keep the scarf tail short, narrow and entirely between the tongue and right arm. No other clothes, snow, background, shadow or text."
-  },
-  "accessories": {
-    "reference": "naeru-day-dressed.png",
-    "output": "naeru-day-accessories-raw.png",
-    "prompt": "Remove the entire character and preserve only the visible hat and scarf at the exact original canvas coordinates on genuine transparency. Do not move, resize, restyle, extend or reveal hidden portions."
-  }
+  "reference": "../../naeru-hd/source/naeru-close-day.png",
+  "output": "naeru-winter-day-master.png",
+  "prompt_summary": "Use the old close image only as the identity and pose reference. Redraw the entire Naeru from scratch as one cohesive polished illustration, including its body, face, arms, tongue, belly, feet, tail, winter hat and scarf. Give it a muted warm-cranberry slouchy knitted beanie with a narrow oatmeal ribbed cuff and cream pom-pom, plus an oatmeal scarf behind the tongue with a short cranberry-striped tip. Keep the friendly three-quarter pose, simple solid oval eyes without eyelids, delicate warm gray-brown contours and soft hand-painted animation-film shading. Use genuine transparent RGBA. No pasted accessories, tracing, coat, mittens, boots, snow, background, shadow or text."
 }

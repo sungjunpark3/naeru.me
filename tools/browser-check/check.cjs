@@ -132,6 +132,8 @@ async function check(name, fn) {
 
         await open(p, 's=winter&v=day&w=rain&act=0&ball=0&flit=0&ff=0');
         await playing(p);
+        await p.waitForFunction(() =>
+          document.querySelector('#naeruHd').dataset.status === 'ready');
         assert.match(await p.locator('video.naeru.on').getAttribute('src'),
           /naeru-day-rain\.(webm|mp4)/);
         assert.doesNotMatch(await p.locator('#naeruHd').getAttribute('src'),
@@ -139,6 +141,8 @@ async function check(name, fn) {
 
         await open(p, 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0');
         await playing(p);
+        await p.waitForFunction(() =>
+          document.querySelector('#naeruHd').dataset.status === 'ready');
         assert.match(await p.locator('video.naeru.on').getAttribute('src'),
           /naeru-day\.(webm|mp4)/);
         assert.doesNotMatch(await p.locator('#naeruHd').getAttribute('src'),

@@ -847,7 +847,7 @@ function createSceneMotion(restart, cleanup) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "1435029e1092";
+  var ASSET_V = "d709a152cc4f";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -2327,6 +2327,14 @@ function createSceneMotion(restart, cleanup) {
     var asset = window.naeruAsset
       ? window.naeruAsset(variant, document.documentElement.dataset.season)
       : variant;
+    // 겨울 낮은 모자·목도리·몸이 한 장인 새 원화다. 기존 내루미에서
+    // 분리한 혀를 섞으면 순간적으로 예전 그림으로 바뀌므로 이 장면의
+    // 선택형 혀 장난은 건너뛴다.
+    if (asset === "winter-day") {
+      loadedFor = asset; ready = false;
+      nt.removeAttribute("src"); tong.removeAttribute("src");
+      return;
+    }
     if (loadedFor === asset) return;
     loadedFor = asset;
     ready = false;

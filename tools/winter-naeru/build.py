@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""겨울 맑은 낮의 모자·목도리를 정지본·몸짓·근접 원화에 합성한다."""
+"""새로 그린 겨울 낮 내루미 한 장으로 정지본과 몸짓 영상을 만든다.
+
+기존 내루미 위에 장신구를 얹지 않는다. 모자·목도리·몸이 한 그림인
+``source/naeru-winter-day-master.png``만 모든 출력의 색 원본으로 쓴다.
+"""
 from pathlib import Path
 import json
 import shutil
 import subprocess
-import sys
 
 import cv2
 import numpy as np
@@ -16,20 +19,20 @@ REPO = HERE.parent.parent
 SOURCE = HERE / "source"
 BUILD = HERE / "build"
 FRAMES = BUILD / "frames"
-BASE_FRAMES = REPO / "tools/naeru-split/build/eyes/day"
+MASTER = SOURCE / "naeru-winter-day-master.png"
+REFERENCE = REPO / "tools/naeru-hd/source/naeru-close-day.png"
+REFERENCE_HD = REPO / "img/naeru-day-hd.webp"
 SIZE = (576, 496)
 HD_SIZE = (4608, 3968)
 N_FRAMES = 316
 FPS = 24
 
-sys.path.insert(0, str(REPO / "tools/naeru-split"))
-from eyes import locate_eye
-
 
 def main_component(image):
+    """생성기 여백의 미세한 점을 버리고 본체 알파만 보존한다."""
     rgba = np.asarray(image.convert("RGBA")).copy()
     alpha = rgba[:, :, 3]
-    count, labels, stats, _ = cv2.connectedComponentsWithStats(
+    _, labels, stats, _ = cv2.connectedComponentsWithStats(
         (alpha >= 128).astype(np.uint8), 8)
     main = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
     support = cv2.dilate(
@@ -39,142 +42,178 @@ def main_component(image):
     return Image.fromarray(rgba)
 
 
-def clean_accessory(close_source):
-    dressed = np.asarray(Image.open(
-        SOURCE / "naeru-day-dressed.png").convert("RGBA"))
-    accessory = np.asarray(Image.open(
-        SOURCE / "naeru-day-accessories-raw.png").convert("RGBA")).copy()
-    assert dressed.shape == accessory.shape == np.asarray(close_source).shape
-
-    alpha = accessory[:, :, 3]
-    count, labels, stats, _ = cv2.connectedComponentsWithStats(
-        (alpha > 32).astype(np.uint8), 8)
-    main = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
-    support = cv2.dilate(
-        (labels == main).astype(np.uint8), np.ones((5, 5), np.uint8))
-    alpha[support == 0] = 0
-
-    # 액세서리만 다시 그린 결과가 혀 뒤의 가려진 목도리까지 추측해 채웠다.
-    # 완성 디자인에서 실제로 보이는 픽셀만 색 차이로 남긴다.
-    difference = np.abs(
-        dressed[:, :, :3].astype(np.int16) -
-        accessory[:, :, :3].astype(np.int16)).mean(axis=2)
-    visible = (difference < 72).astype(np.uint8)
-    visible = cv2.morphologyEx(
-        visible, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
-    visible = cv2.dilate(visible, np.ones((3, 3), np.uint8))
-    alpha = np.rint(alpha.astype(np.float32) * visible).astype(np.uint8)
-
-    # 목도리는 혀 뒤에 있다. 원화의 혀 영역에는 생성기가 추측한 픽셀을
-    # 하나도 남기지 않아 평상시·근접 몸짓 모두 같은 앞뒤 관계를 쓴다.
-    scale = close_source.width / SIZE[0]
-    tongue_points = [
-        [200, 166], [238, 158], [266, 163], [283, 170], [269, 180],
-        [253, 194], [242, 216], [237, 240], [236, 272], [233, 302],
-        [225, 325], [212, 339], [192, 344], [170, 337], [156, 322],
-        [149, 300], [149, 271], [158, 240], [174, 207], [189, 183],
-    ]
-    polygon = np.array([[(round(x * scale), round(y * scale))
-                         for x, y in tongue_points]], np.int32)
-    tongue = np.zeros_like(alpha)
-    cv2.fillPoly(tongue, polygon, 255)
-    tongue = cv2.dilate(tongue, np.ones((9, 9), np.uint8))
-    alpha[tongue > 0] = 0
-    alpha[alpha < 8] = 0
-    accessory[:, :, 3] = alpha
-    accessory[alpha == 0] = 0
-    result = Image.fromarray(accessory)
-    assert result.getchannel("A").getbbox() == (420, 72, 961, 649)
-    return result
-
-
-def transform_layer(layer, source_box, target_box):
-    sx = (target_box[2] - target_box[0]) / (source_box[2] - source_box[0])
-    sy = (target_box[3] - target_box[1]) / (source_box[3] - source_box[1])
-    box = layer.getchannel("A").getbbox()
-    crop = layer.crop(box).convert("RGBa").resize(
-        (round((box[2] - box[0]) * sx),
-         round((box[3] - box[1]) * sy)),
-        Image.Resampling.LANCZOS).convert("RGBA")
-    offset = (
-        round(target_box[0] + (box[0] - source_box[0]) * sx) + 32,
-        round(target_box[1] + (box[1] - source_box[1]) * sy),
-    )
-    output = Image.new("RGBA", HD_SIZE)
-    output.paste(crop, offset)
-    return output
-
-
-def save_stills(accessory):
-    close_source = main_component(Image.open(
-        REPO / "tools/naeru-hd/source/naeru-close-day.png"))
-    hd_source = Image.open(REPO / "img/naeru-day-hd.webp").convert("RGBA")
-    source_box = close_source.getchannel("A").point(
-        lambda value: 255 if value >= 128 else 0).getbbox()
-    target_box = hd_source.getchannel("A").point(
+def threshold_box(image):
+    return image.getchannel("A").point(
         lambda value: 255 if value >= 128 else 0).getbbox()
 
-    hd_accessory = transform_layer(accessory, source_box, target_box)
-    hd = Image.alpha_composite(hd_source, hd_accessory)
-    hd_path = REPO / "img/naeru-winter-day-hd.webp"
-    hd.save(hd_path, quality=97, method=6)
 
-    close = main_component(Image.alpha_composite(close_source, accessory))
-    close_box = close.getchannel("A").getbbox()
-    sx = (target_box[2] - target_box[0]) / (source_box[2] - source_box[0])
-    sy = (target_box[3] - target_box[1]) / (source_box[3] - source_box[1])
-    crop = close.crop(close_box).convert("RGBa").resize(
-        (round((close_box[2] - close_box[0]) * sx),
-         round((close_box[3] - close_box[1]) * sy)),
+def place_master():
+    """기존 DOM 좌표에 눈·입·발이 맞도록 새 전신 원화를 정렬한다."""
+    master = main_component(Image.open(MASTER))
+    reference = main_component(Image.open(REFERENCE))
+    target = Image.open(REFERENCE_HD).convert("RGBA")
+    reference_box = threshold_box(reference)
+    target_box = threshold_box(target)
+    visible = master.getchannel("A").getbbox()
+
+    # 두 원화가 같은 1351×1164 좌표와 같은 자세를 사용한다. 기존 원화의
+    # 좌표→DOM 좌표 변환을 그대로 적용하면 새 그림의 모자까지 포함하면서
+    # 눈·입·발 위치는 이전 내루미와 맞는다.
+    sx = (target_box[2] - target_box[0]) / (
+        reference_box[2] - reference_box[0])
+    sy = (target_box[3] - target_box[1]) / (
+        reference_box[3] - reference_box[1])
+    crop = master.crop(visible).convert("RGBa").resize(
+        (round((visible[2] - visible[0]) * sx),
+         round((visible[3] - visible[1]) * sy)),
         Image.Resampling.LANCZOS).convert("RGBA")
     offset = (
-        round(target_box[0] + (close_box[0] - source_box[0]) * sx) + 32,
-        round(target_box[1] + (close_box[1] - source_box[1]) * sy),
+        round(target_box[0] + (visible[0] - reference_box[0]) * sx) + 32,
+        round(target_box[1] + (visible[1] - reference_box[1]) * sy),
     )
     portrait = Image.new("RGBA", HD_SIZE)
     portrait.paste(crop, offset)
-    close_path = REPO / "img/naeru-winter-day-close.webp"
-    portrait.save(close_path, quality=97, method=6)
+    return portrait
 
-    for path in [hd_path, close_path]:
+
+def save_stills(portrait):
+    paths = [
+        REPO / "img/naeru-winter-day-hd.webp",
+        REPO / "img/naeru-winter-day-close.webp",
+    ]
+    for path in paths:
+        portrait.save(path, quality=97, method=6)
         saved = Image.open(path).convert("RGBA")
         assert saved.size == HD_SIZE
         assert saved.getchannel("A").getextrema() == (0, 255)
         print(f"{path.name}: {path.stat().st_size / 1024:.0f} KiB")
-    return hd_accessory.resize(SIZE, Image.Resampling.LANCZOS)
+
+    # 정지본·영상·근접본이 모두 같은 새 그림에서 출발한다.
+    runtime = portrait.convert("RGBa").resize(
+        SIZE, Image.Resampling.LANCZOS).convert("RGBA")
+    runtime.save(REPO / "img/naeru-winter-day.png", optimize=True)
+    runtime.save(REPO / "img/naeru-winter-day-nt.png", optimize=True)
+    return runtime
 
 
-def render_frames(accessory):
-    paths = sorted(BASE_FRAMES.glob("*.png"))
-    assert len(paths) == N_FRAMES, \
-        "tools/naeru-split/build/eyes/day의 316프레임이 필요합니다"
+def smooth(a, b, values):
+    values = np.clip((values - a) / (b - a), 0, 1)
+    return values * values * (3 - 2 * values)
+
+
+def motion_weights():
+    """웹의 근접 리그와 같은 혀·양팔 영향 영역을 만든다."""
+    xx, yy = np.meshgrid(
+        np.arange(SIZE[0], dtype=np.float32),
+        np.arange(SIZE[1], dtype=np.float32))
+    tongue_points = np.array([
+        [200, 166], [238, 158], [266, 163], [283, 170], [269, 180],
+        [253, 194], [242, 216], [237, 240], [236, 272], [233, 302],
+        [225, 325], [212, 339], [192, 344], [170, 337], [156, 322],
+        [149, 300], [149, 271], [158, 240], [174, 207], [189, 183],
+    ], np.int32)
+    inside = np.zeros((SIZE[1], SIZE[0]), np.uint8)
+    cv2.fillPoly(inside, [tongue_points], 1)
+    distance_in = cv2.distanceTransform(inside, cv2.DIST_L2, 5)
+    distance_out = cv2.distanceTransform(1 - inside, cv2.DIST_L2, 5)
+    signed = np.where(inside > 0, distance_in, -distance_out)
+    tongue = smooth(-32, 7, signed) * smooth(160, 220, yy)
+
+    def arm(ax, ay, bx, by, radius):
+        dx, dy = bx - ax, by - ay
+        position = np.clip(
+            ((xx - ax) * dx + (yy - ay) * dy) / (dx * dx + dy * dy),
+            0, 1)
+        distance = np.hypot(
+            xx - ax - position * dx, yy - ay - position * dy)
+        return 1 - smooth(radius, radius + 64, distance)
+
+    right = (arm(323, 183, 358, 272, 22) * smooth(168, 217, yy) *
+             (1 - tongue))
+    left = (arm(184, 198, 141, 258, 14) * smooth(187, 228, yy) *
+            (1 - tongue))
+    right *= (1 - smooth(294, 318, yy)) * (1 - smooth(380, 430, xx))
+    left *= 1 - smooth(278, 307, yy)
+    return xx, yy, tongue, right, left
+
+
+def source_map(xx, yy, weights, motion):
+    """웹 리그의 정방향 변형을 역산해 각 출력 화소의 원본을 찾는다."""
+    tongue, right, left = weights
+    body_motion, arm_motion, tongue_motion = motion
+    source_x = xx.copy()
+    source_y = yy.copy()
+
+    # 변형량이 작고 매끄러워 고정점 반복 네 번이면 0.02px 안으로 수렴한다.
+    for _ in range(4):
+        angle = arm_motion * .22
+        cosine, sine = np.cos(angle), np.sin(angle)
+        right_x, right_y = source_x - 323, source_y - 183
+        left_x, left_y = source_x - 184, source_y - 198
+        delta_x = right * (
+            cosine * right_x + sine * right_y - right_x)
+        delta_y = right * (
+            -sine * right_x + cosine * right_y - right_y)
+        delta_x += left * (
+            cosine * left_x - sine * left_y - left_x)
+        delta_y += left * (
+            sine * left_x + cosine * left_y - left_y)
+        tongue_factor = tongue * tongue_motion * np.maximum(
+            0, (source_y - 164) / 180)
+        delta_x -= tongue_factor * 10
+        delta_y -= tongue_factor * 13
+        delta_y += body_motion * 7 * (1 - smooth(180, 392, source_y))
+        source_x = xx - delta_x
+        source_y = yy - delta_y
+    return source_x.astype(np.float32), source_y.astype(np.float32)
+
+
+def warp(image, maps):
+    rgba = np.asarray(image, dtype=np.float32) / 255
+    alpha = rgba[:, :, 3:4]
+    premultiplied = np.concatenate((rgba[:, :, :3] * alpha, alpha), axis=2)
+    mapped = cv2.remap(
+        premultiplied, maps[0], maps[1], cv2.INTER_LANCZOS4,
+        borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    out_alpha = np.clip(mapped[:, :, 3:4], 0, 1)
+    colors = np.divide(
+        mapped[:, :, :3], np.maximum(out_alpha, 1 / 255),
+        out=np.zeros_like(mapped[:, :, :3]), where=out_alpha > 0)
+    result = np.concatenate((np.clip(colors, 0, 1), out_alpha), axis=2)
+    return Image.fromarray(np.rint(result * 255).astype(np.uint8))
+
+
+def pulse(value, start, end):
+    if value <= start or value >= end:
+        return 0
+    phase = (value - start) / (end - start)
+    return np.sin(phase * np.pi) ** 2
+
+
+def render_frames(runtime):
     FRAMES.mkdir(parents=True, exist_ok=True)
-    reference_box = locate_eye(Image.open(paths[0]))[0]
-    reference_center = ((reference_box[0] + reference_box[2]) / 2,
-                        (reference_box[1] + reference_box[3]) / 2)
-    for path in paths:
-        frame = Image.open(path).convert("RGBA")
-        box = locate_eye(frame)[0]
-        center = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
-        moved = Image.new("RGBA", SIZE)
-        moved.alpha_composite(
-            accessory,
-            (round(center[0] - reference_center[0]),
-             round(center[1] - reference_center[1])))
-        Image.alpha_composite(frame, moved).save(FRAMES / path.name)
+    xx, yy, tongue, right, left = motion_weights()
+    for index in range(N_FRAMES):
+        time = index / (N_FRAMES - 1)
+        # 몸이 먼저 살짝 움츠러들고 양팔과 혀가 뒤따라 움직인다. 시작·끝은
+        # motion=0이라 첫 프레임과 마지막 프레임이 바이트 단위로 일치한다.
+        motion = (
+            .72 * pulse(time, .08, .88),
+            .62 * pulse(time, .12, .92),
+            .50 * pulse(time, .16, .96),
+        )
+        if index in (0, N_FRAMES - 1):
+            frame = runtime.copy()
+        else:
+            maps = source_map(xx, yy, (tongue, right, left), motion)
+            frame = warp(runtime, maps)
+        frame.save(FRAMES / f"{index + 1:04d}.png", optimize=True)
 
     first = Image.open(FRAMES / "0001.png").convert("RGBA")
-    # 기존 영상의 양 끝에는 평균 0.33/255의 미세한 색 차이가 있다. 새 겨울
-    # 자산은 마지막 장을 첫 장으로 맞춰 모자와 목도리까지 정확히 이어 붙인다.
-    first.save(FRAMES / f"{N_FRAMES:04d}.png")
     last = Image.open(FRAMES / f"{N_FRAMES:04d}.png").convert("RGBA")
+    assert np.array_equal(np.asarray(runtime), np.asarray(first))
     assert np.array_equal(np.asarray(first), np.asarray(last))
-    first.save(REPO / "img/naeru-winter-day.png", optimize=True)
-
-    neutral = Image.open(REPO / "img/naeru-day-nt.png").convert("RGBA")
-    Image.alpha_composite(neutral, accessory).save(
-        REPO / "img/naeru-winter-day-nt.png", optimize=True)
-    print(f"frames: {len(paths)}, first/last identical")
+    print(f"frames: {N_FRAMES}, first/last identical")
 
 
 def encode_videos():
@@ -182,7 +221,7 @@ def encode_videos():
     subprocess.run([
         "ffmpeg", "-v", "error", "-y", "-framerate", str(FPS),
         "-i", str(FRAMES / "%04d.png"), "-c:v", "libvpx-vp9",
-        "-pix_fmt", "yuva420p", "-crf", "34", "-b:v", "0",
+        "-pix_fmt", "yuva420p", "-crf", "30", "-b:v", "0",
         "-auto-alt-ref", "0", "-row-mt", "1", "-deadline", "good",
         "-cpu-used", "2", str(webm),
     ], check=True)
@@ -196,8 +235,6 @@ def encode_videos():
     ]
     encoded = subprocess.run(command).returncode == 0 and mp4.stat().st_size > 0
     if not encoded:
-        # 일부 macOS 세션은 ffmpeg의 VideoToolbox 초기화를 -12908로 거부한다.
-        # AVFoundation은 같은 HEVC-with-alpha 인코더를 안정적으로 연다.
         prores = BUILD / "naeru-winter-day-prores.mov"
         hevc = BUILD / "naeru-winter-day-hevc.mov"
         subprocess.run([
@@ -210,8 +247,6 @@ def encode_videos():
             "--preset", "PresetHEVCHighestQualityWithAlpha",
             "--output", str(hevc), "--replace",
         ], check=True)
-        # HEVC 알파의 보조 계층은 ffmpeg로 MP4에 재먹싱하면 사라진다.
-        # Safari는 QuickTime 컨테이너를 .mp4 경로와 video/mp4 MIME으로도 읽는다.
         shutil.copyfile(hevc, mp4)
     for path in [webm, mp4]:
         probe = json.loads(subprocess.check_output([
@@ -225,12 +260,9 @@ def encode_videos():
 
 def main():
     BUILD.mkdir(parents=True, exist_ok=True)
-    close_source = Image.open(
-        REPO / "tools/naeru-hd/source/naeru-close-day.png").convert("RGBA")
-    accessory = clean_accessory(close_source)
-    accessory.save(BUILD / "accessories-clean.png")
-    runtime_accessory = save_stills(accessory)
-    render_frames(runtime_accessory)
+    portrait = place_master()
+    runtime = save_stills(portrait)
+    render_frames(runtime)
     encode_videos()
 
 
