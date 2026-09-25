@@ -6,4 +6,5 @@ tools/naeru-split/build/
 tools/naeru-split/.venv/
 tools/naeru-hd/build/
 tools/winter-naeru/build/
+tools/autumn-naeru/build/
 tools/browser-check/node_modules/

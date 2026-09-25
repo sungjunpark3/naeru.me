@@ -41,6 +41,13 @@ images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
 images.update({f"{kind}-{depth}.png": (512, 1024)
                for kind in ["rain", "snow"] for depth in ["far", "near"]})
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
+for v in VARIANTS:
+    images.update({f"naeru-autumn-{v}.png": CROP_SIZE,
+                   f"naeru-autumn-{v}-hd.webp": (4608, 3968)})
+    videos.extend([
+        f"naeru-autumn-{v}.{fmt}" for fmt in ["webm", "mp4"]])
+for v in CLEAR_VARIANTS:
+    images[f"naeru-autumn-{v}-close.webp"] = (4608, 3968)
 for v in CLEAR_VARIANTS:
     images.update({f"naeru-winter-{v}.png": CROP_SIZE,
                    f"naeru-winter-{v}-hd.webp": (4608, 3968),
@@ -80,20 +87,24 @@ for name in runtime:
                     f"시간대별 전경 형태 불일치: {name}"
             im.verify()
 
-# 겨울 의상은 한 전신 원화에서 조명만 바꾼다. 네 시간대의 실루엣이
+# 가을과 겨울은 각각 한 전신 원화에서 조명만 바꾼다. 시간대별 실루엣이
 # 달라지거나 평상시·근접본 사이에서 그림이 바뀌면 접근 중 튀어 보인다.
-winter_alpha = None
-for variant in CLEAR_VARIANTS:
-    hd_path = REPO / f"img/naeru-winter-{variant}-hd.webp"
-    close_path = REPO / f"img/naeru-winter-{variant}-close.webp"
-    assert hd_path.read_bytes() == close_path.read_bytes(), \
-        f"평상시·근접 원화 불일치: {variant}"
-    with Image.open(hd_path) as image:
-        signature = hashlib.sha256(
-            image.getchannel("A").tobytes()).digest()
-    if winter_alpha is None:
-        winter_alpha = signature
-    assert signature == winter_alpha, f"겨울 시간대별 형태 불일치: {variant}"
+for season, variants in [("autumn", VARIANTS),
+                         ("winter", CLEAR_VARIANTS)]:
+    season_alpha = None
+    for variant in variants:
+        hd_path = REPO / f"img/naeru-{season}-{variant}-hd.webp"
+        if variant in CLEAR_VARIANTS:
+            close_path = REPO / f"img/naeru-{season}-{variant}-close.webp"
+            assert hd_path.read_bytes() == close_path.read_bytes(), \
+                f"평상시·근접 원화 불일치: {season}/{variant}"
+        with Image.open(hd_path) as image:
+            signature = hashlib.sha256(
+                image.getchannel("A").tobytes()).digest()
+        if season_alpha is None:
+            season_alpha = signature
+        assert signature == season_alpha, \
+            f"시간대별 형태 불일치: {season}/{variant}"
 
 # 구름 영상은 누끼 뒤에 놓이지만, 첫 화면에서 누끼가 나타나는 동안에도
 # 구름이 풀밭·나무 위에 비치지 않아야 한다.

@@ -853,7 +853,7 @@ function createSceneMotion(restart, cleanup, ambient) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "e2a93324a24e";
+  var ASSET_V = "50df162aceec";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1033,6 +1033,7 @@ function createSceneMotion(restart, cleanup, ambient) {
       : av("bg-" + v + "-" + s + ".jpg");
   }
   function characterOf(v, s) {
+    if (s === "autumn") return "autumn-" + v;
     return s === "winter" && bands.indexOf(v) >= 0 ? "winter-" + v : v;
   }
   window.naeruAsset = characterOf;
@@ -2333,10 +2334,9 @@ function createSceneMotion(restart, cleanup, ambient) {
     var asset = window.naeruAsset
       ? window.naeruAsset(variant, document.documentElement.dataset.season)
       : variant;
-    // 겨울 맑은 네 시간대는 모자·목도리·몸이 한 장인 새 원화다. 기존 내루미에서
-    // 분리한 혀를 섞으면 순간적으로 예전 그림으로 바뀌므로 이 장면의
-    // 선택형 혀 장난은 건너뛴다.
-    if (asset.indexOf("winter-") === 0) {
+    // 계절 전용 새 원화에는 이전 저해상도 내루미에서 분리한 혀를 섞지 않는다.
+    // 기본으로 감춘 선택형 혀 장난보다 원화가 순간 교체되지 않는 쪽이 우선이다.
+    if (asset.indexOf("winter-") === 0 || asset.indexOf("autumn-") === 0) {
       loadedFor = asset; ready = false;
       nt.removeAttribute("src"); tong.removeAttribute("src");
       return;

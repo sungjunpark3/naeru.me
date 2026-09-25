@@ -105,8 +105,10 @@ async function check(name, fn) {
               }
               await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
                 document.querySelector('#naeruStill').naturalWidth === 4608);
-              const character = season === 'winter' && w === 'clear'
-                ? `winter-${band}` : state.variant;
+              const character = season === 'autumn'
+                ? `autumn-${state.variant}`
+                : season === 'winter' && w === 'clear'
+                  ? `winter-${band}` : state.variant;
               assert.match(await p.locator('#naeruStill').getAttribute('src'),
                 new RegExp(`naeru-${character}-hd\\.webp`));
               assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
@@ -146,9 +148,41 @@ async function check(name, fn) {
         await p.waitForFunction(() =>
           document.querySelector('#naeruHd').dataset.status === 'ready');
         assert.match(await p.locator('video.naeru.on').getAttribute('src'),
-          /naeru-day\.(webm|mp4)/);
-        assert.doesNotMatch(await p.locator('#naeruHd').getAttribute('src'),
-          /naeru-winter-/);
+          /naeru-autumn-day\.(webm|mp4)/);
+        assert.match(await p.locator('#naeruHd').getAttribute('src'),
+          /naeru-autumn-day-hd\.webp/);
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { await p.close(); }
+    });
+    await check('가을 새 원화: 평상시 동작 6종과 움찔에서 자산·접지 복구', async () => {
+      const actions = ['hop', 'look', 'flip', 'doze', 'stretch', 'shiver'];
+      await Promise.all(actions.map(async action => {
+        const p = await makePage({ viewport: { width: 1280, height: 720 } });
+        p.setDefaultTimeout(20000);
+        try {
+          const weather = action === 'shiver' ? 'rain' : 'clear';
+          await open(p, `s=autumn&v=day&w=${weather}&act=${action}&ball=0&flit=0&ff=0`);
+          await playing(p);
+          assert.match(await p.locator('video.naeru.on').getAttribute('src'),
+            new RegExp(`naeru-autumn-day${weather === 'rain' ? '-rain' : ''}\\.(webm|mp4)`));
+          await p.waitForFunction(() => window.naeru.busy &&
+            (document.querySelector('#naeru-move').style.transform ||
+             document.querySelector('#naeru-act').style.transform));
+          await p.waitForFunction(() => !window.naeru.busy);
+          assert.equal(await p.locator('#naeru-move').evaluate(e => e.style.transform), '');
+          assert.equal(await p.locator('#naeru-act').evaluate(e => e.style.transform), '');
+          assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+        } finally { await p.close(); }
+      }));
+
+      const p = await makePage();
+      try {
+        await open(p, 's=autumn&v=day&w=clear&act=idle&ball=0&flit=0&ff=0');
+        await p.evaluate(() => window.naeru.flinch(1));
+        await p.waitForFunction(() => document.querySelector('#naeru-act').style.transform);
+        await p.waitForFunction(() => !document.querySelector('#naeru-act').style.transform);
+        assert.match(await p.locator('video.naeru.on').getAttribute('src'),
+          /naeru-autumn-day\.(webm|mp4)/);
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });
@@ -524,7 +558,7 @@ async function check(name, fn) {
         await requestedProbe;
         const nightImages = Promise.all([
           p.waitForEvent('requestfinished', r => r.url().includes('sky-night-autumn.webp')),
-          p.waitForEvent('requestfinished', r => r.url().includes('naeru-night.png'))
+          p.waitForEvent('requestfinished', r => r.url().includes('naeru-autumn-night.png'))
         ]);
         await p.click('#settings-open'); await p.selectOption('#setting-band', 'night');
         await nightImages;
@@ -824,13 +858,13 @@ async function check(name, fn) {
         const p = await makePage(); p.setDefaultTimeout(30000);
         let release;
         const held = new Promise(resolve => { release = resolve; });
-        await p.route('**/naeru-day-hd.webp?*', async route => {
+        await p.route('**/naeru-autumn-day-hd.webp?*', async route => {
           if (kind === 'failed') return route.abort();
           await held;
-          await route.fulfill({ path: path.join(repo, 'img/naeru-day-hd.webp') });
+          await route.fulfill({ path: path.join(repo, 'img/naeru-autumn-day-hd.webp') });
         });
         // 기존 HD 실패 검사는 근접 원화도 없을 때의 최후 정지본을 확인한다.
-        await p.route('**/naeru-day-close.webp?*', route => route.abort());
+        await p.route('**/naeru-autumn-day-close.webp?*', route => route.abort());
         try {
           await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
           if (kind === 'scene') {
@@ -838,7 +872,8 @@ async function check(name, fn) {
             await p.waitForFunction(() => document.body.dataset.variant === 'night' &&
               document.querySelector('#naeruHd').dataset.status === 'ready');
             release(); await p.waitForTimeout(500);
-            assert.match(await p.locator('#naeruHd').getAttribute('src'), /naeru-night-hd.webp/);
+            assert.match(await p.locator('#naeruHd').getAttribute('src'),
+              /naeru-autumn-night-hd.webp/);
             await p.keyboard.press('Escape');
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
             assert.equal(await p.evaluate(() => document.documentElement.dataset.approachQuality), 'hd');
@@ -871,10 +906,10 @@ async function check(name, fn) {
         const p = await makePage(); p.setDefaultTimeout(30000);
         let release;
         const held = new Promise(resolve => { release = resolve; });
-        await p.route('**/naeru-day-close.webp?*', async route => {
+        await p.route('**/naeru-autumn-day-close.webp?*', async route => {
           if (kind === 'failed') return route.abort();
           await held;
-          await route.fulfill({ path: path.join(repo, 'img/naeru-day-close.webp') });
+          await route.fulfill({ path: path.join(repo, 'img/naeru-autumn-day-close.webp') });
         });
         try {
           await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
@@ -883,7 +918,8 @@ async function check(name, fn) {
             await p.waitForFunction(() => document.body.dataset.variant === 'night' &&
               document.querySelector('#naeruClose').dataset.status === 'ready');
             release(); await p.waitForTimeout(300);
-            assert.match(await p.locator('#naeruClose').getAttribute('src'), /naeru-night-close\.webp/);
+            assert.match(await p.locator('#naeruClose').getAttribute('src'),
+              /naeru-autumn-night-close\.webp/);
             await p.keyboard.press('Escape');
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'close');
             assert.equal(await p.evaluate(() => document.documentElement.dataset.approachArt), 'closeup');

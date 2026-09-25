@@ -32,6 +32,8 @@ python3 -m http.server 8000 --bind 127.0.0.1
 평소 정지 화면에는 8배 복원한 투명 이미지 8종을 사용한다.
 다가올 때는 굵은 윤곽을 얇게 다시 그린 근접용 원화로 전환한다.
 같은 원화에 새벽·낮·노을·밤의 조명을 적용하므로 시간대마다 형태가 달라지지 않는다.
+가을은 맑음·비 8개 장면의 정지본과 316프레임 영상도 이 고화질 원화에서
+다시 만들었다. 평상시부터 근접 화면까지 같은 얼굴·선 굵기·실루엣을 유지한다.
 가을 꽃·풀과 겨울의 눈 덮인 앞풀은 배경에서 지우고 투명 전경으로 따로 그렸다.
 전경은 평소부터 같은 자리에 표시되며 내루미의 접근·확대에 따라 움직이지 않는다.
 계절과 시간대의 조명에 맞춰 전경 색을 입혔다.
@@ -59,6 +61,9 @@ tools/naeru-split/.venv/bin/python tools/winter/build.py
 
 # 새로 그린 겨울 전신 원화에서 맑은 네 시간대 정지본·몸짓·근접본 재생성
 tools/naeru-split/.venv/bin/python tools/winter-naeru/build.py
+
+# 고화질 무장식 전신 원화에서 가을 8종 정지본·몸짓·근접본 재생성
+tools/naeru-split/.venv/bin/python tools/autumn-naeru/build.py
 
 # 가을 맑은 네 시간대의 풍경 누끼와 60초 구름 영상 재생성
 tools/naeru-split/.venv/bin/python tools/clouds/build.py dawn day dusk night
