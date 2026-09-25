@@ -6,6 +6,7 @@
 """
 from pathlib import Path
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -20,6 +21,9 @@ REPO = HERE.parent.parent
 SOURCE = HERE / "source"
 BUILD = HERE / "build"
 MASTER = SOURCE / "naeru-autumn-day-master.png"
+SOURCE_MOTION = SOURCE / "naeru-original-motion.webm"
+SOURCE_MOTION_SHA256 = (
+    "5158ccbdd8752293123f8dee02a0b75df753cfc86db85b5abe5ad20a40f182c9")
 REFERENCE = REPO / "tools/naeru-hd/source/naeru-close-day.png"
 REFERENCE_HD = REPO / "img/naeru-day-hd.webp"
 LIGHTING_SOURCE = REPO / "tools/naeru-hd/source"
@@ -29,6 +33,11 @@ N_FRAMES = 316
 FPS = 24
 CLEAR_VARIANTS = ("dawn", "day", "dusk", "night")
 VARIANTS = CLEAR_VARIANTS + tuple(f"{variant}-rain" for variant in CLEAR_VARIANTS)
+RAIN_GRADE = {
+    "dawn-rain": np.array([.90, .91, .93], np.float32),
+    "day-rain": np.array([.84, .86, .89], np.float32),
+    "dusk-rain": np.array([.92, .92, .94], np.float32),
+}
 
 
 def main_component(image):
@@ -116,6 +125,11 @@ def apply_lighting(portrait, variant, models):
         matrix, floor = models[variant]
         adjusted = section @ matrix[:3] + matrix[3] * 255
         adjusted = np.maximum(adjusted, floor * 255)
+        # 비 오는 가을 들판은 맑은 장면보다 주변광이 훨씬 어둡다. 기존 선형
+        # 대응만 쓰면 특히 낮 캐릭터가 흰 종이처럼 떠 보여, 배경 실측에 맞춰
+        # 새벽·낮·해질녘만 조금 어둡고 차가운 비구름빛으로 눌러 준다.
+        if variant in RAIN_GRADE:
+            adjusted *= RAIN_GRADE[variant]
         rgba[top:top + 256, :, :3] = np.rint(np.clip(
             adjusted, 0, 255)).astype(np.uint8)
     rgba[rgba[:, :, 3] == 0] = 0
@@ -146,113 +160,140 @@ def smooth(a, b, values):
     return values * values * (3 - 2 * values)
 
 
-def motion_weights():
-    """웹의 근접 리그와 같은 혀·양팔 영향 영역을 만든다."""
+def motion_mix(index):
+    """뉴트럴 원화와 원본 동작 화풍을 눈에 띄지 않게 연결한다."""
+    if index <= 1:
+        return 0
+    if index < 100:
+        return float(smooth(0, 1, (index - 1) / 99))
+    if index <= 215:
+        return 1
+    return float(smooth(0, 1, np.clip((N_FRAMES - index) / 101, 0, 1)))
+
+
+def remap_rgba(rgba, map_x, map_y):
+    """RGB를 알파와 함께 이동해 투명 경계의 검은 번짐을 막는다."""
+    pixels = rgba.astype(np.float32) / 255
+    alpha = pixels[:, :, 3:4]
+    premultiplied = np.concatenate((pixels[:, :, :3] * alpha, alpha), axis=2)
+    warped = cv2.remap(
+        premultiplied, map_x, map_y, cv2.INTER_LANCZOS4,
+        borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    out_alpha = np.clip(warped[:, :, 3:4], 0, 1)
+    colors = np.divide(
+        warped[:, :, :3], np.maximum(out_alpha, 1 / 255),
+        out=np.zeros_like(warped[:, :, :3]), where=out_alpha > 0)
+    return np.concatenate((np.clip(colors, 0, 1), out_alpha), axis=2)
+
+
+def morph_motion_frame(neutral, moving, amount):
+    """겹선 없이 뉴트럴 원화의 형태를 원본 움직임으로 천천히 넘긴다."""
+    if amount <= .001:
+        return neutral.copy()
+    if amount >= .999:
+        return moving.copy()
+    first, second = np.asarray(neutral), np.asarray(moving)
+    matte = np.array([244, 239, 220], np.float32)
+
+    def grayscale(rgba):
+        alpha = rgba[:, :, 3:4].astype(np.float32) / 255
+        composite = rgba[:, :, :3] * alpha + matte * (1 - alpha)
+        return cv2.cvtColor(
+            composite.astype(np.uint8), cv2.COLOR_RGB2GRAY)
+
+    flow = cv2.calcOpticalFlowFarneback(
+        grayscale(first), grayscale(second), None,
+        .5, 5, 31, 5, 7, 1.5, 0)
     xx, yy = np.meshgrid(
         np.arange(SIZE[0], dtype=np.float32),
         np.arange(SIZE[1], dtype=np.float32))
-    tongue_points = np.array([
-        [200, 166], [238, 158], [266, 163], [283, 170], [269, 180],
-        [253, 194], [242, 216], [237, 240], [236, 272], [233, 302],
-        [225, 325], [212, 339], [192, 344], [170, 337], [156, 322],
-        [149, 300], [149, 271], [158, 240], [174, 207], [189, 183],
-    ], np.int32)
-    inside = np.zeros((SIZE[1], SIZE[0]), np.uint8)
-    cv2.fillPoly(inside, [tongue_points], 1)
-    distance_in = cv2.distanceTransform(inside, cv2.DIST_L2, 5)
-    distance_out = cv2.distanceTransform(1 - inside, cv2.DIST_L2, 5)
-    signed = np.where(inside > 0, distance_in, -distance_out)
-    tongue = smooth(-32, 7, signed) * smooth(160, 220, yy)
-
-    def arm(ax, ay, bx, by, radius):
-        dx, dy = bx - ax, by - ay
-        position = np.clip(
-            ((xx - ax) * dx + (yy - ay) * dy) / (dx * dx + dy * dy),
-            0, 1)
-        distance = np.hypot(
-            xx - ax - position * dx, yy - ay - position * dy)
-        return 1 - smooth(radius, radius + 64, distance)
-
-    right = (arm(323, 183, 358, 272, 22) * smooth(168, 217, yy) *
-             (1 - tongue))
-    left = (arm(184, 198, 141, 258, 14) * smooth(187, 228, yy) *
-            (1 - tongue))
-    right *= (1 - smooth(294, 318, yy)) * (1 - smooth(380, 430, xx))
-    left *= 1 - smooth(278, 307, yy)
-    return xx, yy, tongue, right, left
-
-
-def source_map(xx, yy, weights, motion):
-    """웹 리그의 정방향 변형을 역산해 각 출력 화소의 원본을 찾는다."""
-    tongue, right, left = weights
-    body_motion, arm_motion, tongue_motion = motion
-    source_x = xx.copy()
-    source_y = yy.copy()
-
-    # 변형량이 작고 매끄러워 고정점 반복 네 번이면 0.02px 안으로 수렴한다.
-    for _ in range(4):
-        angle = arm_motion * .22
-        cosine, sine = np.cos(angle), np.sin(angle)
-        right_x, right_y = source_x - 323, source_y - 183
-        left_x, left_y = source_x - 184, source_y - 198
-        delta_x = right * (
-            cosine * right_x + sine * right_y - right_x)
-        delta_y = right * (
-            -sine * right_x + cosine * right_y - right_y)
-        delta_x += left * (
-            cosine * left_x - sine * left_y - left_x)
-        delta_y += left * (
-            sine * left_x + cosine * left_y - left_y)
-        tongue_factor = tongue * tongue_motion * np.maximum(
-            0, (source_y - 164) / 180)
-        delta_x -= tongue_factor * 10
-        delta_y -= tongue_factor * 13
-        delta_y += body_motion * 7 * (1 - smooth(180, 392, source_y))
-        source_x = xx - delta_x
-        source_y = yy - delta_y
-    return source_x.astype(np.float32), source_y.astype(np.float32)
-
-
-def warp(image, maps):
-    rgba = np.asarray(image, dtype=np.float32) / 255
-    alpha = rgba[:, :, 3:4]
-    premultiplied = np.concatenate((rgba[:, :, :3] * alpha, alpha), axis=2)
-    mapped = cv2.remap(
-        premultiplied, maps[0], maps[1], cv2.INTER_LANCZOS4,
-        borderMode=cv2.BORDER_CONSTANT, borderValue=0)
-    out_alpha = np.clip(mapped[:, :, 3:4], 0, 1)
+    first_warped = remap_rgba(
+        first, xx - amount * flow[:, :, 0], yy - amount * flow[:, :, 1])
+    second_warped = remap_rgba(
+        second, xx + (1 - amount) * flow[:, :, 0],
+        yy + (1 - amount) * flow[:, :, 1])
+    alpha = (first_warped[:, :, 3:4] * (1 - amount) +
+             second_warped[:, :, 3:4] * amount)
+    colors = (first_warped[:, :, :3] * first_warped[:, :, 3:4] *
+              (1 - amount) + second_warped[:, :, :3] *
+              second_warped[:, :, 3:4] * amount)
     colors = np.divide(
-        mapped[:, :, :3], np.maximum(out_alpha, 1 / 255),
-        out=np.zeros_like(mapped[:, :, :3]), where=out_alpha > 0)
-    result = np.concatenate((np.clip(colors, 0, 1), out_alpha), axis=2)
-    return Image.fromarray(np.rint(result * 255).astype(np.uint8))
+        colors, np.maximum(alpha, 1 / 255), out=np.zeros_like(colors),
+        where=alpha > 0)
+    result = np.concatenate((colors, alpha), axis=2)
+    return Image.fromarray(np.rint(np.clip(result, 0, 1) * 255).astype(np.uint8))
 
 
-def pulse(value, start, end):
-    if value <= start or value >= end:
-        return 0
-    phase = (value - start) / (end - start)
-    return np.sin(phase * np.pi) ** 2
+def motion_luts(old, new):
+    """원본 영상의 명암을 승인된 새 원화의 파스텔 팔레트로 옮긴다."""
+    old_rgba, new_rgba = np.asarray(old), np.asarray(new)
+    old_mask, new_mask = old_rgba[:, :, 3] >= 192, new_rgba[:, :, 3] >= 192
+    luts = []
+    for channel in range(3):
+        old_hist = np.bincount(
+            old_rgba[:, :, channel][old_mask], minlength=256).astype(float)
+        new_hist = np.bincount(
+            new_rgba[:, :, channel][new_mask], minlength=256).astype(float)
+        old_cdf = np.cumsum(old_hist) / old_hist.sum()
+        new_cdf = np.cumsum(new_hist) / new_hist.sum()
+        luts.append(np.searchsorted(new_cdf, old_cdf).clip(
+            0, 255).astype(np.uint8))
+    return luts
 
 
-def render_frames(runtime, variant):
+def prepare_motion(day_runtime):
+    """4배 복원한 원본 316프레임을 새 가을 원화와 한 계열로 만든다."""
+    assert hashlib.sha256(
+        SOURCE_MOTION.read_bytes()).hexdigest() == SOURCE_MOTION_SHA256
+    frames = BUILD / "base-motion"
+    frames.mkdir(parents=True, exist_ok=True)
+    command = [
+        "ffmpeg", "-v", "error", "-c:v", "libvpx-vp9", "-i",
+        str(SOURCE_MOTION), "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1",
+    ]
+    process = subprocess.Popen(command, stdout=subprocess.PIPE)
+    frame_size = 2304 * 1984 * 4
+    first_data = process.stdout.read(frame_size)
+    assert len(first_data) == frame_size
+    first = Image.frombytes("RGBA", (2304, 1984), first_data).resize(
+        SIZE, Image.Resampling.LANCZOS)
+    luts = motion_luts(first, day_runtime)
+
+    for index in range(1, N_FRAMES + 1):
+        if index == 1:
+            original = first
+        else:
+            data = process.stdout.read(frame_size)
+            assert len(data) == frame_size, f"원본 동작 {index}프레임 누락"
+            original = Image.frombytes("RGBA", (2304, 1984), data).resize(
+                SIZE, Image.Resampling.LANCZOS)
+        rgba = np.asarray(original).copy()
+        for channel in range(3):
+            rgba[:, :, channel] = luts[channel][rgba[:, :, channel]]
+        rgba[rgba[:, :, 3] == 0, :3] = 0
+        styled = Image.fromarray(rgba)
+        amount = motion_mix(index)
+        frame = morph_motion_frame(day_runtime, styled, amount)
+        frame.save(frames / f"{index:04d}.png", compress_level=2)
+    assert process.wait() == 0
+    first = Image.open(frames / "0001.png").convert("RGBA")
+    last = Image.open(frames / f"{N_FRAMES:04d}.png").convert("RGBA")
+    assert np.array_equal(np.asarray(day_runtime), np.asarray(first))
+    assert np.array_equal(np.asarray(first), np.asarray(last))
+    print("base motion: restored original arms, tongue and body; loop identical")
+    return frames
+
+
+def render_frames(base_frames, runtime, variant, models):
     frames = BUILD / "frames" / variant
     frames.mkdir(parents=True, exist_ok=True)
-    xx, yy, tongue, right, left = motion_weights()
     for index in range(N_FRAMES):
-        time = index / (N_FRAMES - 1)
-        # 몸이 먼저 살짝 움츠러들고 양팔과 혀가 뒤따라 움직인다. 시작·끝은
-        # motion=0이라 첫 프레임과 마지막 프레임이 바이트 단위로 일치한다.
-        motion = (
-            .72 * pulse(time, .08, .88),
-            .62 * pulse(time, .12, .92),
-            .50 * pulse(time, .16, .96),
-        )
         if index in (0, N_FRAMES - 1):
             frame = runtime.copy()
         else:
-            maps = source_map(xx, yy, (tongue, right, left), motion)
-            frame = warp(runtime, maps)
+            day_frame = Image.open(
+                base_frames / f"{index + 1:04d}.png").convert("RGBA")
+            frame = apply_lighting(day_frame, variant, models)
         frame.save(frames / f"{index + 1:04d}.png", optimize=True)
 
     first = Image.open(frames / "0001.png").convert("RGBA")
@@ -371,11 +412,14 @@ def main():
     BUILD.mkdir(parents=True, exist_ok=True)
     master = place_master()
     models = lighting_models()
+    day_runtime = master.convert("RGBa").resize(
+        SIZE, Image.Resampling.LANCZOS).convert("RGBA")
+    base_frames = prepare_motion(day_runtime)
     for variant in args.variants:
         print(f"\n[{variant}]")
         portrait = apply_lighting(master, variant, models)
         runtime = save_stills(portrait, variant)
-        frames = render_frames(runtime, variant)
+        frames = render_frames(base_frames, runtime, variant, models)
         save_tongue_assets(frames, variant)
         encode_videos(variant, frames)
 

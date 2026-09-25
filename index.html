@@ -853,7 +853,7 @@ function createSceneMotion(restart, cleanup, ambient) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "dc2c95111480";
+  var ASSET_V = "b4a2c1b506ba";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1034,7 +1034,8 @@ function createSceneMotion(restart, cleanup, ambient) {
   }
   function characterOf(v, s) {
     if (s === "autumn") return "autumn-" + v;
-    return s === "winter" && bands.indexOf(v) >= 0 ? "winter-" + v : v;
+    if (s === "winter") return "winter-" + v;
+    return v;
   }
   window.naeruAsset = characterOf;
   function stillOf(v, s) {

@@ -107,8 +107,8 @@ async function check(name, fn) {
                 document.querySelector('#naeruStill').naturalWidth === 4608);
               const character = season === 'autumn'
                 ? `autumn-${state.variant}`
-                : season === 'winter' && w === 'clear'
-                  ? `winter-${band}` : state.variant;
+                : season === 'winter'
+                  ? `winter-${state.variant}` : state.variant;
               assert.match(await p.locator('#naeruStill').getAttribute('src'),
                 new RegExp(`naeru-${character}-hd\\.webp`));
               assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
@@ -118,7 +118,7 @@ async function check(name, fn) {
         }));
       }
     });
-    await check('겨울 맑은 네 시간대: 모자·목도리 몸짓과 장면 한정', async () => {
+    await check('겨울 맑음·비 여덟 장면: 모자·목도리 몸짓', async () => {
       const p = await makePage({ viewport: { width: 1440, height: 900 } });
       try {
         for (const band of ['dawn', 'day', 'dusk', 'night']) {
@@ -139,9 +139,9 @@ async function check(name, fn) {
         await p.waitForFunction(() =>
           document.querySelector('#naeruHd').dataset.status === 'ready');
         assert.match(await p.locator('video.naeru.on').getAttribute('src'),
-          /naeru-day-rain\.(webm|mp4)/);
-        assert.doesNotMatch(await p.locator('#naeruHd').getAttribute('src'),
-          /naeru-winter-/);
+          /naeru-winter-day-rain\.(webm|mp4)/);
+        assert.match(await p.locator('#naeruHd').getAttribute('src'),
+          /naeru-winter-day-rain-hd\.webp/);
 
         await open(p, 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0');
         await playing(p);

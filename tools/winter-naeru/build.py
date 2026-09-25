@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""새로 그린 겨울 내루미 한 장으로 맑은 네 시간대 자산을 만든다.
+"""새로 그린 겨울 내루미 한 장으로 맑음·비 여덟 시간대 자산을 만든다.
 
 기존 내루미 위에 장신구를 얹지 않는다. 모자·목도리·몸이 한 그림인
 ``source/naeru-winter-day-master.png``만 형태 원본으로 쓰고 시간대별로
@@ -28,7 +28,9 @@ SIZE = (576, 496)
 HD_SIZE = (4608, 3968)
 N_FRAMES = 316
 FPS = 24
-VARIANTS = ("dawn", "day", "dusk", "night")
+CLEAR_VARIANTS = ("dawn", "day", "dusk", "night")
+VARIANTS = CLEAR_VARIANTS + tuple(
+    f"{variant}-rain" for variant in CLEAR_VARIANTS)
 
 
 def main_component(image):
@@ -113,12 +115,14 @@ def apply_lighting(portrait, variant, models):
     rgba = np.asarray(portrait.convert("RGBA")).copy()
     for top in range(0, rgba.shape[0], 256):
         section = rgba[top:top + 256, :, :3].astype(np.float32)
-        if variant == "night":
+        if variant in ("night", "night-rain"):
             # 포근한 새 겨울밤 설원은 눈의 반사광이 밝다. 이전 밤 캐릭터의
             # 조명식을 그대로 쓰면 평균 RGB가 22/24/47까지 내려가 얼굴과
             # 방한복 디테일이 사라지므로, 낮 원화에 차가운 달빛을 직접 입힌다.
-            adjusted = (section * np.array([.38, .42, .56], np.float32) +
-                        np.array([5, 8, 12], np.float32))
+            strength = ([.38, .42, .56], [5, 8, 12]) if variant == "night" \
+                else ([.32, .36, .50], [4, 7, 11])
+            adjusted = (section * np.array(strength[0], np.float32) +
+                        np.array(strength[1], np.float32))
         else:
             matrix, floor = models[variant]
             adjusted = section @ matrix[:3] + matrix[3] * 255
@@ -130,10 +134,9 @@ def apply_lighting(portrait, variant, models):
 
 
 def save_stills(portrait, variant):
-    paths = [
-        REPO / f"img/naeru-winter-{variant}-hd.webp",
-        REPO / f"img/naeru-winter-{variant}-close.webp",
-    ]
+    paths = [REPO / f"img/naeru-winter-{variant}-hd.webp"]
+    if variant in CLEAR_VARIANTS:
+        paths.append(REPO / f"img/naeru-winter-{variant}-close.webp")
     for path in paths:
         portrait.save(path, quality=97, method=6)
         saved = Image.open(path).convert("RGBA")
@@ -319,7 +322,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "variants", nargs="*", choices=VARIANTS,
-        default=list(VARIANTS), help="기본값: 맑은 네 시간대 전부")
+        default=list(VARIANTS), help="기본값: 겨울의 맑음·비 여덟 장면 전부")
     args = parser.parse_args()
     BUILD.mkdir(parents=True, exist_ok=True)
     master = place_master()

@@ -50,13 +50,14 @@ for v in VARIANTS:
         f"naeru-autumn-{v}.{fmt}" for fmt in ["webm", "mp4"]])
 for v in CLEAR_VARIANTS:
     images[f"naeru-autumn-{v}-close.webp"] = (4608, 3968)
-for v in CLEAR_VARIANTS:
+for v in VARIANTS:
     images.update({f"naeru-winter-{v}.png": CROP_SIZE,
                    f"naeru-winter-{v}-hd.webp": (4608, 3968),
-                   f"naeru-winter-{v}-close.webp": (4608, 3968),
                    f"naeru-winter-{v}-nt.png": CROP_SIZE})
     videos.extend([
         f"naeru-winter-{v}.{fmt}" for fmt in ["webm", "mp4"]])
+for v in CLEAR_VARIANTS:
+    images[f"naeru-winter-{v}-close.webp"] = (4608, 3968)
 sky_videos = [f"sky-{v}-{season}.mp4"
               for season in MOVING_SKY_SEASONS for v in CLEAR_VARIANTS]
 runtime = sorted([*images, *videos, *sky_videos, "alpha-probe.webm"])
@@ -92,7 +93,7 @@ for name in runtime:
 # 가을과 겨울은 각각 한 전신 원화에서 조명만 바꾼다. 시간대별 실루엣이
 # 달라지거나 평상시·근접본 사이에서 그림이 바뀌면 접근 중 튀어 보인다.
 for season, variants in [("autumn", VARIANTS),
-                         ("winter", CLEAR_VARIANTS)]:
+                         ("winter", VARIANTS)]:
     season_alpha = None
     for variant in variants:
         hd_path = REPO / f"img/naeru-{season}-{variant}-hd.webp"
@@ -107,6 +108,16 @@ for season, variants in [("autumn", VARIANTS),
             season_alpha = signature
         assert signature == season_alpha, \
             f"시간대별 형태 불일치: {season}/{variant}"
+
+# 흐린 가을 낮의 내루미가 맑은 낮과 같은 광량으로 떠 보이지 않아야 한다.
+with Image.open(REPO / "img/naeru-autumn-day.png") as clear_image, \
+        Image.open(REPO / "img/naeru-autumn-day-rain.png") as rain_image:
+    mask = clear_image.getchannel("A").point(
+        lambda value: 255 if value >= 192 else 0)
+    clear_light = sum(ImageStat.Stat(clear_image.convert("RGB"), mask).mean) / 3
+    rain_light = sum(ImageStat.Stat(rain_image.convert("RGB"), mask).mean) / 3
+assert rain_light < clear_light * .85, \
+    f"가을 낮 비 조명이 너무 밝음: clear={clear_light:.1f}, rain={rain_light:.1f}"
 
 # 구름 영상은 누끼 뒤에 놓이지만, 첫 화면에서 누끼가 나타나는 동안에도
 # 구름이 풀밭·나무 위에 비치지 않아야 한다.
@@ -169,6 +180,30 @@ if args.videos:
         assert stream["r_frame_rate"] == "24/1", name
         assert stream["codec_name"] == ("vp9" if name.endswith("webm") else "hevc"), name
     print(f"영상 {len(videos)}개: 크롭·코덱·24fps·{N_FRAMES}프레임 PASS")
+
+    # 새 가을 영상은 뉴트럴에서 시작·종료하고, 원본 136프레임의 큰 몸짓에서
+    # 왼팔과 혀가 화면 왼쪽으로 충분히 뻗어야 한다.
+    motion_frames = []
+    motion_path = REPO / "img" / "naeru-autumn-day.webm"
+    for frame in [0, 135, N_FRAMES - 1]:
+        raw = subprocess.check_output([
+            "ffmpeg", "-v", "error", "-c:v", "libvpx-vp9", "-i",
+            str(motion_path), "-vf", f"select=eq(n\\,{frame})",
+            "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
+        ])
+        motion_frames.append(Image.frombytes("RGBA", CROP_SIZE, raw))
+    neutral_box = motion_frames[0].getchannel("A").getbbox()
+    peak_box = motion_frames[1].getchannel("A").getbbox()
+    assert peak_box[0] <= neutral_box[0] - 35, \
+        f"가을 큰 몸짓이 작음: neutral={neutral_box}, peak={peak_box}"
+    loop_alpha = ImageChops.difference(
+        motion_frames[0].getchannel("A"),
+        motion_frames[2].getchannel("A"))
+    loop_alpha_mae = ImageStat.Stat(loop_alpha).mean[0]
+    assert loop_alpha_mae < .2 and loop_alpha.getextrema()[1] <= 24, \
+        f"가을 캐릭터 영상 루프 압축 오차가 큼: MAE={loop_alpha_mae:.3f}"
+    print("가을 원본 큰 몸짓·캐릭터 루프 끝점 PASS")
+
     for name in sky_videos:
         result = subprocess.check_output([
             "ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
