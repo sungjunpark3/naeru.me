@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""승인된 고화질 내루미와 완성 동작 원화로 가을 캐릭터 자산을 만든다.
+"""승인된 고화질 내루미 한 장으로 가을 캐릭터 자산을 만든다.
 
-평상시·근접 이미지는 ``source/naeru-autumn-day-master.png``에서 만들고,
-큰 동작은 2304×1984 완성 프레임을 한 장씩 다시 색보정한다. 서로 다른
-캐릭터 그림을 겹쳐 섞지 않으므로 동작 중 이중 실루엣이 생기지 않는다.
+평상시·근접 이미지와 영상의 모든 프레임은
+``source/naeru-autumn-day-master.png``를 기준으로 한다. 큰 동작은 같은 원화에서
+분리한 팔·혀와 복원 몸통을 관절 변형한 뒤 매 프레임 한 장으로 합성한다.
+구형 영상의 저해상도 픽셀이나 서로 다른 완성 캐릭터를 섞지 않는다.
 """
 from pathlib import Path
 import argparse
-import hashlib
+from functools import lru_cache
 import json
 import shutil
 import subprocess
 
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 
 
 HERE = Path(__file__).resolve().parent
@@ -22,15 +23,12 @@ REPO = HERE.parent.parent
 SOURCE = HERE / "source"
 BUILD = HERE / "build"
 MASTER = SOURCE / "naeru-autumn-day-master.png"
-SOURCE_MOTION = SOURCE / "naeru-original-motion.webm"
-SOURCE_MOTION_SHA256 = (
-    "5158ccbdd8752293123f8dee02a0b75df753cfc86db85b5abe5ad20a40f182c9")
+ARTICULATED_BASE = SOURCE / "naeru-autumn-articulated-base.png"
 REFERENCE = REPO / "tools/naeru-hd/source/naeru-close-day.png"
 REFERENCE_HD = REPO / "img/naeru-day-hd.webp"
 LIGHTING_SOURCE = REPO / "tools/naeru-hd/source"
 SIZE = (576, 496)
 MOTION_SIZE = (1152, 992)
-SOURCE_MOTION_SIZE = (2304, 1984)
 HD_SIZE = (4608, 3968)
 N_FRAMES = 316
 FPS = 24
@@ -158,86 +156,184 @@ def save_stills(portrait, variant, runtime=None):
     return runtime
 
 
-def motion_luts(old, new):
-    """원본 영상의 명암을 승인된 새 원화의 파스텔 팔레트로 옮긴다."""
-    old_rgba, new_rgba = np.asarray(old), np.asarray(new)
-    old_mask, new_mask = old_rgba[:, :, 3] >= 192, new_rgba[:, :, 3] >= 192
-    luts = []
-    for channel in range(3):
-        old_hist = np.bincount(
-            old_rgba[:, :, channel][old_mask], minlength=256).astype(float)
-        new_hist = np.bincount(
-            new_rgba[:, :, channel][new_mask], minlength=256).astype(float)
-        old_cdf = np.cumsum(old_hist) / old_hist.sum()
-        new_cdf = np.cumsum(new_hist) / new_hist.sum()
-        luts.append(np.searchsorted(new_cdf, old_cdf).clip(
-            0, 255).astype(np.uint8))
-    return luts
-
-
 def resize_rgba(image, size):
     """미리 곱한 알파로 축소해 투명 경계의 검은 번짐을 막는다."""
     return image.convert("RGBa").resize(
         size, Image.Resampling.LANCZOS).convert("RGBA")
 
 
-def repaint_motion_frame(image, luts):
-    """완성 동작 한 장의 팔·혀·몸을 유지한 채 색과 선명도만 정리한다."""
-    rgba = np.asarray(image).copy()
-    for channel in range(3):
-        rgba[:, :, channel] = luts[channel][rgba[:, :, channel]]
+TONGUE_POINTS = [
+    (385, 370), (430, 366), (500, 366), (575, 373), (642, 386),
+    (687, 402), (706, 421), (701, 444), (680, 462), (641, 482),
+    (608, 505), (585, 539), (570, 585), (563, 650), (558, 730),
+    (553, 805), (540, 858), (516, 897), (482, 922), (443, 936),
+    (401, 935), (366, 922), (338, 900), (318, 871), (306, 835),
+    (299, 790), (298, 742), (304, 692), (315, 640), (327, 587),
+    (341, 529), (351, 478), (360, 430), (371, 391),
+]
+RIGHT_ARM_POINTS = [
+    (779, 420), (815, 423), (851, 438), (886, 460), (918, 489),
+    (943, 524), (963, 565), (976, 610), (983, 657), (984, 703),
+    (976, 741), (958, 770), (934, 792), (907, 802), (881, 800),
+    (855, 788), (834, 767), (817, 738), (811, 701), (801, 662),
+    (787, 625), (772, 591), (761, 558), (758, 526), (764, 491),
+]
 
-    # 소스는 최종 자세까지 전부 그려진 원화다. 다른 포즈를 얹지 않고,
-    # 2배 런타임 크기에서 흐린 가장자리와 내부 선만 가볍게 복원한다.
-    alpha = rgba[:, :, 3]
-    visible = alpha >= 16
-    rgb = rgba[:, :, :3]
-    blurred = cv2.GaussianBlur(rgb, (0, 0), .65)
-    sharpened = cv2.addWeighted(rgb, 1.24, blurred, -.24, 0)
-    rgba[visible, :3] = sharpened[visible]
-    rgba[~visible] = 0
+
+def soft_polygon(size, points):
+    """원화 윤곽을 1px만 부드럽게 잘라 확대해도 톱니가 생기지 않게 한다."""
+    mask = Image.new("L", size, 0)
+    ImageDraw.Draw(mask).polygon(points, fill=255)
+    return mask.filter(ImageFilter.GaussianBlur(1))
+
+
+def extract_layer(master, mask):
+    """투명 RGB까지 정리한 원화 조각을 만든다."""
+    rgba = np.asarray(master).copy()
+    rgba[:, :, 3] = np.rint(
+        rgba[:, :, 3].astype(np.float32) *
+        np.asarray(mask, dtype=np.float32) / 255).astype(np.uint8)
+    rgba[rgba[:, :, 3] == 0, :3] = 0
     return Image.fromarray(rgba)
 
 
-def prepare_motion(day_motion):
-    """2304×1984 완성 동작을 겹침 없는 2배 해상도 영상 원화로 만든다."""
-    assert hashlib.sha256(
-        SOURCE_MOTION.read_bytes()).hexdigest() == SOURCE_MOTION_SHA256
+def transform_about(pivot, angle, scale=1, dx=0, dy=0, flip=False):
+    """관절을 고정한 채 회전·반사하는 2×3 행렬을 만든다."""
+    px, py = pivot
+    reflected = (np.array([
+        [-1., 0., 2 * px], [0., 1., 0.], [0., 0., 1.]
+    ]) if flip else np.eye(3))
+    rotated = np.vstack([
+        cv2.getRotationMatrix2D((px, py), angle, scale), [0, 0, 1]
+    ])
+    translated = np.array([
+        [1., 0., dx], [0., 1., dy], [0., 0., 1.]
+    ])
+    return (translated @ rotated @ reflected)[:2].astype(np.float32)
+
+
+def premultiplied_warp(image, matrix):
+    """관절 가장자리에 검은 번짐이 생기지 않도록 알파를 미리 곱해 변형한다."""
+    rgba = np.asarray(image.convert("RGBA"), dtype=np.float32).copy()
+    alpha = rgba[:, :, 3:4] / 255
+    rgba[:, :, :3] *= alpha
+    warped = cv2.warpAffine(
+        rgba, matrix, image.size, flags=cv2.INTER_LANCZOS4,
+        borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    alpha = warped[:, :, 3:4] / 255
+    warped[:, :, :3] = np.divide(
+        warped[:, :, :3], alpha, out=np.zeros_like(warped[:, :, :3]),
+        where=alpha > 1e-5)
+    warped = np.rint(np.clip(warped, 0, 255)).astype(np.uint8)
+    warped[warped[:, :, 3] == 0, :3] = 0
+    return Image.fromarray(warped)
+
+
+@lru_cache(maxsize=None)
+def artwork_layout(size):
+    """반복 프레임에서 같은 원화→DOM 좌표 계산을 재사용한다."""
+    reference_box = threshold_box(main_component(Image.open(REFERENCE)))
+    target_box = threshold_box(Image.open(REFERENCE_HD).convert("RGBA"))
+    sx = (target_box[2] - target_box[0]) / (
+        reference_box[2] - reference_box[0])
+    sy = (target_box[3] - target_box[1]) / (
+        reference_box[3] - reference_box[1])
+    scale_x, scale_y = size[0] / HD_SIZE[0], size[1] / HD_SIZE[1]
+    rendered_size = (
+        round(1351 * sx * scale_x), round(1164 * sy * scale_y))
+    offset = (
+        round((target_box[0] - reference_box[0] * sx + 32) * scale_x),
+        round((target_box[1] - reference_box[1] * sy) * scale_y),
+    )
+    return rendered_size, offset
+
+
+def place_artwork(artwork, size):
+    """원화 좌표를 기존 DOM 프레임 좌표로 옮긴다."""
+    rendered_size, offset = artwork_layout(size)
+    rendered = artwork.convert("RGBa").resize(
+        rendered_size, Image.Resampling.LANCZOS).convert("RGBA")
+    canvas = Image.new("RGBA", size)
+    canvas.paste(rendered, offset, rendered)
+    return canvas
+
+
+def motion_amount(seconds):
+    """4.5~8.4초에 움츠렸다가 두 팔과 혀를 크게 펴고 돌아온다."""
+    def smooth(start, end):
+        value = np.clip((seconds - start) / (end - start), 0, 1)
+        return value * value * (3 - 2 * value)
+
+    envelope = smooth(4.45, 5.35) * (1 - smooth(7.45, 8.35))
+    if envelope <= 0:
+        return 0
+    # 정점에서 한 번 더 힘을 줘 기계적인 정지 자세가 되지 않게 한다.
+    pulse = .94 + .06 * np.sin(np.clip(
+        (seconds - 5.35) / 2.1, 0, 1) * np.pi * 3) ** 2
+    return float(envelope * pulse)
+
+
+def articulate(master, base, tongue, arm, amount):
+    """고화질 원화 조각을 움직여 한 장의 완성 동작 프레임으로 합친다."""
+    if amount <= 0:
+        return master.copy()
+
+    foot = (650, 1040)
+    scale_x = 1 + .018 * amount
+    scale_y = 1 - .045 * amount
+    crouch = np.array([
+        [scale_x, 0, foot[0] * (1 - scale_x)],
+        [0, scale_y, foot[1] * (1 - scale_y) + 22 * amount],
+    ], dtype=np.float32)
+    body = premultiplied_warp(base, crouch)
+    right = premultiplied_warp(arm, transform_about(
+        (785, 435), 58 * amount, dx=8 * amount, dy=-8 * amount))
+    left = premultiplied_warp(arm, transform_about(
+        (785, 435), -58 * amount, scale=.91, dx=-410, dy=-5,
+        flip=True))
+    moving_tongue = premultiplied_warp(tongue, transform_about(
+        (505, 405), -34 * amount, dx=-4 * amount, dy=-3 * amount))
+    right = premultiplied_warp(right, crouch)
+    left = premultiplied_warp(left, crouch)
+    moving_tongue = premultiplied_warp(moving_tongue, crouch)
+    body.alpha_composite(left)
+    body.alpha_composite(right)
+    body.alpha_composite(moving_tongue)
+    return body
+
+
+def prepare_motion():
+    """고화질 기준 원화만 사용해 316장의 단일 합성 프레임을 만든다."""
     frames = BUILD / "base-motion"
     frames.mkdir(parents=True, exist_ok=True)
-    command = [
-        "ffmpeg", "-v", "error", "-c:v", "libvpx-vp9", "-i",
-        str(SOURCE_MOTION), "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1",
-    ]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE)
-    frame_size = SOURCE_MOTION_SIZE[0] * SOURCE_MOTION_SIZE[1] * 4
-    first_data = process.stdout.read(frame_size)
-    assert len(first_data) == frame_size
-    first = resize_rgba(
-        Image.frombytes("RGBA", SOURCE_MOTION_SIZE, first_data), MOTION_SIZE)
-    luts = motion_luts(first, day_motion)
-    first_repainted = repaint_motion_frame(first, luts)
+    master = main_component(Image.open(MASTER))
+    base = main_component(Image.open(ARTICULATED_BASE))
+    assert master.size == base.size == (1351, 1164)
+    tongue = extract_layer(master, soft_polygon(master.size, TONGUE_POINTS))
+    arm = extract_layer(master, soft_polygon(master.size, RIGHT_ARM_POINTS))
 
-    for index in range(1, N_FRAMES + 1):
-        if index == 1:
-            frame = first_repainted.copy()
-        else:
-            data = process.stdout.read(frame_size)
-            assert len(data) == frame_size, f"원본 동작 {index}프레임 누락"
-            if index == N_FRAMES:
-                frame = first_repainted.copy()
-            else:
-                original = resize_rgba(
-                    Image.frombytes("RGBA", SOURCE_MOTION_SIZE, data),
-                    MOTION_SIZE)
-                frame = repaint_motion_frame(original, luts)
-        frame.save(frames / f"{index:04d}.png", compress_level=2)
-    assert process.wait() == 0
+    for index in range(N_FRAMES):
+        seconds = index / FPS
+        amount = motion_amount(seconds)
+        artwork = articulate(master, base, tongue, arm, amount)
+
+        # 큰 몸짓 사이에는 원화 전체가 아주 작게 숨 쉰다. 선 굵기는 바꾸지 않고
+        # 0.7% 이내로만 움직이며, 기준 프레임과 루프 양끝은 원화와 정확히 같다.
+        if amount == 0 and index not in (0, 78, 236, N_FRAMES - 1):
+            breath = np.sin(index / (N_FRAMES - 1) * np.pi * 6) ** 2
+            matrix = np.array([
+                [1 + .002 * breath, 0, -.9 * breath],
+                [0, 1 - .007 * breath, 5.5 * breath],
+            ], dtype=np.float32)
+            artwork = premultiplied_warp(artwork, matrix)
+        frame = place_artwork(artwork, MOTION_SIZE)
+        frame.save(frames / f"{index + 1:04d}.png", compress_level=2)
+
     first = Image.open(frames / "0001.png").convert("RGBA")
     last = Image.open(frames / f"{N_FRAMES:04d}.png").convert("RGBA")
     assert np.array_equal(np.asarray(first), np.asarray(last))
-    print("base motion: one complete drawing per frame; no pose overlay; "
-          "2x runtime; loop identical")
+    print("base motion: approved HD master only; articulated arms/tongue/body; "
+          "one composite per frame; loop identical")
     return frames
 
 
@@ -251,7 +347,7 @@ def render_frames(base_frames, runtime, variant, models):
             day_frame = Image.open(
                 base_frames / f"{index + 1:04d}.png").convert("RGBA")
             frame = apply_lighting(day_frame, variant, models)
-        frame.save(frames / f"{index + 1:04d}.png", optimize=True)
+        frame.save(frames / f"{index + 1:04d}.png", compress_level=2)
 
     first = Image.open(frames / "0001.png").convert("RGBA")
     last = Image.open(frames / f"{N_FRAMES:04d}.png").convert("RGBA")
@@ -371,8 +467,7 @@ def main():
     BUILD.mkdir(parents=True, exist_ok=True)
     master = place_master()
     models = lighting_models()
-    day_motion = resize_rgba(master, MOTION_SIZE)
-    base_frames = prepare_motion(day_motion)
+    base_frames = prepare_motion()
     for variant in args.variants:
         print(f"\n[{variant}]")
         portrait = apply_lighting(master, variant, models)

@@ -120,9 +120,13 @@ with Image.open(REPO / "img/naeru-autumn-day.png") as clear_image, \
 assert rain_light < clear_light * .85, \
     f"가을 낮 비 조명이 너무 밝음: clear={clear_light:.1f}, rain={rain_light:.1f}"
 
-# 큰 동작은 완성된 캐릭터 프레임 하나만 사용한다. 정지 원화와 동작 원화를
-# 프레임 안에서 섞던 구형 경로가 돌아오면 자세 변화 중 이중 윤곽이 생긴다.
+# 큰 동작도 승인된 고화질 기준 원화에서 만든다. 구형 영상이나 정지 원화와
+# 동작 원화를 섞던 경로가 돌아오면 화질 저하·이중 윤곽이 다시 생긴다.
 autumn_builder = (REPO / "tools/autumn-naeru/build.py").read_text()
+assert "SOURCE_MOTION" not in autumn_builder, \
+    "가을 큰 동작이 구형 저해상도 영상에 다시 의존함"
+assert "ARTICULATED_BASE" in autumn_builder, \
+    "가을 고화질 관절 원화가 빌드에서 빠짐"
 for removed_overlay in ["motion_mix", "morph_motion_frame", "remap_rgba"]:
     assert removed_overlay not in autumn_builder, \
         f"가을 캐릭터 포즈 겹침 경로 복귀: {removed_overlay}"
@@ -191,7 +195,7 @@ if args.videos:
         assert stream["codec_name"] == ("vp9" if name.endswith("webm") else "hevc"), name
     print(f"영상 {len(videos)}개: 크롭·코덱·24fps·{N_FRAMES}프레임 PASS")
 
-    # 새 가을 영상은 뉴트럴에서 시작·종료하고, 원본 136프레임의 큰 몸짓에서
+    # 새 가을 영상은 뉴트럴에서 시작·종료하고, 136프레임의 큰 몸짓에서
     # 왼팔과 혀가 화면 왼쪽으로 충분히 뻗어야 한다.
     motion_frames = []
     motion_path = REPO / "img" / "naeru-autumn-day.webm"
@@ -213,7 +217,7 @@ if args.videos:
     loop_alpha_mae = ImageStat.Stat(loop_alpha).mean[0]
     assert loop_alpha_mae < .2 and loop_alpha.getextrema()[1] <= 24, \
         f"가을 캐릭터 영상 루프 압축 오차가 큼: MAE={loop_alpha_mae:.3f}"
-    print("가을 원본 큰 몸짓·캐릭터 루프 끝점 PASS")
+    print("가을 고화질 큰 몸짓·캐릭터 루프 끝점 PASS")
 
     for name in sky_videos:
         result = subprocess.check_output([
