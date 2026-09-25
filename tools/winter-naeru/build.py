@@ -111,12 +111,20 @@ def apply_lighting(portrait, variant, models):
     if variant == "day":
         return portrait.copy()
     rgba = np.asarray(portrait.convert("RGBA")).copy()
-    matrix, floor = models[variant]
     for top in range(0, rgba.shape[0], 256):
         section = rgba[top:top + 256, :, :3].astype(np.float32)
-        adjusted = section @ matrix[:3] + matrix[3] * 255
+        if variant == "night":
+            # 포근한 새 겨울밤 설원은 눈의 반사광이 밝다. 이전 밤 캐릭터의
+            # 조명식을 그대로 쓰면 평균 RGB가 22/24/47까지 내려가 얼굴과
+            # 방한복 디테일이 사라지므로, 낮 원화에 차가운 달빛을 직접 입힌다.
+            adjusted = (section * np.array([.38, .42, .56], np.float32) +
+                        np.array([5, 8, 12], np.float32))
+        else:
+            matrix, floor = models[variant]
+            adjusted = section @ matrix[:3] + matrix[3] * 255
+            adjusted = np.maximum(adjusted, floor * 255)
         rgba[top:top + 256, :, :3] = np.rint(np.clip(
-            np.maximum(adjusted, floor * 255), 0, 255)).astype(np.uint8)
+            adjusted, 0, 255)).astype(np.uint8)
     rgba[rgba[:, :, 3] == 0] = 0
     return Image.fromarray(rgba)
 
