@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""승인된 고화질 내루미 한 장으로 가을의 모든 캐릭터 자산을 만든다.
+"""승인된 고화질 내루미와 완성 동작 원화로 가을 캐릭터 자산을 만든다.
 
-모자·목도리가 없는 ``source/naeru-autumn-day-master.png``만 형태 원본으로
-쓴다. 맑음·비의 여덟 조명과 평상시·근접·영상이 같은 실루엣을 공유한다.
+평상시·근접 이미지는 ``source/naeru-autumn-day-master.png``에서 만들고,
+큰 동작은 2304×1984 완성 프레임을 한 장씩 다시 색보정한다. 서로 다른
+캐릭터 그림을 겹쳐 섞지 않으므로 동작 중 이중 실루엣이 생기지 않는다.
 """
 from pathlib import Path
 import argparse
@@ -28,6 +29,8 @@ REFERENCE = REPO / "tools/naeru-hd/source/naeru-close-day.png"
 REFERENCE_HD = REPO / "img/naeru-day-hd.webp"
 LIGHTING_SOURCE = REPO / "tools/naeru-hd/source"
 SIZE = (576, 496)
+MOTION_SIZE = (1152, 992)
+SOURCE_MOTION_SIZE = (2304, 1984)
 HD_SIZE = (4608, 3968)
 N_FRAMES = 316
 FPS = 24
@@ -136,7 +139,7 @@ def apply_lighting(portrait, variant, models):
     return Image.fromarray(rgba)
 
 
-def save_stills(portrait, variant):
+def save_stills(portrait, variant, runtime=None):
     paths = [REPO / f"img/naeru-autumn-{variant}-hd.webp"]
     if variant in CLEAR_VARIANTS:
         paths.append(REPO / f"img/naeru-autumn-{variant}-close.webp")
@@ -147,81 +150,12 @@ def save_stills(portrait, variant):
         assert saved.getchannel("A").getextrema() == (0, 255)
         print(f"{path.name}: {path.stat().st_size / 1024:.0f} KiB")
 
-    # 정지본·영상·근접본이 모두 같은 새 그림에서 출발한다.
-    runtime = portrait.convert("RGBa").resize(
-        SIZE, Image.Resampling.LANCZOS).convert("RGBA")
+    # 작은 정지본은 영상 첫 프레임과 맞추고, HD·근접본은 승인 원화를 쓴다.
+    if runtime is None:
+        runtime = resize_rgba(portrait, SIZE)
     runtime.save(
         REPO / f"img/naeru-autumn-{variant}.png", optimize=True)
     return runtime
-
-
-def smooth(a, b, values):
-    values = np.clip((values - a) / (b - a), 0, 1)
-    return values * values * (3 - 2 * values)
-
-
-def motion_mix(index):
-    """뉴트럴 원화와 원본 동작 화풍을 눈에 띄지 않게 연결한다."""
-    if index <= 1:
-        return 0
-    if index < 100:
-        return float(smooth(0, 1, (index - 1) / 99))
-    if index <= 215:
-        return 1
-    return float(smooth(0, 1, np.clip((N_FRAMES - index) / 101, 0, 1)))
-
-
-def remap_rgba(rgba, map_x, map_y):
-    """RGB를 알파와 함께 이동해 투명 경계의 검은 번짐을 막는다."""
-    pixels = rgba.astype(np.float32) / 255
-    alpha = pixels[:, :, 3:4]
-    premultiplied = np.concatenate((pixels[:, :, :3] * alpha, alpha), axis=2)
-    warped = cv2.remap(
-        premultiplied, map_x, map_y, cv2.INTER_LANCZOS4,
-        borderMode=cv2.BORDER_CONSTANT, borderValue=0)
-    out_alpha = np.clip(warped[:, :, 3:4], 0, 1)
-    colors = np.divide(
-        warped[:, :, :3], np.maximum(out_alpha, 1 / 255),
-        out=np.zeros_like(warped[:, :, :3]), where=out_alpha > 0)
-    return np.concatenate((np.clip(colors, 0, 1), out_alpha), axis=2)
-
-
-def morph_motion_frame(neutral, moving, amount):
-    """겹선 없이 뉴트럴 원화의 형태를 원본 움직임으로 천천히 넘긴다."""
-    if amount <= .001:
-        return neutral.copy()
-    if amount >= .999:
-        return moving.copy()
-    first, second = np.asarray(neutral), np.asarray(moving)
-    matte = np.array([244, 239, 220], np.float32)
-
-    def grayscale(rgba):
-        alpha = rgba[:, :, 3:4].astype(np.float32) / 255
-        composite = rgba[:, :, :3] * alpha + matte * (1 - alpha)
-        return cv2.cvtColor(
-            composite.astype(np.uint8), cv2.COLOR_RGB2GRAY)
-
-    flow = cv2.calcOpticalFlowFarneback(
-        grayscale(first), grayscale(second), None,
-        .5, 5, 31, 5, 7, 1.5, 0)
-    xx, yy = np.meshgrid(
-        np.arange(SIZE[0], dtype=np.float32),
-        np.arange(SIZE[1], dtype=np.float32))
-    first_warped = remap_rgba(
-        first, xx - amount * flow[:, :, 0], yy - amount * flow[:, :, 1])
-    second_warped = remap_rgba(
-        second, xx + (1 - amount) * flow[:, :, 0],
-        yy + (1 - amount) * flow[:, :, 1])
-    alpha = (first_warped[:, :, 3:4] * (1 - amount) +
-             second_warped[:, :, 3:4] * amount)
-    colors = (first_warped[:, :, :3] * first_warped[:, :, 3:4] *
-              (1 - amount) + second_warped[:, :, :3] *
-              second_warped[:, :, 3:4] * amount)
-    colors = np.divide(
-        colors, np.maximum(alpha, 1 / 255), out=np.zeros_like(colors),
-        where=alpha > 0)
-    result = np.concatenate((colors, alpha), axis=2)
-    return Image.fromarray(np.rint(np.clip(result, 0, 1) * 255).astype(np.uint8))
 
 
 def motion_luts(old, new):
@@ -241,8 +175,32 @@ def motion_luts(old, new):
     return luts
 
 
-def prepare_motion(day_runtime):
-    """4배 복원한 원본 316프레임을 새 가을 원화와 한 계열로 만든다."""
+def resize_rgba(image, size):
+    """미리 곱한 알파로 축소해 투명 경계의 검은 번짐을 막는다."""
+    return image.convert("RGBa").resize(
+        size, Image.Resampling.LANCZOS).convert("RGBA")
+
+
+def repaint_motion_frame(image, luts):
+    """완성 동작 한 장의 팔·혀·몸을 유지한 채 색과 선명도만 정리한다."""
+    rgba = np.asarray(image).copy()
+    for channel in range(3):
+        rgba[:, :, channel] = luts[channel][rgba[:, :, channel]]
+
+    # 소스는 최종 자세까지 전부 그려진 원화다. 다른 포즈를 얹지 않고,
+    # 2배 런타임 크기에서 흐린 가장자리와 내부 선만 가볍게 복원한다.
+    alpha = rgba[:, :, 3]
+    visible = alpha >= 16
+    rgb = rgba[:, :, :3]
+    blurred = cv2.GaussianBlur(rgb, (0, 0), .65)
+    sharpened = cv2.addWeighted(rgb, 1.24, blurred, -.24, 0)
+    rgba[visible, :3] = sharpened[visible]
+    rgba[~visible] = 0
+    return Image.fromarray(rgba)
+
+
+def prepare_motion(day_motion):
+    """2304×1984 완성 동작을 겹침 없는 2배 해상도 영상 원화로 만든다."""
     assert hashlib.sha256(
         SOURCE_MOTION.read_bytes()).hexdigest() == SOURCE_MOTION_SHA256
     frames = BUILD / "base-motion"
@@ -252,35 +210,34 @@ def prepare_motion(day_runtime):
         str(SOURCE_MOTION), "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1",
     ]
     process = subprocess.Popen(command, stdout=subprocess.PIPE)
-    frame_size = 2304 * 1984 * 4
+    frame_size = SOURCE_MOTION_SIZE[0] * SOURCE_MOTION_SIZE[1] * 4
     first_data = process.stdout.read(frame_size)
     assert len(first_data) == frame_size
-    first = Image.frombytes("RGBA", (2304, 1984), first_data).resize(
-        SIZE, Image.Resampling.LANCZOS)
-    luts = motion_luts(first, day_runtime)
+    first = resize_rgba(
+        Image.frombytes("RGBA", SOURCE_MOTION_SIZE, first_data), MOTION_SIZE)
+    luts = motion_luts(first, day_motion)
+    first_repainted = repaint_motion_frame(first, luts)
 
     for index in range(1, N_FRAMES + 1):
         if index == 1:
-            original = first
+            frame = first_repainted.copy()
         else:
             data = process.stdout.read(frame_size)
             assert len(data) == frame_size, f"원본 동작 {index}프레임 누락"
-            original = Image.frombytes("RGBA", (2304, 1984), data).resize(
-                SIZE, Image.Resampling.LANCZOS)
-        rgba = np.asarray(original).copy()
-        for channel in range(3):
-            rgba[:, :, channel] = luts[channel][rgba[:, :, channel]]
-        rgba[rgba[:, :, 3] == 0, :3] = 0
-        styled = Image.fromarray(rgba)
-        amount = motion_mix(index)
-        frame = morph_motion_frame(day_runtime, styled, amount)
+            if index == N_FRAMES:
+                frame = first_repainted.copy()
+            else:
+                original = resize_rgba(
+                    Image.frombytes("RGBA", SOURCE_MOTION_SIZE, data),
+                    MOTION_SIZE)
+                frame = repaint_motion_frame(original, luts)
         frame.save(frames / f"{index:04d}.png", compress_level=2)
     assert process.wait() == 0
     first = Image.open(frames / "0001.png").convert("RGBA")
     last = Image.open(frames / f"{N_FRAMES:04d}.png").convert("RGBA")
-    assert np.array_equal(np.asarray(day_runtime), np.asarray(first))
     assert np.array_equal(np.asarray(first), np.asarray(last))
-    print("base motion: restored original arms, tongue and body; loop identical")
+    print("base motion: one complete drawing per frame; no pose overlay; "
+          "2x runtime; loop identical")
     return frames
 
 
@@ -318,7 +275,8 @@ def save_tongue_assets(frames, variant):
     """기준 프레임에서 혀와 혀 뒤 몸통을 새 원화 기준으로 다시 분리한다."""
     # 선택형 혀 장난은 79번 프레임에서 영상을 멈춘다. 정지본이 아니라 그
     # 프레임을 분리해야 바꿔치는 순간 팔·몸 자세가 달라지지 않는다.
-    frame = Image.open(frames / "0079.png").convert("RGBA")
+    frame = resize_rgba(
+        Image.open(frames / "0079.png").convert("RGBA"), SIZE)
     old_nt = Image.open(
         REPO / f"img/naeru-{variant}-nt.png").convert("RGBA")
     old_tongue = Image.open(
@@ -367,16 +325,17 @@ def encode_videos(variant, frames):
         "ffmpeg", "-v", "error", "-y", "-framerate", str(FPS),
         "-i", str(frames / "%04d.png"), "-c:v", "libvpx-vp9",
         "-pix_fmt", "yuva420p", "-crf", "30", "-b:v", "0",
-        "-auto-alt-ref", "0", "-row-mt", "1", "-deadline", "good",
-        "-cpu-used", "2", str(webm),
+        "-auto-alt-ref", "0", "-g", str(N_FRAMES - 1), "-row-mt", "1",
+        "-deadline", "good", "-cpu-used", "2", str(webm),
     ], check=True)
     mp4 = REPO / f"img/naeru-autumn-{variant}.mp4"
     command = [
         "ffmpeg", "-v", "error", "-y", "-framerate", str(FPS),
         "-i", str(frames / "%04d.png"), "-vf", "premultiply=inplace=1",
         "-c:v", "hevc_videotoolbox", "-pix_fmt", "bgra",
-        "-alpha_quality", "0.85", "-q:v", "40", "-tag:v", "hvc1",
-        "-movflags", "+faststart", str(mp4),
+        "-alpha_quality", "0.85", "-q:v", "40", "-g",
+        str(N_FRAMES - 1), "-tag:v", "hvc1", "-movflags", "+faststart",
+        str(mp4),
     ]
     encoded = subprocess.run(command).returncode == 0 and mp4.stat().st_size > 0
     if not encoded:
@@ -412,14 +371,16 @@ def main():
     BUILD.mkdir(parents=True, exist_ok=True)
     master = place_master()
     models = lighting_models()
-    day_runtime = master.convert("RGBa").resize(
-        SIZE, Image.Resampling.LANCZOS).convert("RGBA")
-    base_frames = prepare_motion(day_runtime)
+    day_motion = resize_rgba(master, MOTION_SIZE)
+    base_frames = prepare_motion(day_motion)
     for variant in args.variants:
         print(f"\n[{variant}]")
         portrait = apply_lighting(master, variant, models)
-        runtime = save_stills(portrait, variant)
-        frames = render_frames(base_frames, runtime, variant, models)
+        first_motion = Image.open(base_frames / "0001.png").convert("RGBA")
+        first_motion = apply_lighting(first_motion, variant, models)
+        runtime = resize_rgba(first_motion, SIZE)
+        save_stills(portrait, variant, runtime)
+        frames = render_frames(base_frames, first_motion, variant, models)
         save_tongue_assets(frames, variant)
         encode_videos(variant, frames)
 

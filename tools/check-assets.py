@@ -17,6 +17,7 @@ from coords import CROP_ORIGIN, CROP_SIZE, FRAME_SIZE, N_FRAMES, VARIANTS
 SEASONS = ["spring", "summer", "autumn", "winter"]
 CLEAR_VARIANTS = ["dawn", "day", "dusk", "night"]
 MOVING_SKY_SEASONS = ["autumn", "winter"]
+AUTUMN_MOTION_SIZE = (1152, 992)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--update-version", action="store_true")
 parser.add_argument("--videos", action="store_true", help="두 코덱의 실제 프레임 수도 검사")
@@ -119,6 +120,13 @@ with Image.open(REPO / "img/naeru-autumn-day.png") as clear_image, \
 assert rain_light < clear_light * .85, \
     f"가을 낮 비 조명이 너무 밝음: clear={clear_light:.1f}, rain={rain_light:.1f}"
 
+# 큰 동작은 완성된 캐릭터 프레임 하나만 사용한다. 정지 원화와 동작 원화를
+# 프레임 안에서 섞던 구형 경로가 돌아오면 자세 변화 중 이중 윤곽이 생긴다.
+autumn_builder = (REPO / "tools/autumn-naeru/build.py").read_text()
+for removed_overlay in ["motion_mix", "morph_motion_frame", "remap_rgba"]:
+    assert removed_overlay not in autumn_builder, \
+        f"가을 캐릭터 포즈 겹침 경로 복귀: {removed_overlay}"
+
 # 구름 영상은 누끼 뒤에 놓이지만, 첫 화면에서 누끼가 나타나는 동안에도
 # 구름이 풀밭·나무 위에 비치지 않아야 한다.
 for season in MOVING_SKY_SEASONS:
@@ -175,7 +183,9 @@ if args.videos:
             "-of", "json", str(REPO / "img" / name)
         ], text=True)
         stream = json.loads(result)["streams"][0]
-        assert (stream["width"], stream["height"]) == CROP_SIZE, name
+        expected_size = (AUTUMN_MOTION_SIZE if
+                         name.startswith("naeru-autumn-") else CROP_SIZE)
+        assert (stream["width"], stream["height"]) == expected_size, name
         assert int(stream["nb_read_frames"]) == N_FRAMES, name
         assert stream["r_frame_rate"] == "24/1", name
         assert stream["codec_name"] == ("vp9" if name.endswith("webm") else "hevc"), name
@@ -191,10 +201,11 @@ if args.videos:
             str(motion_path), "-vf", f"select=eq(n\\,{frame})",
             "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
         ])
-        motion_frames.append(Image.frombytes("RGBA", CROP_SIZE, raw))
+        motion_frames.append(Image.frombytes(
+            "RGBA", AUTUMN_MOTION_SIZE, raw))
     neutral_box = motion_frames[0].getchannel("A").getbbox()
     peak_box = motion_frames[1].getchannel("A").getbbox()
-    assert peak_box[0] <= neutral_box[0] - 35, \
+    assert peak_box[0] <= neutral_box[0] - 70, \
         f"가을 큰 몸짓이 작음: neutral={neutral_box}, peak={peak_box}"
     loop_alpha = ImageChops.difference(
         motion_frames[0].getchannel("A"),
