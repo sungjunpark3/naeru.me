@@ -43,7 +43,9 @@ images.update({f"{kind}-{depth}.png": (512, 1024)
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
 for v in VARIANTS:
     images.update({f"naeru-autumn-{v}.png": CROP_SIZE,
-                   f"naeru-autumn-{v}-hd.webp": (4608, 3968)})
+                   f"naeru-autumn-{v}-hd.webp": (4608, 3968),
+                   f"naeru-autumn-{v}-nt.png": CROP_SIZE,
+                   f"tongue-autumn-{v}.png": CROP_SIZE})
     videos.extend([
         f"naeru-autumn-{v}.{fmt}" for fmt in ["webm", "mp4"]])
 for v in CLEAR_VARIANTS:

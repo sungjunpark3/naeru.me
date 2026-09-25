@@ -186,6 +186,27 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });
+    await check('가을 새 원화: 선택형 혀 날름도 같은 기준 프레임 사용', async () => {
+      const p = await makePage({ viewport: { width: 1280, height: 720 } });
+      p.setDefaultTimeout(20000);
+      try {
+        await open(p, 's=autumn&v=day&w=clear&act=0&tongue=1&ball=0&flit=0&ff=0');
+        await playing(p);
+        await p.waitForFunction(() =>
+          getComputedStyle(document.querySelector('#naeruNt')).opacity === '1' &&
+          document.querySelector('#tongue').style.transform.includes('scale('));
+        assert.match(await p.locator('#naeruNt').getAttribute('src'),
+          /naeru-autumn-day-nt\.png/);
+        assert.match(await p.locator('#tongue').getAttribute('src'),
+          /tongue-autumn-day\.png/);
+        assert.equal(await p.locator('video.naeru.on').evaluate(v => v.paused), true);
+        await shot(p, 'autumn-day-tongue-retracted');
+        await p.waitForFunction(() =>
+          getComputedStyle(document.querySelector('#naeruNt')).opacity === '0');
+        await playing(p);
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { await p.close(); }
+    });
     await check('가을 낮 풍경 레이어: 실패·시간 초과·장면 전환에도 원본 배경 유지', async () => {
       await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
         const p = await makePage({ reducedMotion: 'reduce' });

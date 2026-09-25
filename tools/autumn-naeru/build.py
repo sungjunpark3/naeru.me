@@ -263,6 +263,63 @@ def render_frames(runtime, variant):
     return frames
 
 
+def fit_guide(image, source_box, target_box):
+    """구형 분리 자산의 위치만 새 원화 프레임에 맞춘다."""
+    crop = image.crop(source_box).convert("RGBa").resize(
+        (target_box[2] - target_box[0], target_box[3] - target_box[1]),
+        Image.Resampling.LANCZOS).convert("RGBA")
+    canvas = Image.new("RGBA", SIZE)
+    canvas.paste(crop, target_box[:2])
+    return canvas
+
+
+def save_tongue_assets(frames, variant):
+    """기준 프레임에서 혀와 혀 뒤 몸통을 새 원화 기준으로 다시 분리한다."""
+    # 선택형 혀 장난은 79번 프레임에서 영상을 멈춘다. 정지본이 아니라 그
+    # 프레임을 분리해야 바꿔치는 순간 팔·몸 자세가 달라지지 않는다.
+    frame = Image.open(frames / "0079.png").convert("RGBA")
+    old_nt = Image.open(
+        REPO / f"img/naeru-{variant}-nt.png").convert("RGBA")
+    old_tongue = Image.open(
+        REPO / f"img/tongue-{variant}.png").convert("RGBA")
+    old_frame = Image.alpha_composite(old_nt, old_tongue)
+    source_box = threshold_box(old_frame)
+    target_box = threshold_box(frame)
+    guide_nt = fit_guide(old_nt, source_box, target_box)
+    guide_tongue = fit_guide(old_tongue, source_box, target_box)
+
+    # 구형 혀의 알파는 분리 경계의 위치만 안내한다. 보이는 혀 픽셀은 새
+    # 원화의 79번 프레임에서 복사해 기존 저해상도 선이 섞이지 않게 한다.
+    frame_rgba = np.asarray(frame).copy()
+    # 바깥 실루엣의 반투명 1px은 몸 레이어에 남긴다. 생성 원화의 몸 안쪽
+    # 알파가 251~255라 혀 영역만 완전 불투명하게 정규화한다.
+    mask = ((np.asarray(guide_tongue.getchannel("A")) >= 16) &
+            (np.asarray(guide_nt.getchannel("A")) >= 16) &
+            (frame_rgba[:, :, 3] >= 251))
+    nt_rgba = frame_rgba.copy()
+    guide_rgba = np.asarray(guide_nt)
+    nt_rgba[mask] = guide_rgba[mask]
+    tongue_rgba = frame_rgba.copy()
+    tongue_rgba[:, :, 3] = np.where(mask, 255, 0)
+    tongue_rgba[~mask, :3] = 0
+
+    nt = Image.fromarray(nt_rgba)
+    tongue = Image.fromarray(tongue_rgba)
+    nt_path = REPO / f"img/naeru-autumn-{variant}-nt.png"
+    tongue_path = REPO / f"img/tongue-autumn-{variant}.png"
+    nt.save(nt_path, optimize=True)
+    tongue.save(tongue_path, optimize=True)
+
+    # 혀가 완전히 나온 상태에서는 두 레이어가 기준 프레임과 시각적으로 같다.
+    # 차이는 생성 원화 내부 알파를 255로 정규화한 최대 4/255뿐이다.
+    restored = Image.alpha_composite(nt, tongue)
+    difference = np.abs(np.asarray(restored, dtype=np.int16) -
+                        frame_rgba.astype(np.int16))
+    assert difference.max() <= 4 and difference.mean() < .1
+    print(f"{nt_path.name} + {tongue_path.name}: frame 79 MAE "
+          f"{difference.mean():.4f}/255")
+
+
 def encode_videos(variant, frames):
     webm = REPO / f"img/naeru-autumn-{variant}.webm"
     subprocess.run([
@@ -319,6 +376,7 @@ def main():
         portrait = apply_lighting(master, variant, models)
         runtime = save_stills(portrait, variant)
         frames = render_frames(runtime, variant)
+        save_tongue_assets(frames, variant)
         encode_videos(variant, frames)
 
 
