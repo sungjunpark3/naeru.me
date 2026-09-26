@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import cv2
+import numpy as np
 from PIL import Image, ImageChops, ImageStat
 
 REPO = Path(__file__).resolve().parent.parent
@@ -217,7 +219,47 @@ if args.videos:
     loop_alpha_mae = ImageStat.Stat(loop_alpha).mean[0]
     assert loop_alpha_mae < .2 and loop_alpha.getextrema()[1] <= 24, \
         f"가을 캐릭터 영상 루프 압축 오차가 큼: MAE={loop_alpha_mae:.3f}"
-    print("가을 고화질 큰 몸짓·캐릭터 루프 끝점 PASS")
+
+    # 실제 배포되는 두 코덱도 전 프레임을 축소 디코딩해 검사한다. 3px 침식
+    # 뒤에도 한 덩어리여야 팔·혀가 신체와 단단히 이어져 있는 것으로 본다.
+    preview_size = (288, 248)
+    for variant in VARIANTS:
+        for extension in ["webm", "mp4"]:
+            path = REPO / "img" / f"naeru-autumn-{variant}.{extension}"
+            decoder = ["-c:v", "libvpx-vp9"] if extension == "webm" else []
+            raw = subprocess.check_output([
+                "ffmpeg", "-v", "error", *decoder, "-i", str(path),
+                "-vf", f"scale={preview_size[0]}:{preview_size[1]}:flags=area",
+                "-f", "rawvideo", "-pix_fmt", "rgba", "-",
+            ])
+            frame_size = preview_size[0] * preview_size[1] * 4
+            assert len(raw) == N_FRAMES * frame_size, path.name
+            decoded = np.frombuffer(raw, dtype=np.uint8).reshape(
+                N_FRAMES, preview_size[1], preview_size[0], 4)
+            differences = []
+            for index, frame in enumerate(decoded):
+                alpha = (frame[:, :, 3] >= 48).astype(np.uint8)
+                alpha = cv2.erode(alpha, np.ones((3, 3), np.uint8))
+                _, _, stats, _ = cv2.connectedComponentsWithStats(alpha, 8)
+                components = sum(
+                    area > 2 for area in stats[1:, cv2.CC_STAT_AREA])
+                assert components == 1, \
+                    f"신체 분리: {path.name} {index + 1}번 프레임"
+                if index:
+                    difference = np.abs(
+                        frame.astype(np.int16) -
+                        decoded[index - 1].astype(np.int16)).mean()
+                    differences.append(float(difference))
+            assert max(differences) < 3, \
+                f"프레임 전환 튐: {path.name} {max(differences):.3f}"
+            assert max(np.abs(np.diff(differences))) < .6, \
+                f"동작 속도 튐: {path.name}"
+            loop_mae = np.abs(
+                decoded[0].astype(np.int16) -
+                decoded[-1].astype(np.int16)).mean()
+            assert loop_mae < .5, \
+                f"캐릭터 루프 끝점 불일치: {path.name} {loop_mae:.3f}"
+    print("가을 고화질 큰 몸짓·전 프레임 신체 연결·두 코덱 루프 PASS")
 
     for name in sky_videos:
         result = subprocess.check_output([

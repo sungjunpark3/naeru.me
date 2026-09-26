@@ -178,6 +178,13 @@ RIGHT_ARM_POINTS = [
     (855, 788), (834, 767), (817, 738), (811, 701), (801, 662),
     (787, 625), (772, 591), (761, 558), (758, 526), (764, 491),
 ]
+LEFT_ARM_POINTS = [
+    (365, 428), (340, 444), (314, 466), (286, 494), (259, 526),
+    (236, 560), (215, 598), (200, 635), (193, 667), (196, 695),
+    (207, 716), (223, 726), (241, 723), (257, 710), (270, 690),
+    (282, 662), (294, 628), (310, 587), (327, 545), (343, 503),
+    (358, 464), (376, 438),
+]
 
 
 def soft_polygon(size, points):
@@ -229,6 +236,23 @@ def premultiplied_warp(image, matrix):
     return Image.fromarray(warped)
 
 
+def premultiplied_blend(first, second, amount):
+    """두 완성 프레임을 투명 경계의 검은 테두리 없이 섞는다."""
+    first_rgba = np.asarray(first.convert("RGBA"), dtype=np.float32)
+    second_rgba = np.asarray(second.convert("RGBA"), dtype=np.float32)
+    first_alpha = first_rgba[:, :, 3:4] / 255
+    second_alpha = second_rgba[:, :, 3:4] / 255
+    first_rgb = first_rgba[:, :, :3] * first_alpha
+    second_rgb = second_rgba[:, :, :3] * second_alpha
+    alpha = first_alpha * (1 - amount) + second_alpha * amount
+    rgb = first_rgb * (1 - amount) + second_rgb * amount
+    rgb = np.divide(rgb, alpha, out=np.zeros_like(rgb), where=alpha > 1e-5)
+    result = np.concatenate((rgb, alpha * 255), axis=2)
+    result = np.rint(np.clip(result, 0, 255)).astype(np.uint8)
+    result[result[:, :, 3] == 0, :3] = 0
+    return Image.fromarray(result)
+
+
 @lru_cache(maxsize=None)
 def artwork_layout(size):
     """반복 프레임에서 같은 원화→DOM 좌표 계산을 재사용한다."""
@@ -273,32 +297,55 @@ def motion_amount(seconds):
     return float(envelope * pulse)
 
 
-def articulate(master, base, tongue, arm, amount):
+def breathing_amount(index):
+    """정지 기준 프레임들에서 정확히 0이 되는 연속 호흡 곡선이다."""
+    anchors = (0, 78, 236, N_FRAMES - 1)
+    for start, end in zip(anchors, anchors[1:]):
+        if start <= index <= end:
+            progress = (index - start) / (end - start)
+            return float(np.sin(progress * np.pi) ** 2)
+    raise AssertionError(f"호흡 프레임 범위 오류: {index}")
+
+
+def smooth_unit(value):
+    """0~1 값을 속도가 끊기지 않는 곡선으로 바꾼다."""
+    value = np.clip(value, 0, 1)
+    return float(value * value * (3 - 2 * value))
+
+
+def articulate(master, base, tongue, left_arm, right_arm, amount):
     """고화질 원화 조각을 움직여 한 장의 완성 동작 프레임으로 합친다."""
     if amount <= 0:
         return master.copy()
 
+    # 원본 자세와 관절용 몸통을 먼저 같은 자세로 맞춘 뒤 팔을 움직인다.
+    # 이 짧은 준비 구간 덕분에 첫 동작 프레임에서 팔의 크기나 모양이 갑자기
+    # 바뀌지 않는다. 실제 관절 회전은 전환이 끝날 무렵부터 시작한다.
+    rig_weight = smooth_unit(amount / .10)
+    pose = smooth_unit((amount - .07) / .93)
     foot = (650, 1040)
-    scale_x = 1 + .018 * amount
-    scale_y = 1 - .045 * amount
+    scale_x = 1 + .015 * pose
+    scale_y = 1 - .040 * pose
     crouch = np.array([
         [scale_x, 0, foot[0] * (1 - scale_x)],
-        [0, scale_y, foot[1] * (1 - scale_y) + 22 * amount],
+        [0, scale_y, foot[1] * (1 - scale_y) + 20 * pose],
     ], dtype=np.float32)
     body = premultiplied_warp(base, crouch)
-    right = premultiplied_warp(arm, transform_about(
-        (785, 435), 58 * amount, dx=8 * amount, dy=-8 * amount))
-    left = premultiplied_warp(arm, transform_about(
-        (785, 435), -58 * amount, scale=.91, dx=-410, dy=-5,
-        flip=True))
+    left = premultiplied_warp(left_arm, transform_about(
+        (360, 440), -52 * pose, scale=1 + .06 * pose,
+        dx=-5 * pose, dy=-2 * pose))
+    right = premultiplied_warp(right_arm, transform_about(
+        (785, 435), 48 * pose, dx=6 * pose, dy=-5 * pose))
     moving_tongue = premultiplied_warp(tongue, transform_about(
-        (505, 405), -34 * amount, dx=-4 * amount, dy=-3 * amount))
+        (505, 405), -24 * pose, dx=-3 * pose, dy=-2 * pose))
     right = premultiplied_warp(right, crouch)
     left = premultiplied_warp(left, crouch)
     moving_tongue = premultiplied_warp(moving_tongue, crouch)
     body.alpha_composite(left)
     body.alpha_composite(right)
     body.alpha_composite(moving_tongue)
+    if rig_weight < 1:
+        return premultiplied_blend(master, body, rig_weight)
     return body
 
 
@@ -310,17 +357,23 @@ def prepare_motion():
     base = main_component(Image.open(ARTICULATED_BASE))
     assert master.size == base.size == (1351, 1164)
     tongue = extract_layer(master, soft_polygon(master.size, TONGUE_POINTS))
-    arm = extract_layer(master, soft_polygon(master.size, RIGHT_ARM_POINTS))
+    left_arm = extract_layer(
+        master, soft_polygon(master.size, LEFT_ARM_POINTS))
+    right_arm = extract_layer(
+        master, soft_polygon(master.size, RIGHT_ARM_POINTS))
+    previous = None
+    frame_differences = []
 
     for index in range(N_FRAMES):
         seconds = index / FPS
         amount = motion_amount(seconds)
-        artwork = articulate(master, base, tongue, arm, amount)
+        artwork = articulate(
+            master, base, tongue, left_arm, right_arm, amount)
 
-        # 큰 몸짓 사이에는 원화 전체가 아주 작게 숨 쉰다. 선 굵기는 바꾸지 않고
-        # 0.7% 이내로만 움직이며, 기준 프레임과 루프 양끝은 원화와 정확히 같다.
-        if amount == 0 and index not in (0, 78, 236, N_FRAMES - 1):
-            breath = np.sin(index / (N_FRAMES - 1) * np.pi * 6) ** 2
+        # 호흡은 큰 몸짓 전후에도 끊지 않는다. 기준 프레임에서는 곡선의 값과
+        # 속도가 모두 0이라 정지본 전환과 영상 루프에서도 한 프레임도 튀지 않는다.
+        breath = breathing_amount(index)
+        if breath > 0:
             matrix = np.array([
                 [1 + .002 * breath, 0, -.9 * breath],
                 [0, 1 - .007 * breath, 5.5 * breath],
@@ -329,11 +382,34 @@ def prepare_motion():
         frame = place_artwork(artwork, MOTION_SIZE)
         frame.save(frames / f"{index + 1:04d}.png", compress_level=2)
 
+        # 팔·혀가 실제로 몸에서 떨어지지 않았는지 매 프레임 검사한다.
+        # 9px 침식 뒤에도 하나의 덩어리여야 가느다란 우연한 접점이 아니다.
+        rgba = np.asarray(frame)
+        alpha = (rgba[:, :, 3] >= 64).astype(np.uint8)
+        alpha = cv2.erode(alpha, np.ones((9, 9), np.uint8))
+        _, _, stats, _ = cv2.connectedComponentsWithStats(alpha, 8)
+        components = sum(
+            area > 20 for area in stats[1:, cv2.CC_STAT_AREA])
+        assert components == 1, \
+            f"{index + 1}번 프레임에서 신체가 분리됨: {components}개"
+        if previous is not None:
+            difference = np.abs(
+                rgba.astype(np.int16) - previous.astype(np.int16)).mean()
+            frame_differences.append(float(difference))
+        previous = rgba
+
     first = Image.open(frames / "0001.png").convert("RGBA")
     last = Image.open(frames / f"{N_FRAMES:04d}.png").convert("RGBA")
     assert np.array_equal(np.asarray(first), np.asarray(last))
-    print("base motion: approved HD master only; articulated arms/tongue/body; "
-          "one composite per frame; loop identical")
+    accelerations = np.abs(np.diff(frame_differences))
+    assert max(frame_differences) < 3, \
+        f"프레임 간 동작이 튐: {max(frame_differences):.3f}"
+    assert max(accelerations) < .6, \
+        f"프레임 간 속도가 갑자기 바뀜: {max(accelerations):.3f}"
+    print("base motion: approved HD master only; separate left/right arms, "
+          "tongue and body; connected every frame; loop identical; "
+          f"max step {max(frame_differences):.3f}, "
+          f"max acceleration {max(accelerations):.3f}")
     return frames
 
 
