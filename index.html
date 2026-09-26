@@ -68,10 +68,9 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
                  -apple-system, sans-serif;
   }
 
-  /* 배경은 **정지 이미지**다(2026-09-04 — 바람·구름이 도는 4K 영상은 임시로
-     포기). img/bg-<변형>.jpg는 그 변형의 첫 프레임에 내루미를 **구워서 지운**
-     것이라, 예전처럼 런타임에 patch를 덧대는 레이어가 아예 없다. 움직이는 건
-     DOM 내루미·비·공뿐이다. 영상 복귀는 meadow-*.mp4가 그대로 있으니 가능. */
+  /* 배경 원화는 정지 이미지다. img/bg-<변형>.jpg는 그 변형의 첫 프레임에서
+     내루미를 지운 완성본이라 예전 런타임 patch 레이어는 없다. 맑은 가을·겨울은
+     풍경 누끼 뒤에서 하늘 영상만 움직이고, 나머지 동작은 DOM 겹이 맡는다. */
 
   /* 루프 순간 브라우저가 비디오를 한 프레임 놓쳐도
      어두운 배경 대신 동일한 정지 프레임이 보이도록,
@@ -88,7 +87,8 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
      움직여야 정렬이 유지되고, 살짝 확대해서 흔들린 만큼 가장자리에
      빈 틈이 생기지 않게 한다 (기본값 none이면 아무 영향 없음).
      배경·#stage를 같이 넣어야 흔들릴 때 내루미가 배경에서 떨어져 보이지 않는다 */
-  .bg-still, .bg-layer, #skyMotion, #landscape, #stage, #foreground {
+  .bg-still, .bg-layer, #skyMotion, #landscape, #stage, #autumn-leaf-frame,
+  #foreground {
     transform: var(--bg-shake, none);
   }
 
@@ -117,7 +117,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   #skyMotion.on { opacity: 1; }
 
   /* 맑은 가을·겨울의 나무·산등선·들판. 원본의 하늘만 투명하게 뚫어
-     두었으므로 현재 화면은 같고, 다음 단계에서 뒤의 하늘만 움직일 수 있다. */
+     뒤의 60초 하늘 영상만 움직인다. */
   #landscape { position: fixed; pointer-events: none; }
   .landscape-layer {
     position: absolute; inset: 0; width: 100%; height: 100%;
@@ -258,6 +258,10 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
      세우고 앉으므로, 여러 프레임의 평균이 아니라 **그 프레임의** 눈 중점을
      쓴다 — 실측 크롭 (243.5, 119.5) → 576×496 기준 백분율 */
   #naeru-brow { position: absolute; left: 42.2743%; top: 24.0927%; width: 1px; height: 1px; }
+  /* 고화질 가을 원화에서 혀의 넓은 끝 중앙. 단풍잎이 닿은 뒤 몸짓을 따라간다. */
+  #naeru-tongue-tip {
+    position: absolute; left: 32.1181%; top: 60.4839%; width: 1px; height: 1px;
+  }
 
   /* ── 비 레이어: 하늘 프리즈 위에서도 비가 계속 내리도록
      영상이 아닌 DOM에서 렌더. 줄기는 수직 텍스처, 레이어를
@@ -396,8 +400,12 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     border: 2px solid rgba(255, 252, 245, 0.85);
   }
 
-  /* 가을에 한 장씩 떨어지는 단풍잎. #frame 안에 두어 화면비가 달라도
-     배경과 같은 16:9 좌표를 쓰고, .graded로 시간대·날씨의 빛을 함께 받는다. */
+  /* 가을 단풍잎 전용 프레임. DOM 순서상 내루미 앞·앞꽃 뒤에 있어 풀밭까지
+     내려간 잎은 꽃과 긴 풀에 자연스럽게 가려진다. */
+  #autumn-leaf-frame {
+    position: fixed;
+    pointer-events: none;
+  }
   #autumn-leaf {
     position: absolute;
     left: 0;
@@ -582,7 +590,8 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   #settings-panel legend { padding: 0 8px 0 0; font-size: .9rem; }
 
   html[data-motion="still"] :is(.clock-inner, .time .colon) { animation: none; }
-  html[data-motion="still"] :is(.rain, .fall, .naeru, #naeruNt, #tongue, #glow, #frame) {
+  html[data-motion="still"] :is(.rain, .fall, .naeru, #naeruNt, #tongue, #glow,
+    #frame, #autumn-leaf-frame) {
     display: none !important;
   }
   html[data-motion="still"] #skyMotion { display: none; }
@@ -601,7 +610,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
       transition: none !important;
     }
     #skyMotion { display: none !important; }
-    #frame { display: none !important; }
+    #frame, #autumn-leaf-frame { display: none !important; }
   }
 </style>
 </head>
@@ -642,9 +651,15 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     <img id="tongue" alt="">
     <div id="naeru-head"></div>
     <div id="naeru-brow"></div>
+    <div id="naeru-tongue-tip"></div>
   </div><div id="emote" class="graded" aria-hidden="true"></div></div></div>
   <button id="naeru-touch" type="button" aria-label="내루미에게 인사하기"></button>
   </div></div>
+</div>
+
+<!-- 가을 단풍잎은 내루미 앞·앞꽃 뒤에 놓여 혀에는 닿고 풀에는 가려진다. -->
+<div id="autumn-leaf-frame" class="graded" aria-hidden="true">
+  <img id="autumn-leaf" alt="">
 </div>
 
 <!-- 가을의 꽃·앞풀은 처음부터 내루미 앞에 놓인 투명 원화다.
@@ -669,8 +684,6 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
 <!-- 가끔 날아와 내루미 머리를 때리고 사라지는 공.
      프레임 박스 안에 비율로 배치되므로 화면비가 뭐든 머리에 맞는다 -->
 <div id="frame" class="graded" aria-hidden="true">
-  <!-- 한 번에 한 장만 쓰는 가을 낙엽. 내루미와의 상호작용은 다음 단계에서 붙인다. -->
-  <img id="autumn-leaf" alt="">
   <div id="ball">
     <!-- 애플뮤직 앱아이콘 빨강(2026-09-04 지정). 아이콘의 그러데이션은
          #FA233B~#FB5C74인데, 붉은 끝값을 그대로 쓰면 이 회화풍 배경 위에서
@@ -872,7 +885,7 @@ function createSceneMotion(restart, cleanup, ambient) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "da5af32486ae";
+  var ASSET_V = "07350395cc5b";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1371,20 +1384,25 @@ function createSceneMotion(restart, cleanup, ambient) {
 
 <script>
 /* ── 가을 단풍잎 ──────────────────────────────────────────────────
-   한 장이 화면 위에서 풀밭까지 천천히 흔들리며 내려온다. 같은 이미지를 여러 장
-   동시에 복제하지 않아 장식이 과해지지 않게 하고, 근접 방문 중에는 즉시 숨긴다.
+   붉은색·금색·진홍색 중 한 장이 화면 위에서 풀밭까지 내려온다. 맑은 날에는
+   가끔 뉴트럴 내루미의 혀에 내려앉았다가 바람에 날아간다. 잎은 내루미 앞·
+   앞꽃 뒤에 있어 화면 아래에서는 풀에 가리고, 다른 행동 중에는 받지 않는다.
 
-   ?leaf=0 끄기 / ?leaf=1 빠른 동작 검사 ────────────────────────── */
+   ?leaf=0 끄기 / ?leaf=1 빠른 낙하 / ?leaf=2 혀 받기 검사 ─────── */
 (function () {
   var flag = new URLSearchParams(location.search).get("leaf");
   if (flag === "0") return;
-  var DEBUG = flag === "1";
+  var DEBUG = flag === "1" || flag === "2", FORCE_CATCH = flag === "2";
+  var ASSETS = ["autumn-maple-leaf.png", "autumn-maple-leaf-gold.png",
+    "autumn-maple-leaf-crimson.png"];
   var FIRST = [12000, 24000], GAP = [50000, 95000], RETRY = [1800, 3200];
+  var RAIN_FIRST = [20000, 40000], RAIN_GAP = [80000, 140000];
   var FLIGHT = [11000, 15000];
   var root = document.documentElement;
-  var frame = document.getElementById("frame");
+  var frame = document.getElementById("autumn-leaf-frame");
   var leaf = document.getElementById("autumn-leaf");
-  var W = 0, H = 0, ready = false;
+  var W = 0, H = 0, loaded = [], preloads = [], lastAsset = "";
+  var holdOwned = false;
   if (!frame || !leaf) return;
 
   function rand(a, b) { return a + Math.random() * (b - a); }
@@ -1392,74 +1410,158 @@ function createSceneMotion(restart, cleanup, ambient) {
     return Math.max(low, Math.min(high, value));
   }
   function autumn() { return root.dataset.season === "autumn"; }
+  function clearWeather() { return document.body.dataset.weather === "clear"; }
   function available() {
-    return autumn() && !root.hasAttribute("data-approach");
+    return autumn() && !root.hasAttribute("data-approach") && !root.dataset.game;
   }
   function layout() {
     var box = layoutFrameBox(frame);
     W = box.W; H = box.H;
   }
+  function release() {
+    if (holdOwned && window.naeru) window.naeru.hold = false;
+    holdOwned = false;
+  }
   function hide(state) {
+    release();
     leaf.style.opacity = "0";
     leaf.style.transform = "";
+    delete leaf.dataset.variant;
     root.dataset.autumnLeaf = state || (autumn() ? "idle" : "off");
+  }
+  function preload() {
+    if (preloads.length) return;
+    ASSETS.forEach(function (name) {
+      var image = new Image(); preloads.push(image);
+      image.onload = function () {
+        if (loaded.indexOf(name) < 0) loaded.push(name);
+        root.dataset.autumnLeafAssets = String(loaded.length);
+      };
+      image.src = "img/" + name + "?v=" + root.dataset.av;
+    });
+  }
+  function chooseAsset() {
+    var choices = loaded.filter(function (name) { return name !== lastAsset; });
+    if (!choices.length) choices = loaded.slice();
+    lastAsset = choices[Math.floor(Math.random() * choices.length)];
+    leaf.dataset.variant = lastAsset;
+    leaf.src = "img/" + lastAsset + "?v=" + root.dataset.av;
+  }
+  function place(x, y, angle, scale, opacity) {
+    leaf.style.opacity = Math.max(0, Math.min(1, opacity)).toFixed(3);
+    leaf.style.transform = "translate(" + (x * W).toFixed(1) + "px," +
+      (y * H).toFixed(1) + "px) translate(-50%,-50%) rotate(" +
+      angle.toFixed(1) + "deg) scale(" + scale.toFixed(3) + ")";
+  }
+  function canCatch() {
+    return clearWeather() && window.naeru && window.naeru.tongueAt &&
+      window.naeru.leafCatch && window.naeru.isNeutral();
+  }
+  function reserveCatch() {
+    if (!canCatch()) return false;
+    window.naeru.hold = true; holdOwned = true;
+    return true;
+  }
+
+  function blowAway(fromAngle, fromScale) {
+    var start = performance.now(), dur = DEBUG ? 900 : 1500;
+    var point = window.naeru.tongueAt();
+    var x0 = point.x + .004, y0 = point.y - .016;
+    var dir = Math.random() < .5 ? -1 : 1;
+    root.dataset.autumnLeaf = "leaving";
+    (function step(now) {
+      if (!available()) { hide(); schedule("retry"); return; }
+      var t = Math.min(1, (now - start) / dur);
+      var e = t * t * (3 - 2 * t);
+      var x = x0 + dir * .22 * e;
+      var y = y0 - .16 * e + Math.sin(t * Math.PI * 2) * .012 * (1 - t);
+      place(x, y, fromAngle + dir * 280 * e,
+        fromScale * (1 - .16 * e), 1 - Math.max(0, (t - .55) / .45));
+      if (t < 1) requestAnimationFrame(step);
+      else { hide(); schedule("gap"); }
+    })(start);
+  }
+
+  function caught(angle, scale) {
+    var start = performance.now(), dur = DEBUG ? 650 : 1100;
+    root.dataset.autumnLeaf = "caught";
+    window.naeru.leafCatch();
+    (function step(now) {
+      if (!available() || !window.naeru || !window.naeru.tongueAt) {
+        hide(); schedule("retry"); return;
+      }
+      var t = Math.min(1, (now - start) / dur);
+      var point = window.naeru.tongueAt();
+      place(point.x + .004, point.y - .016 - Math.sin(t * Math.PI) * .003,
+        angle + Math.sin(t * Math.PI * 2) * 3, scale, 1);
+      if (t < 1) requestAnimationFrame(step);
+      else blowAway(angle, scale);
+    })(start);
   }
 
   function fly() {
-    if (!available() || !ready) { schedule("retry"); return; }
-    var dur = DEBUG ? 4800 : rand(FLIGHT[0], FLIGHT[1]);
-    var x0 = rand(0.18, 0.82);
+    if (!available() || !loaded.length) { schedule("retry"); return; }
+    var wantsCatch = FORCE_CATCH || (!DEBUG && clearWeather() && Math.random() < .28);
+    var catches = wantsCatch && reserveCatch();
+    if (FORCE_CATCH && !catches) { schedule("retry"); return; }
+    chooseAsset();
+    var dur = DEBUG ? (catches ? 3600 : 4800) :
+      catches ? rand(7600, 9800) : rand(FLIGHT[0], FLIGHT[1]);
+    var target = catches ? window.naeru.tongueAt() : null;
+    var x0 = catches ? clamp(target.x + rand(-.28, .28), .14, .86) : rand(.18, .82);
     var direction = Math.random() < 0.5 ? -1 : 1;
-    var x1 = clamp(x0 + direction * rand(0.10, 0.22), 0.10, 0.90);
+    var x1 = catches ? target.x + .004 :
+      clamp(x0 + direction * rand(.10, .22), .10, .90);
     var phase = rand(0, Math.PI * 2);
-    var scale = rand(0.82, 1.12);
+    var scale = rand(.82, 1.12);
     var angle = rand(-80, 80);
-    var spin = direction * rand(390, 610);
+    var spin = direction * rand(catches ? 150 : 390, catches ? 260 : 610);
+    var settleAngle = rand(-24, 18);
     var started = performance.now();
-    root.dataset.autumnLeaf = "flying";
+    root.dataset.autumnLeaf = catches ? "catching" : "flying";
 
     (function step(now) {
       if (!available()) { hide(); schedule("retry"); return; }
       var t = Math.min(1, (now - started) / dur);
       var fall = t * t * (3 - 2 * t);
-      var sway = Math.sin(t * Math.PI * 5 + phase) * 0.030 +
-                 Math.sin(t * Math.PI * 11 + phase * 0.7) * 0.009;
-      var x = x0 + (x1 - x0) * fall + sway;
-      var y = -0.07 + 0.94 * fall;
-      var size = scale * (0.90 + 0.13 * fall);
-      var fade = Math.min(1, t / 0.07, (1 - t) / 0.11);
-      leaf.style.opacity = Math.max(0, fade).toFixed(3);
-      leaf.style.transform = "translate(" + (x * W).toFixed(1) + "px," +
-        (y * H).toFixed(1) + "px) translate(-50%,-50%) rotate(" +
-        (angle + spin * t + Math.sin(t * Math.PI * 7 + phase) * 13).toFixed(1) +
-        "deg) scale(" + size.toFixed(3) + ")";
+      var damp = catches ? Math.pow(1 - t, 1.6) : 1;
+      var sway = (Math.sin(t * Math.PI * 5 + phase) * .030 +
+        Math.sin(t * Math.PI * 11 + phase * .7) * .009) * damp;
+      if (catches) target = window.naeru.tongueAt();
+      var endX = catches ? target.x + .004 : x1;
+      var endY = catches ? target.y - .016 : .87;
+      var x = x0 + (endX - x0) * fall + sway;
+      var y = -.07 + (endY + .07) * fall;
+      var size = scale * (.72 + .28 * fall);
+      var rotation = catches
+        ? angle + (settleAngle - angle) * fall + spin * Math.sin(t * Math.PI) * damp
+        : angle + spin * t + Math.sin(t * Math.PI * 7 + phase) * 13;
+      var fade = Math.min(1, t / .07, catches ? 1 : (1 - t) / .11);
+      place(x, y, rotation, size, fade);
       if (t < 1) requestAnimationFrame(step);
+      else if (catches) caught(settleAngle, size);
       else { hide(); schedule("gap"); }
     })(started);
   }
 
   function schedule(kind) {
     if (!autumn()) { hide("off"); return; }
-    var range = kind === "first" ? FIRST : kind === "retry" ? RETRY : GAP;
+    var rain = !clearWeather();
+    var range = kind === "retry" ? RETRY : kind === "first"
+      ? (rain ? RAIN_FIRST : FIRST) : (rain ? RAIN_GAP : GAP);
     var ms = DEBUG ? (kind === "first" ? 500 : 1800) : rand(range[0], range[1]);
     setTimeout(function () {
       if (!autumn()) { hide("off"); return; }
-      if (!available() || !ready) { schedule("retry"); return; }
+      if (!available() || !loaded.length) { schedule("retry"); return; }
       fly();
     }, ms);
   }
 
   addEventListener("resize", layout);
-  leaf.onload = function () { ready = true; };
-  leaf.onerror = function () { ready = false; hide("failed"); };
 
   var motion = createSceneMotion(function () {
-    layout();
     if (!autumn()) { hide("off"); return; }
-    if (!leaf.getAttribute("src")) {
-      leaf.src = "img/autumn-maple-leaf.png?v=" + root.dataset.av;
-    }
-    ready = leaf.complete && leaf.naturalWidth > 0;
+    layout(); preload();
     hide("idle");
     schedule("first");
   }, function () { hide(); });
@@ -1704,8 +1806,9 @@ function createSceneMotion(restart, cleanup, ambient) {
   var face = document.getElementById("naeru-face");
   var head = document.getElementById("naeru-head");
   var brow = document.getElementById("naeru-brow");
+  var tongueTip = document.getElementById("naeru-tongue-tip");
   var stage = document.getElementById("stage");
-  if (!move || !act || !face || !head || !brow || !stage) return;
+  if (!move || !act || !face || !head || !brow || !tongueTip || !stage) return;
 
   var facing = 1;              // 1 = 원래 방향, -1 = 좌우 뒤집힘
   var HOP_GAP  = [8000, 30000];
@@ -1722,6 +1825,8 @@ function createSceneMotion(restart, cleanup, ambient) {
     peek:   peek,       // 나비 IIFE가 "머리에 앉았다"고 알릴 때 쓴다
     headAt: headAt,     // 머리 꼭대기 — 공의 조준점
     browAt: browAt,     // 두 눈 사이 — 나비가 앉는 자리
+    tongueAt: tongueAt, // 혀의 넓은 끝 — 단풍잎이 내려앉는 자리
+    leafCatch: leafCatch,
     isNeutral: function () {
       return !window.naeru.busy && !window.naeru.hold && !emoteBusy &&
              !move.style.transform && !act.style.transform;
@@ -1740,12 +1845,38 @@ function createSceneMotion(restart, cleanup, ambient) {
   }
   function headAt() { return anchorAt(head, 1995 / 3840, 1399 / 2160); }
   function browAt() { return anchorAt(brow, 2000 / 3840, 1445 / 2160); }
+  function tongueAt() { return anchorAt(tongueTip, 1929 / 3840, 1628 / 2160); }
 
   function setMove(height) {
     move.style.transform = height ? "translateY(" + height + "%)" : "";
     window.naeruShadow.lift(Math.max(0, -height) / 13);
   }
   function setAct(t)  { act.style.transform  = t; }
+
+  /* 단풍잎이 혀에 닿았을 때의 짧은 반응. 혀 원화를 따로 바꾸지 않고 발끝을
+     고정한 채 몸만 살짝 눌렀다 펴서 기존 고화질 내루미의 형태를 보존한다. */
+  function leafCatch() {
+    if (window.naeru.busy) return false;
+    window.naeru.busy = true;
+    sequence([
+      { dur: 150, fn: function (t) {
+          setAct("rotate(" + (-0.7 * t).toFixed(2) + "deg) scale(" +
+            (1 + .035 * t).toFixed(4) + "," + (1 - .055 * t).toFixed(4) + ")");
+      } },
+      { dur: 260, fn: function (t) {
+          var k = Math.sin(t * Math.PI);
+          setAct("rotate(" + (-.7 + 1.25 * t).toFixed(2) + "deg) scale(" +
+            (1.035 - .045 * t).toFixed(4) + "," +
+            (.945 + .075 * t + .008 * k).toFixed(4) + ")");
+      } },
+      { dur: 340, fn: function (t) {
+          var k = (1 - t) * Math.cos(t * Math.PI * 2);
+          setAct("rotate(" + (.55 * k).toFixed(2) + "deg) scale(" +
+            (1 - .01 * k).toFixed(4) + "," + (1 + .02 * k).toFixed(4) + ")");
+      } }
+    ], function () { setAct(""); window.naeru.busy = false; });
+    return true;
+  }
 
   // 공용 타이밍 헬퍼: dur(ms)짜리 구간을 진행률 0→1로 fn에 넘겨 반복 호출.
   // sequence()가 여러 구간을 이어붙여 폴짝·두리번의 여러 박자를 만든다

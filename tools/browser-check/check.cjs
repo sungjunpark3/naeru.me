@@ -1486,6 +1486,8 @@ async function check(name, fn) {
         await p.waitForFunction(() =>
           document.documentElement.dataset.autumnLeaf === 'flying');
         await p.waitForFunction(() =>
+          document.documentElement.dataset.autumnLeafAssets === '3');
+        await p.waitForFunction(() =>
           Number(getComputedStyle(document.querySelector('#autumn-leaf')).opacity) > .2);
         const first = await p.locator('#autumn-leaf').evaluate(e => e.style.transform);
         await p.waitForTimeout(250);
@@ -1495,8 +1497,18 @@ async function check(name, fn) {
           count: document.querySelectorAll('#autumn-leaf').length
         }));
         assert.notEqual(moving.transform, first);
-        assert.match(moving.src, /autumn-maple-leaf\.png/);
+        assert.match(moving.src,
+          /autumn-maple-leaf(?:-(?:gold|crimson))?\.png/);
         assert.equal(moving.count, 1);
+        assert.equal(await p.evaluate(() => {
+          const stage = document.querySelector('#stage');
+          const leaf = document.querySelector('#autumn-leaf-frame');
+          const foreground = document.querySelector('#foreground');
+          return Boolean(stage.compareDocumentPosition(leaf) &
+            Node.DOCUMENT_POSITION_FOLLOWING) &&
+            Boolean(leaf.compareDocumentPosition(foreground) &
+            Node.DOCUMENT_POSITION_FOLLOWING);
+        }), true);
         await p.waitForTimeout(1500);
         await shot(p, 'autumn-leaf-flight');
 
@@ -1520,6 +1532,76 @@ async function check(name, fn) {
         assert.equal(await reduced.locator('#autumn-leaf').getAttribute('src'), null);
         assert.deepEqual(reduced.errors, []); assert.deepEqual(reduced.missing, []);
       } finally { await reduced.close(); }
+
+      const winter = await makePage();
+      try {
+        await open(winter,
+          's=winter&v=day&w=clear&act=0&ball=0&flit=0&ff=0&leaf=1');
+        await winter.waitForTimeout(700);
+        assert.equal(await winter.evaluate(() =>
+          document.documentElement.dataset.autumnLeaf), 'off');
+        assert.equal(await winter.evaluate(() => performance.getEntriesByType('resource')
+          .filter(entry => entry.name.includes('autumn-maple-leaf')).length), 0);
+        assert.deepEqual(winter.errors, []); assert.deepEqual(winter.missing, []);
+      } finally { await winter.close(); }
+    });
+    await check('가을 단풍잎: 뉴트럴 혀 받기·반응·충돌 해제', async () => {
+      const p = await makePage({ viewport: { width: 1440, height: 900 } });
+      p.setDefaultTimeout(20000);
+      try {
+        await open(p,
+          's=autumn&v=day&w=clear&act=idle&ball=0&flit=0&ff=0&leaf=2');
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.autumnLeaf === 'catching');
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.autumnLeaf === 'caught');
+        const caught = await p.evaluate(() => {
+          const frame = document.querySelector('#autumn-leaf-frame').getBoundingClientRect();
+          const box = document.querySelector('#autumn-leaf').getBoundingClientRect();
+          const tongue = window.naeru.tongueAt();
+          return { leafX: (box.x + box.width / 2 - frame.x) / frame.width,
+            leafY: (box.y + box.height / 2 - frame.y) / frame.height,
+            tongueX: tongue.x, tongueY: tongue.y,
+            hold: window.naeru.hold, busy: window.naeru.busy,
+            count: document.querySelectorAll('#autumn-leaf').length };
+        });
+        assert(Math.abs(caught.leafX - (caught.tongueX + .004)) < .012);
+        assert(Math.abs(caught.leafY - (caught.tongueY - .016)) < .012);
+        assert.equal(caught.hold, true); assert.equal(caught.busy, true);
+        assert.equal(caught.count, 1);
+        await shot(p, 'autumn-leaf-caught');
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.autumnLeaf === 'leaving');
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.autumnLeaf === 'idle');
+        assert.equal(await p.evaluate(() => naeru.hold || naeru.busy), false);
+
+        // 다음 잎을 받는 도중 풍경을 바꿔도 예약·몸짓 상태가 남지 않아야 한다.
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.autumnLeaf === 'caught');
+        await p.click('#settings-open');
+        await p.selectOption('#setting-season', 'winter');
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.season === 'winter' &&
+          document.documentElement.dataset.autumnLeaf === 'off' &&
+          !window.naeru.hold && !window.naeru.busy);
+        assert.equal(await p.locator('#autumn-leaf').evaluate(e => e.style.opacity), '0');
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { await p.close(); }
+
+      const rain = await makePage({ viewport: { width: 1440, height: 900 } });
+      try {
+        await open(rain,
+          's=autumn&v=day&w=rain&act=idle&ball=0&flit=0&ff=0&leaf=1');
+        await rain.waitForFunction(() =>
+          document.documentElement.dataset.autumnLeaf === 'flying');
+        assert.equal(await rain.evaluate(() => window.naeru.hold), false);
+        await rain.waitForTimeout(4900);
+        assert.notEqual(await rain.evaluate(() =>
+          document.documentElement.dataset.autumnLeaf), 'caught');
+        assert.equal(await rain.evaluate(() => window.naeru.hold), false);
+        assert.deepEqual(rain.errors, []); assert.deepEqual(rain.missing, []);
+      } finally { await rain.close(); }
     });
     await check('집중 시간 저장·완료·종료', async () => {
       const p = await makePage({ reducedMotion: 'reduce' });

@@ -38,7 +38,9 @@ for v in ["dawn", "day", "dusk", "night"]:
     images[f"naeru-{v}-close.webp"] = (4608, 3968)
 images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
                "apple-touch-icon.png": (180, 180),
-               "autumn-maple-leaf.png": (1326, 1187)})
+               "autumn-maple-leaf.png": (1326, 1187),
+               "autumn-maple-leaf-gold.png": (1254, 1254),
+               "autumn-maple-leaf-crimson.png": (1254, 1254)})
 images.update({f"{kind}-{depth}.png": (512, 1024)
                for kind in ["rain", "snow"] for depth in ["far", "near"]})
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
@@ -89,7 +91,7 @@ for name in runtime:
                 foreground_alpha.setdefault(season, signature)
                 assert signature == foreground_alpha[season], \
                     f"시간대별 전경 형태 불일치: {name}"
-            if name == "autumn-maple-leaf.png":
+            if name.startswith("autumn-maple-leaf"):
                 assert im.mode == "RGBA", "단풍잎 투명 알파 누락"
                 assert im.getchannel("A").getextrema() == (0, 255), \
                     "단풍잎 누끼 범위 오류"
