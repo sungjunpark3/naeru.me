@@ -853,7 +853,7 @@ function createSceneMotion(restart, cleanup, ambient) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "9148c2b9c4c9";
+  var ASSET_V = "4cb146f69b1a";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -2809,13 +2809,11 @@ function createSceneMotion(restart, cleanup, ambient) {
     if (!frozenVideo) {
       var video = document.querySelector("video.naeru.on");
       if (video) {
-        // 새 고화질 루프는 4.45~8.35초에만 팔·혀의 큰 몸짓을 한다. 그 구간은
-        // 끝까지 기다리고, 나머지 숨쉬는 뉴트럴 구간에서는 현재 화면을 그대로
-        // 멈춘다. 강제 탐색하지 않아 자세가 순간적으로 바뀌지 않는다.
+        // 루프의 양끝 약 8프레임은 기준 자세다. 자연스럽게 그 구간에 도착한
+        // 화면을 그대로 멈추며, 강제 탐색으로 자세를 바꾸지 않는다.
         var loop = 316 / 24, t = video.currentTime % loop;
-        var bigGesture = t >= 4.40 && t <= 8.40;
         if (video.paused || video.seeking || video.readyState < 2 || video.dataset.pauseOwner ||
-            bigGesture) {
+            (t > 8 / 24 && t < loop - 8 / 24)) {
           motion.later(tryPending, 40); return;
         }
         frozenVideo = video;

@@ -1010,9 +1010,7 @@ async function check(name, fn) {
         assert.equal(await p.locator('#approach-preview').isEnabled(), false);
         assert.equal(await p.locator('#approach-preview').textContent(), '다가오는 중');
         const frozen = await p.locator('video.naeru.on').evaluate(v => v.currentTime);
-        // 새 고화질 루프의 큰 팔·혀 동작(4.40~8.40초)을 완전히 지난
-        // 숨쉬는 뉴트럴 자세에서만 멈춰야 한다.
-        assert(frozen < 4.40 || frozen > 8.40);
+        assert(frozen <= 8 / 24 || frozen >= 308 / 24);
         assert.equal(await p.evaluate(() => window.approachSeeks), 0);
         assert.equal(await p.locator('#naeru-act').evaluate(e => e.style.transform), '');
         await p.waitForTimeout(1200);

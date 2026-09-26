@@ -8,8 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import cv2
-import numpy as np
 from PIL import Image, ImageChops, ImageStat
 
 REPO = Path(__file__).resolve().parent.parent
@@ -19,7 +17,6 @@ from coords import CROP_ORIGIN, CROP_SIZE, FRAME_SIZE, N_FRAMES, VARIANTS
 SEASONS = ["spring", "summer", "autumn", "winter"]
 CLEAR_VARIANTS = ["dawn", "day", "dusk", "night"]
 MOVING_SKY_SEASONS = ["autumn", "winter"]
-AUTUMN_MOTION_SIZE = (1152, 992)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--update-version", action="store_true")
 parser.add_argument("--videos", action="store_true", help="두 코덱의 실제 프레임 수도 검사")
@@ -122,17 +119,6 @@ with Image.open(REPO / "img/naeru-autumn-day.png") as clear_image, \
 assert rain_light < clear_light * .85, \
     f"가을 낮 비 조명이 너무 밝음: clear={clear_light:.1f}, rain={rain_light:.1f}"
 
-# 큰 동작도 승인된 고화질 기준 원화에서 만든다. 구형 영상이나 정지 원화와
-# 동작 원화를 섞던 경로가 돌아오면 화질 저하·이중 윤곽이 다시 생긴다.
-autumn_builder = (REPO / "tools/autumn-naeru/build.py").read_text()
-assert "SOURCE_MOTION" not in autumn_builder, \
-    "가을 큰 동작이 구형 저해상도 영상에 다시 의존함"
-assert "ARTICULATED_BASE" in autumn_builder, \
-    "가을 고화질 관절 원화가 빌드에서 빠짐"
-for removed_overlay in ["motion_mix", "morph_motion_frame", "remap_rgba"]:
-    assert removed_overlay not in autumn_builder, \
-        f"가을 캐릭터 포즈 겹침 경로 복귀: {removed_overlay}"
-
 # 구름 영상은 누끼 뒤에 놓이지만, 첫 화면에서 누끼가 나타나는 동안에도
 # 구름이 풀밭·나무 위에 비치지 않아야 한다.
 for season in MOVING_SKY_SEASONS:
@@ -189,77 +175,11 @@ if args.videos:
             "-of", "json", str(REPO / "img" / name)
         ], text=True)
         stream = json.loads(result)["streams"][0]
-        expected_size = (AUTUMN_MOTION_SIZE if
-                         name.startswith("naeru-autumn-") else CROP_SIZE)
-        assert (stream["width"], stream["height"]) == expected_size, name
+        assert (stream["width"], stream["height"]) == CROP_SIZE, name
         assert int(stream["nb_read_frames"]) == N_FRAMES, name
         assert stream["r_frame_rate"] == "24/1", name
         assert stream["codec_name"] == ("vp9" if name.endswith("webm") else "hevc"), name
     print(f"영상 {len(videos)}개: 크롭·코덱·24fps·{N_FRAMES}프레임 PASS")
-
-    # 새 가을 영상은 뉴트럴에서 시작·종료하고, 136프레임의 큰 몸짓에서
-    # 왼팔과 혀가 화면 왼쪽으로 충분히 뻗어야 한다.
-    motion_frames = []
-    motion_path = REPO / "img" / "naeru-autumn-day.webm"
-    for frame in [0, 135, N_FRAMES - 1]:
-        raw = subprocess.check_output([
-            "ffmpeg", "-v", "error", "-c:v", "libvpx-vp9", "-i",
-            str(motion_path), "-vf", f"select=eq(n\\,{frame})",
-            "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-",
-        ])
-        motion_frames.append(Image.frombytes(
-            "RGBA", AUTUMN_MOTION_SIZE, raw))
-    neutral_box = motion_frames[0].getchannel("A").getbbox()
-    peak_box = motion_frames[1].getchannel("A").getbbox()
-    assert peak_box[0] <= neutral_box[0] - 70, \
-        f"가을 큰 몸짓이 작음: neutral={neutral_box}, peak={peak_box}"
-    loop_alpha = ImageChops.difference(
-        motion_frames[0].getchannel("A"),
-        motion_frames[2].getchannel("A"))
-    loop_alpha_mae = ImageStat.Stat(loop_alpha).mean[0]
-    assert loop_alpha_mae < .2 and loop_alpha.getextrema()[1] <= 24, \
-        f"가을 캐릭터 영상 루프 압축 오차가 큼: MAE={loop_alpha_mae:.3f}"
-
-    # 실제 배포되는 두 코덱도 전 프레임을 축소 디코딩해 검사한다. 3px 침식
-    # 뒤에도 한 덩어리여야 팔·혀가 신체와 단단히 이어져 있는 것으로 본다.
-    preview_size = (288, 248)
-    for variant in VARIANTS:
-        for extension in ["webm", "mp4"]:
-            path = REPO / "img" / f"naeru-autumn-{variant}.{extension}"
-            decoder = ["-c:v", "libvpx-vp9"] if extension == "webm" else []
-            raw = subprocess.check_output([
-                "ffmpeg", "-v", "error", *decoder, "-i", str(path),
-                "-vf", f"scale={preview_size[0]}:{preview_size[1]}:flags=area",
-                "-f", "rawvideo", "-pix_fmt", "rgba", "-",
-            ])
-            frame_size = preview_size[0] * preview_size[1] * 4
-            assert len(raw) == N_FRAMES * frame_size, path.name
-            decoded = np.frombuffer(raw, dtype=np.uint8).reshape(
-                N_FRAMES, preview_size[1], preview_size[0], 4)
-            differences = []
-            for index, frame in enumerate(decoded):
-                alpha = (frame[:, :, 3] >= 48).astype(np.uint8)
-                alpha = cv2.erode(alpha, np.ones((3, 3), np.uint8))
-                _, _, stats, _ = cv2.connectedComponentsWithStats(alpha, 8)
-                components = sum(
-                    area > 2 for area in stats[1:, cv2.CC_STAT_AREA])
-                assert components == 1, \
-                    f"신체 분리: {path.name} {index + 1}번 프레임"
-                if index:
-                    difference = np.abs(
-                        frame.astype(np.int16) -
-                        decoded[index - 1].astype(np.int16)).mean()
-                    differences.append(float(difference))
-            assert max(differences) < 3, \
-                f"프레임 전환 튐: {path.name} {max(differences):.3f}"
-            assert max(np.abs(np.diff(differences))) < .6, \
-                f"동작 속도 튐: {path.name}"
-            loop_mae = np.abs(
-                decoded[0].astype(np.int16) -
-                decoded[-1].astype(np.int16)).mean()
-            assert loop_mae < .5, \
-                f"캐릭터 루프 끝점 불일치: {path.name} {loop_mae:.3f}"
-    print("가을 고화질 큰 몸짓·전 프레임 신체 연결·두 코덱 루프 PASS")
 
     for name in sky_videos:
         result = subprocess.check_output([
