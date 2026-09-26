@@ -37,7 +37,8 @@ for v in VARIANTS:
 for v in ["dawn", "day", "dusk", "night"]:
     images[f"naeru-{v}-close.webp"] = (4608, 3968)
 images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
-               "apple-touch-icon.png": (180, 180)})
+               "apple-touch-icon.png": (180, 180),
+               "autumn-maple-leaf.png": (1326, 1187)})
 images.update({f"{kind}-{depth}.png": (512, 1024)
                for kind in ["rain", "snow"] for depth in ["far", "near"]})
 videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
@@ -88,7 +89,14 @@ for name in runtime:
                 foreground_alpha.setdefault(season, signature)
                 assert signature == foreground_alpha[season], \
                     f"시간대별 전경 형태 불일치: {name}"
-            im.verify()
+            if name == "autumn-maple-leaf.png":
+                assert im.mode == "RGBA", "단풍잎 투명 알파 누락"
+                assert im.getchannel("A").getextrema() == (0, 255), \
+                    "단풍잎 누끼 범위 오류"
+        # getchannel() 등으로 디코드한 이미지에는 verify()를 다시 호출할 수 없다.
+        # 파일 손상 검사는 새 핸들에서 수행한다.
+        with Image.open(p) as verified:
+            verified.verify()
 
 # 가을과 겨울은 각각 한 전신 원화에서 조명만 바꾼다. 시간대별 실루엣이
 # 달라지거나 평상시·근접본 사이에서 그림이 바뀌면 접근 중 튀어 보인다.

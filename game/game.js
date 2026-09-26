@@ -19,6 +19,7 @@
   function byId(id) { return document.getElementById(id); }
   var move = byId("naeru-move"), approach = byId("naeru-approach");
   var stride = byId("naeru-stride"), act = byId("naeru-act"), face = byId("naeru-face");
+  var hd = byId("naeruHd"), closeup = byId("naeruClose");
   var panel = byId("settings-panel"), greeting = byId("greeting");
   var message = byId("scene-message");
   if (!move || !approach || !stride || !act || !face) return;
@@ -29,12 +30,13 @@
   var HOME_X = 2020 / 3840, HOME_Y = 1720 / 2160;
   var FOOT_V = (1720 - 1328) / 496;          // 크롭 안 발끝 높이
   var BODY_V = 0.5;                           // 카메라가 따라가는 몸 중심
-  // 지평선에 가까울수록 작게. 저해상도 영상을 과하게 키우지 않도록 앞쪽을 제한한다.
+  var BROW_V = 119.5 / 496;                   // 가까이 오면 두 눈 사이를 따라간다
+  // 지평선에 가까울수록 작고, 화면 아래 끝에서는 인사할 때만큼 가까워진다.
   // 봄·여름은 좌우 앞꽃이 배경에 그려져 있어 그 위로 올라서지 않게 가장자리를 비운다.
-  var HORIZON = 0.63, FAR = 0.755, NEAR = 0.835, LEFT = 0.2, RIGHT = 0.86;
+  var HORIZON = 0.63, FAR = 0.755, NEAR = 0.94, LEFT = 0.2, RIGHT = 0.86;
   // 산책 중 카메라 확대 — 좌우로 스크롤할 여백. 세로 화면은 이미 좌우가 잘려 있어
-  // 확대하지 않아도 여백이 충분하므로 1로 둔다.
-  var ZOOM = 1.3;
+  // 기본 1.3배, 코앞에서는 2.2배로 여백을 확보해 얼굴까지 따라 내려간다.
+  var ZOOM = 1.3, NEAR_ZOOM = 2.2, nearApproachScale = 8;
   var IDLE_MS = 30000;
   var SPEED_X = 0.15, SPEED_Y = 0.05;         // 프레임 비율/초(원래 크기 기준)
   var STEP_HZ = 3.2;
@@ -59,7 +61,9 @@
     // 설정 창은 main 밖이라 스크롤을 그대로 쓴다.
     "html[data-game] :is(main, .bg-still, #naeru-touch) { touch-action: none; }" +
     "html[data-game] body { -webkit-user-select: none; user-select: none;" +
-    " -webkit-touch-callout: none; }";
+    " -webkit-touch-callout: none; }" +
+    // 가까운 고화질 원화를 작은 요소로 먼저 래스터화하지 않게 한다.
+    "html[data-game] #naeru-face { isolation: isolate; }";
   document.head.appendChild(style);
 
   var keys = new Set(), active = false, phase = "", frame = 0, last = 0;
@@ -70,9 +74,23 @@
   var blendUntil = 0, leaping = false;
   var goal = null, dragId = null;             // 터치로 정한 발끝 목표, 끌고 있는 손가락
   var frameGeo = "";
+  var baseImages = [], portrait = null;
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-  function depth(fy) { return (fy - HORIZON) / (HOME_Y - HORIZON); }
+  function smooth(value) { return value * value * (3 - 2 * value); }
+  function nearness(fy) {
+    return smooth(clamp((fy - HOME_Y) / (NEAR - HOME_Y), 0, 1));
+  }
+  function cameraZoom(fy) {
+    if (innerWidth < innerHeight) return 1;
+    return ZOOM + (NEAR_ZOOM - ZOOM) * nearness(fy);
+  }
+  function depth(fy) {
+    if (fy <= HOME_Y) return (fy - HORIZON) / (HOME_Y - HORIZON);
+    var near = nearness(fy), base = innerWidth < innerHeight ? 1 : ZOOM;
+    var screenScale = base + (nearApproachScale - base) * near;
+    return screenScale / cameraZoom(fy);
+  }
   function isArrow(key) { return /^Arrow(Up|Down|Left|Right)$/.test(key); }
   function isSpace(e) { return e.key === " " || e.code === "Space"; }
   function formField(el) {
@@ -91,6 +109,11 @@
     root.style.setProperty("--game-frame-top", b.T + "px");
     root.style.setProperty("--game-frame-width", b.W + "px");
     root.style.setProperty("--game-frame-height", b.H + "px");
+    var bodyW = b.W * CROP_W, bodyH = b.H * CROP_H;
+    nearApproachScale = Math.max(
+      b.vh * .92 / (bodyH * .46), b.vw * .8 / (bodyW * .54));
+    nearApproachScale = Math.min(
+      nearApproachScale, b.vw * .94 / (bodyW * .29));
   }
   // 누른 화면 위치를 카메라 역변환으로 들판의 발끝 좌표로 바꾼다.
   // 하늘이나 가장자리를 누르면 가장 가까운 들판 지점으로 간다.
@@ -134,6 +157,11 @@
     }
     x = HOME_X; y = HOME_Y; leaping = false; beat = 0; walk = 0; lean = 0; lead = 0;
     camX = camY = 0; zoom = 1; lastInput = performance.now();
+    // 장면 로더가 산책 도중 영상 슬롯을 바꿔도 저화질 겹이 다시 드러나지 않게
+    // 두 영상과 정지본을 모두 관리한다.
+    baseImages = Array.prototype.slice.call(
+      document.querySelectorAll("video.naeru, #naeruStill"));
+    portrait = null;
     if (greeting) greeting.hidden = true;
     goal = null; dragId = null;
     if (message) message.textContent = touch
@@ -149,6 +177,14 @@
     approach.style.transform = ""; stride.style.transform = "";
     move.style.transform = ""; act.style.transform = ""; act.style.transition = "";
     face.style.transform = "";
+    baseImages.forEach(function (image) { image.style.opacity = ""; });
+    [hd, closeup].forEach(function (image) {
+      if (!image) return;
+      image.style.opacity = "0";
+      image.style.width = ""; image.style.height = "";
+      image.style.transform = ""; image.style.transformOrigin = "";
+    });
+    baseImages = []; portrait = null;
     if (window.naeruShadow) { window.naeruShadow.travel(""); window.naeruShadow.lift(0); }
     root.style.removeProperty("--game-camera");
     if (window.naeru) { window.naeru.busy = false; window.naeru.hold = false; }
@@ -241,6 +277,7 @@
     // 점프 높이는 원근 크기를 따라간다. #naeru-move는 크기 겹 바깥이다.
     move.style.transform = up > 0 ? "translateY(" + (-up * sc).toFixed(3) + "%)" : "";
     face.style.transform = facing < 0 ? "scaleX(-1)" : "";
+    showPortrait();
     if (window.naeruShadow) {
       window.naeruShadow.travel(place);
       window.naeruShadow.lift(Math.max(up / 26, lift * 0.4));
@@ -258,6 +295,31 @@
       finish(); return;
     }
     frame = requestAnimationFrame(step);
+  }
+
+  function showPortrait() {
+    var asset = window.naeruAsset && window.naeruAsset(
+      document.body.dataset.variant, root.dataset.season);
+    var next = closeup && closeup.dataset.variant === asset &&
+      closeup.dataset.status === "ready" ? closeup :
+      hd && hd.dataset.variant === asset && hd.dataset.status === "ready" ? hd : null;
+    var close = nearness(y) >= 0.035;
+    if (!next || !close) {
+      if (portrait) portrait.style.opacity = "0";
+      baseImages.forEach(function (image) { image.style.opacity = ""; });
+      portrait = next;
+      return;
+    }
+    if (portrait && portrait !== next) portrait.style.opacity = "0";
+    portrait = next;
+    // 부모 원근과 카메라 확대 전에 최종 크기로 래스터화한다. 화면상 크기는
+    // 역스케일로 상쇄하므로 위치·실루엣은 원래 DOM 계약과 정확히 같다.
+    portrait.style.width = (nearApproachScale * 100).toFixed(3) + "%";
+    portrait.style.height = (nearApproachScale * 100).toFixed(3) + "%";
+    portrait.style.transformOrigin = "0 0";
+    portrait.style.transform = "scale(" + (1 / nearApproachScale).toFixed(7) + ")";
+    portrait.style.opacity = "1";
+    baseImages.forEach(function (image) { image.style.opacity = "0"; });
   }
 
   // 도약할 때 늘고, 착지할 때 눌린다. 기준점이 발끝이라 발은 땅에 붙어 있다.
@@ -281,15 +343,18 @@
     var b = frameBox(), vw = b.vw, vh = b.vh, W = b.W, H = b.H;
     setFrame(b);
     var returning = phase === "returning";
-    var zoomTo = returning || vw < vh ? 1 : ZOOM;
+    var zoomTo = returning ? 1 : cameraZoom(y);
     zoom += (zoomTo - zoom) * (1 - Math.exp(-dt * (returning ? 1.6 : 2.2)));
     if (Math.abs(zoom - 1) < 0.0005 && returning) zoom = 1;
     lead += (-facing * 0.05 * W - lead) * (1 - Math.exp(-dt * 1.5));
     var tx = 0, ty = 0;
     if (!returning) {
+      var near = nearness(y);
+      var focusV = BODY_V + (BROW_V - BODY_V) * near;
       var fx = (vw - W) / 2 + x * W + lead;
-      var fy = (vh - H) / 2 + (y - (FOOT_V - BODY_V) * CROP_H * sc) * H;
-      tx = -(fx - vw / 2) * zoom; ty = -(fy - vh / 2) * zoom;
+      var fy = (vh - H) / 2 + (y - (FOOT_V - focusV) * CROP_H * sc) * H;
+      var targetY = vh * (.5 - .11 * near);
+      tx = -(fx - vw / 2) * zoom; ty = -(fy - targetY) * zoom;
     }
     var k = 1 - Math.exp(-dt * (returning ? 2 : 3.5));
     camX += (tx - camX) * k; camY += (ty - camY) * k;
@@ -357,6 +422,13 @@
       start(Boolean(tap));
       if (tap) { goal = toField(tap.x, tap.y); dragId = tap.id; }
     },
-    get active() { return active; }
+    get active() { return active; },
+    get state() {
+      return { x: x, y: y, near: NEAR, scale: depth(y),
+        screenScale: depth(y) * zoom, zoom: zoom,
+        approachScale: nearApproachScale, portrait: Boolean(
+          portrait && portrait.style.opacity === "1"),
+        portraitId: portrait ? portrait.id : "" };
+    }
   };
 })();

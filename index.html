@@ -223,7 +223,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
     opacity: 0; pointer-events: none;
   }
   html[data-close-motion] #naeruClose { visibility: hidden; }
-  /* 가까워지는 정도에 맞춰 직접 교차 전환한다. 장면용 2.5초 전환과 겹치지 않는다. */
+  /* 접근 중에는 고화질 원화로 즉시 전환한다. 장면용 2.5초 전환과 겹치지 않는다. */
   html[data-approach] .naeru, html[data-approach] #naeruStill { transition: none; }
   /* 두 원화의 불투명도를 더해 전환 중 몸이 반투명해지지 않게 한다.
      합성은 얼굴 그룹 안에 가둬 배경색까지 밝아지는 것을 막는다. */
@@ -391,6 +391,20 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   #bonk {
     border-radius: 50%;
     border: 2px solid rgba(255, 252, 245, 0.85);
+  }
+
+  /* 가을에 한 장씩 떨어지는 단풍잎. #frame 안에 두어 화면비가 달라도
+     배경과 같은 16:9 좌표를 쓰고, .graded로 시간대·날씨의 빛을 함께 받는다. */
+  #autumn-leaf {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 2.15%;
+    height: auto;
+    opacity: 0;
+    pointer-events: none;
+    transform-origin: 50% 50%;
+    will-change: transform, opacity;
   }
 
   /* 공은 DOM으로 그리므로 배경 그레이딩을 안 받는다. 내루미는 변형별로 8벌을
@@ -652,6 +666,8 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
 <!-- 가끔 날아와 내루미 머리를 때리고 사라지는 공.
      프레임 박스 안에 비율로 배치되므로 화면비가 뭐든 머리에 맞는다 -->
 <div id="frame" class="graded" aria-hidden="true">
+  <!-- 한 번에 한 장만 쓰는 가을 낙엽. 내루미와의 상호작용은 다음 단계에서 붙인다. -->
+  <img id="autumn-leaf" alt="">
   <div id="ball">
     <!-- 애플뮤직 앱아이콘 빨강(2026-09-04 지정). 아이콘의 그러데이션은
          #FA233B~#FB5C74인데, 붉은 끝값을 그대로 쓰면 이 회화풍 배경 위에서
@@ -853,7 +869,7 @@ function createSceneMotion(restart, cleanup, ambient) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "4cb146f69b1a";
+  var ASSET_V = "da5af32486ae";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1048,17 +1064,19 @@ function createSceneMotion(restart, cleanup, ambient) {
     if (hd.dataset.variant === variant) return;
     var request = ++hdRequest;
     hd.dataset.variant = variant; hd.dataset.status = "loading";
-    var image = new Image();
-    image.src = av("naeru-" + variant + "-hd.webp");
-    // 작은 정지본과 배경을 먼저 띄운다. HD의 지연·실패로 장면 확정을 막지 않는다.
-    image.decode().then(function () {
+    hd.onload = function () {
       if (request !== hdRequest) return;
-      hd.src = image.src; hd.dataset.status = "ready";
+      hd.dataset.status = "ready";
       if (active && characterOf(active, activeSeason) === variant &&
-          !root.dataset.approach) still.src = image.src;
-    }).catch(function () {
+          !root.dataset.approach) still.src = hd.src;
+    };
+    hd.onerror = function () {
       if (request === hdRequest) hd.dataset.status = "failed";
-    });
+    };
+    // 작은 정지본과 배경을 먼저 띄운다. HD의 지연·실패로 장면 확정을 막지 않는다.
+    // Safari의 file:// WebP는 decode()만 거부할 수 있으므로 실제 DOM 이미지의
+    // onload를 기준으로 판정한다. 이러면 로컬 미리보기에서도 잘못 폴백하지 않는다.
+    hd.src = av("naeru-" + variant + "-hd.webp");
   }
   function layout() {
     layoutFrameBox(stage); layoutFrameBox(landscape); layoutFrameBox(foreground);
@@ -1344,6 +1362,105 @@ function createSceneMotion(restart, cleanup, ambient) {
   }
 
   var motion = createSceneMotion(restart, function () { release("none"); }, true);
+  motion.start();
+})();
+</script>
+
+<script>
+/* ── 가을 단풍잎 ──────────────────────────────────────────────────
+   한 장이 화면 위에서 풀밭까지 천천히 흔들리며 내려온다. 같은 이미지를 여러 장
+   동시에 복제하지 않아 장식이 과해지지 않게 하고, 근접 방문 중에는 즉시 숨긴다.
+
+   ?leaf=0 끄기 / ?leaf=1 빠른 동작 검사 ────────────────────────── */
+(function () {
+  var flag = new URLSearchParams(location.search).get("leaf");
+  if (flag === "0") return;
+  var DEBUG = flag === "1";
+  var FIRST = [12000, 24000], GAP = [50000, 95000], RETRY = [1800, 3200];
+  var FLIGHT = [11000, 15000];
+  var root = document.documentElement;
+  var frame = document.getElementById("frame");
+  var leaf = document.getElementById("autumn-leaf");
+  var W = 0, H = 0, ready = false;
+  if (!frame || !leaf) return;
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function clamp(value, low, high) {
+    return Math.max(low, Math.min(high, value));
+  }
+  function autumn() { return root.dataset.season === "autumn"; }
+  function available() {
+    return autumn() && !root.hasAttribute("data-approach");
+  }
+  function layout() {
+    var box = layoutFrameBox(frame);
+    W = box.W; H = box.H;
+  }
+  function hide(state) {
+    leaf.style.opacity = "0";
+    leaf.style.transform = "";
+    root.dataset.autumnLeaf = state || (autumn() ? "idle" : "off");
+  }
+
+  function fly() {
+    if (!available() || !ready) { schedule("retry"); return; }
+    var dur = DEBUG ? 4800 : rand(FLIGHT[0], FLIGHT[1]);
+    var x0 = rand(0.18, 0.82);
+    var direction = Math.random() < 0.5 ? -1 : 1;
+    var x1 = clamp(x0 + direction * rand(0.10, 0.22), 0.10, 0.90);
+    var phase = rand(0, Math.PI * 2);
+    var scale = rand(0.82, 1.12);
+    var angle = rand(-80, 80);
+    var spin = direction * rand(390, 610);
+    var started = performance.now();
+    root.dataset.autumnLeaf = "flying";
+
+    (function step(now) {
+      if (!available()) { hide(); schedule("retry"); return; }
+      var t = Math.min(1, (now - started) / dur);
+      var fall = t * t * (3 - 2 * t);
+      var sway = Math.sin(t * Math.PI * 5 + phase) * 0.030 +
+                 Math.sin(t * Math.PI * 11 + phase * 0.7) * 0.009;
+      var x = x0 + (x1 - x0) * fall + sway;
+      var y = -0.07 + 0.94 * fall;
+      var size = scale * (0.90 + 0.13 * fall);
+      var fade = Math.min(1, t / 0.07, (1 - t) / 0.11);
+      leaf.style.opacity = Math.max(0, fade).toFixed(3);
+      leaf.style.transform = "translate(" + (x * W).toFixed(1) + "px," +
+        (y * H).toFixed(1) + "px) translate(-50%,-50%) rotate(" +
+        (angle + spin * t + Math.sin(t * Math.PI * 7 + phase) * 13).toFixed(1) +
+        "deg) scale(" + size.toFixed(3) + ")";
+      if (t < 1) requestAnimationFrame(step);
+      else { hide(); schedule("gap"); }
+    })(started);
+  }
+
+  function schedule(kind) {
+    if (!autumn()) { hide("off"); return; }
+    var range = kind === "first" ? FIRST : kind === "retry" ? RETRY : GAP;
+    var ms = DEBUG ? (kind === "first" ? 500 : 1800) : rand(range[0], range[1]);
+    setTimeout(function () {
+      if (!autumn()) { hide("off"); return; }
+      if (!available() || !ready) { schedule("retry"); return; }
+      fly();
+    }, ms);
+  }
+
+  addEventListener("resize", layout);
+  leaf.onload = function () { ready = true; };
+  leaf.onerror = function () { ready = false; hide("failed"); };
+
+  var motion = createSceneMotion(function () {
+    layout();
+    if (!autumn()) { hide("off"); return; }
+    if (!leaf.getAttribute("src")) {
+      leaf.src = "img/autumn-maple-leaf.png?v=" + root.dataset.av;
+    }
+    ready = leaf.complete && leaf.naturalWidth > 0;
+    hide("idle");
+    schedule("first");
+  }, function () { hide(); });
+  var requestAnimationFrame = motion.frame, setTimeout = motion.later;
   motion.start();
 })();
 </script>
@@ -2601,7 +2718,7 @@ function createSceneMotion(restart, cleanup, ambient) {
   var closeup = document.getElementById("naeruClose");
   var rig = document.getElementById("naeruCloseRig");
   var portrait = hd, closeRequest = 0;
-  var baseImage = null, useHD = false;
+  var baseImage = null, useHD = false, bridgeHD = false;
   var stride = document.getElementById("naeru-stride");
   var move = document.getElementById("naeru-move");
   var back = document.getElementById("approach-return");
@@ -2629,15 +2746,17 @@ function createSceneMotion(restart, cleanup, ambient) {
     // 작은 영상의 굵은 선을 그대로 확대하지 않는다. 근접용 원화는 접근할 수
     // 있는 장면에서만 준비하고, 평소 정지본에는 기존 HD를 계속 사용한다.
     if (closeup.dataset.variant !== asset) {
-      var request = ++closeRequest, image = new Image();
+      var request = ++closeRequest;
       closeup.dataset.variant = asset; closeup.dataset.status = "loading";
-      image.src = "img/naeru-" + asset + "-close.webp" + version;
-      image.decode().then(function () {
-        if (request !== closeRequest) return;
-        closeup.src = image.src; closeup.dataset.status = "ready";
-      }).catch(function () {
+      closeup.onload = function () {
+        if (request === closeRequest) closeup.dataset.status = "ready";
+      };
+      closeup.onerror = function () {
         if (request === closeRequest) closeup.dataset.status = "failed";
-      });
+      };
+      // decode()를 별도 Image에서 호출하지 않는다. 실제 표시·WebGL 입력에 쓰는
+      // 요소가 완전히 로드된 뒤에만 ready가 되어 로컬에서도 빈 프레임이 없다.
+      closeup.src = "img/naeru-" + asset + "-close.webp" + version;
     }
   }
 
@@ -2652,6 +2771,35 @@ function createSceneMotion(restart, cleanup, ambient) {
     wait.hidden = pending !== "preview" || running || !eligible() || document.hidden ||
                   root.dataset.sceneReady !== "true";
   }
+  function blendBetween(a, b, value) {
+    var t = Math.max(0, Math.min(1, (value - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  }
+  function rasterAtFinalSize(image, scale) {
+    image.style.width = (scale * 100).toFixed(3) + "%";
+    image.style.height = (scale * 100).toFixed(3) + "%";
+    image.style.transformOrigin = "0 0";
+    image.style.transform = "scale(" + (1 / scale).toFixed(7) + ")";
+  }
+  function opacityValue(value) {
+    if (value <= 0) return "0";
+    if (value >= 1) return "1";
+    return value.toFixed(4);
+  }
+  function showArtwork(p) {
+    if (!useHD || !baseImage) return;
+    // 원래 영상과 형태가 같은 HD 정지본을 1배 크기에서 짧게 거쳐 근접 원화의
+    // 미세한 윤곽 차이가 한 프레임짜리 깜빡임으로 보이지 않게 한다.
+    var handoff = blendBetween(0, .018, p);
+    var art = bridgeHD ? blendBetween(.035, .12, p) : 1;
+    baseImage.style.opacity = opacityValue(1 - handoff);
+    if (portrait === hd) {
+      hd.style.opacity = opacityValue(handoff);
+      return;
+    }
+    hd.style.opacity = bridgeHD ? opacityValue(handoff * (1 - art)) : "0";
+    portrait.style.opacity = opacityValue(handoff * art);
+  }
   function reset() {
     var owned = running || reserved;
     // 장면이 바뀌는 동안 이전 장면의 수동 호출 예약을 새 계절로 넘기지 않는다.
@@ -2659,14 +2807,23 @@ function createSceneMotion(restart, cleanup, ambient) {
     if (document.hidden && pending !== "focus") pending = null;
     if (window.naeruReduced()) pending = null;
     running = false; reserved = false; geometry = null; progress = 0;
+    // data-approach가 사라지면 영상의 장면 전환용 2.5초 transition이 돌아온다.
+    // 그 전에 같은 1배 프레임을 불투명하게 복원해 빈 화면으로 페이드하지 않게 한다.
+    if (baseImage) baseImage.style.opacity = "1";
     window.naeruCloseMotion.reset();
     rigReady = false; rigPose = [0, 0, 0]; returnPose = [0, 0, 0];
+    [hd, closeup].forEach(function (image) {
+      image.style.opacity = "0";
+      image.style.width = ""; image.style.height = "";
+      image.style.transform = ""; image.style.transformOrigin = "";
+    });
+    if (baseImage) getComputedStyle(baseImage).opacity;
     delete root.dataset.approach;
     delete root.dataset.approachQuality;
     delete root.dataset.approachArt;
     if (baseImage) baseImage.style.opacity = "";
-    baseImage = null; useHD = false;
-    hd.style.opacity = "0"; closeup.style.opacity = "0"; portrait = hd;
+    baseImage = null; useHD = false; bridgeHD = false;
+    portrait = hd;
     var asset = window.naeruAsset(
       document.body.dataset.variant, root.dataset.season);
     if (hd.dataset.status === "ready" && hd.dataset.variant === asset) {
@@ -2703,14 +2860,7 @@ function createSceneMotion(restart, cleanup, ambient) {
       "deg) scaleY(" + (1 - lift * .012).toFixed(4) + ")";
     window.naeruShadow.travel(approach.style.transform);
     window.naeruShadow.lift(lift * .4);
-    if (useHD) {
-      // 접근 시작부터 최종 표시 크기로 준비한 캔버스에 연결한다. 작은 DOM img를
-      // 부모와 함께 확대하면 Safari가 저해상도 래스터를 재사용해 픽셀이 보인다.
-      var mix = Math.max(0, Math.min(1, (p - .04) / .20));
-      mix = mix * mix * (3 - 2 * mix);
-      portrait.style.opacity = mix.toFixed(4);
-      baseImage.style.opacity = (1 - mix).toFixed(4);
-    }
+    if (useHD) showArtwork(p);
   }
   function changePhase(next, now) {
     phase = next; phaseStart = now; root.dataset.approach = next;
@@ -2765,8 +2915,10 @@ function createSceneMotion(restart, cleanup, ambient) {
     var variant = document.body.dataset.variant;
     var asset = window.naeruAsset(variant, root.dataset.season);
     var closeReady = closeup.dataset.variant === asset && closeup.dataset.status === "ready";
+    var hdReady = hd.dataset.variant === asset && hd.dataset.status === "ready";
     portrait = closeReady ? closeup : hd;
-    useHD = closeReady || (hd.dataset.variant === asset && hd.dataset.status === "ready");
+    useHD = closeReady || hdReady;
+    bridgeHD = closeReady && hdReady;
     root.dataset.approachQuality = useHD ? "hd" : "original";
     root.dataset.approachArt = closeReady ? "closeup" : useHD ? "restored" : "original";
     nextVisit = performance.now() + visitGap;
@@ -2786,10 +2938,21 @@ function createSceneMotion(restart, cleanup, ambient) {
     rigReady = closeReady && window.naeruCloseMotion.prepare(closeup,
       box.width * scale, box.height * scale);
     if (rigReady) portrait = rig;
+    if (hdReady) rasterAtFinalSize(hd, scale);
+    if (!rigReady && portrait !== hd && useHD) {
+      // file://에서는 브라우저 보안상 로컬 이미지를 WebGL 텍스처로 못 넘긴다.
+      // 작은 img를 부모 transform으로만 키우면 Safari가 저해상도 래스터를
+      // 재사용하므로, 레이아웃 크기를 최종 크기로 잡고 역스케일해 같은 위치에 둔다.
+      rasterAtFinalSize(portrait, scale);
+    }
+    // transition을 먼저 끈 뒤 1배 크기에서 영상→HD→근접 원화 순으로 넘긴다.
+    // 1.8% 진행 시 이미 HD만 남으므로 확대 구간에는 저해상도 영상이 없다.
+    changePhase("walking", performance.now());
+    if (useHD) showArtwork(0);
     back.hidden = false;
     document.getElementById("greeting").hidden = true;
     document.getElementById("naeru-touch").setAttribute("aria-label", "내루미를 제자리로 보내기");
-    changePhase("walking", performance.now()); motion.frame(animate);
+    motion.frame(animate);
   }
   function tryPending() {
     if (!pending || running || !sceneMotionAllowed()) { controls(); return; }

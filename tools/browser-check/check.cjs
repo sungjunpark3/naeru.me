@@ -514,7 +514,7 @@ async function check(name, fn) {
         await p.route('**/img/naeru-*.mp4*', r => r.abort());
         await open(p, 'v=day&w=clear&ball=0&flit=0&ff=0');
         await p.waitForTimeout(4500);
-        // 첫 접근 중에는 같은 정지본을 HD 레이어로 교차 전환한다.
+        // 첫 접근 중에는 같은 정지본을 HD 레이어로 즉시 바꾼다.
         // 복귀 후 기본 정지본이 다시 보이는지까지 확인한다.
         await p.waitForFunction(() => !document.documentElement.dataset.approach &&
           getComputedStyle(document.querySelector('#naeruStill')).opacity === '1',
@@ -650,6 +650,164 @@ async function check(name, fn) {
           assert.deepEqual(p.errors, []);
         } finally { await p.close(); }
       }));
+    });
+    await check('로컬 미리보기: decode 없이 고화질 근접 원화 로드', async () => {
+      const p = await makePage({ viewport: { width: 1920, height: 1080 } });
+      p.setDefaultTimeout(30000);
+      try {
+        await p.addInitScript(() => {
+          window.imageDecodeCalls = 0;
+          Object.defineProperty(HTMLImageElement.prototype, 'decode', {
+            configurable: true,
+            value() {
+              window.imageDecodeCalls++;
+              return Promise.reject(new Error('file URL decode rejected'));
+            }
+          });
+        });
+        const localUrl = 'file://' + path.join(repo, 'index.html') +
+          '?s=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0';
+        await p.goto(localUrl, { waitUntil: 'domcontentloaded' });
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.sceneReady === 'true');
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.approach === 'walking');
+        await p.waitForFunction(() =>
+          +document.querySelector('#naeruClose').style.opacity > .99 &&
+          +document.querySelector('video.naeru.on').style.opacity === 0);
+        const state = await p.evaluate(() => ({
+          quality: document.documentElement.dataset.approachQuality,
+          art: document.documentElement.dataset.approachArt,
+          hd: document.querySelector('#naeruHd').dataset.status,
+          close: document.querySelector('#naeruClose').dataset.status,
+          width: document.querySelector('#naeruClose').naturalWidth,
+          videoOpacity: document.querySelector('video.naeru.on').style.opacity,
+          closeOpacity: document.querySelector('#naeruClose').style.opacity,
+          closeWidth: parseFloat(document.querySelector('#naeruClose').style.width),
+          canvasOpacity: document.querySelector('#naeruCloseRig').style.opacity,
+          decodeCalls: window.imageDecodeCalls
+        }));
+        assert.equal(state.quality, 'hd');
+        assert.equal(state.art, 'closeup');
+        assert.equal(state.hd, 'ready');
+        assert.equal(state.close, 'ready');
+        assert.equal(state.width, 4608);
+        assert.equal(+state.videoOpacity, 0);
+        // file://에서는 WebGL 대신 최종 표시 크기로 선행 래스터화한 img를 쓴다.
+        assert.equal(state.canvasOpacity, '0');
+        assert.equal(+state.closeOpacity, 1);
+        assert(state.closeWidth > 100);
+        assert.equal(state.decodeCalls, 0);
+        await p.waitForTimeout(3200);
+        await shot(p, 'file-preview-approach');
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { await p.close(); }
+    });
+    await check('다가오기 전환: 시작·복귀에 투명 프레임 없음', async () => {
+      const p = await makePage({ viewport: { width: 1920, height: 1080 } });
+      p.setDefaultTimeout(30000);
+      try {
+        await open(p, 's=autumn&v=day&w=clear&act=idle&ball=0&flit=0&ff=0&leaf=0');
+        await playing(p);
+        await p.waitForFunction(() =>
+          document.querySelector('#naeruHd').dataset.status === 'ready' &&
+          document.querySelector('#naeruClose').dataset.status === 'ready');
+        await p.evaluate(() => {
+          window.naeruHandoffSamples = [];
+          let seen = false, after = 0;
+          function sample() {
+            const phase = document.documentElement.dataset.approach || '';
+            if (phase) seen = true;
+            const base = document.querySelector('video.naeru.on') ||
+              document.querySelector('#naeruStill.on');
+            const layers = [base, document.querySelector('#naeruHd'),
+              document.querySelector('#naeruClose'),
+              document.querySelector('#naeruCloseRig')].filter(Boolean);
+            const sum = layers.reduce((value, layer) => {
+              const style = getComputedStyle(layer);
+              return value + (style.visibility === 'hidden' ? 0 : +style.opacity);
+            }, 0);
+            if (seen) window.naeruHandoffSamples.push({ phase, sum });
+            if (seen && !phase && ++after > 4) return;
+            requestAnimationFrame(sample);
+          }
+          requestAnimationFrame(sample);
+          document.dispatchEvent(new Event('naeru:approach'));
+        });
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.approach === 'walking');
+        await p.waitForFunction(() =>
+          +document.querySelector('video.naeru.on').style.opacity === 0);
+        await p.locator('#approach-return').click();
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.approach === 'returning');
+        await p.waitForFunction(() =>
+          !document.documentElement.dataset.approach);
+        await p.waitForTimeout(100);
+        const samples = await p.evaluate(() => window.naeruHandoffSamples);
+        assert(samples.length > 20);
+        assert(Math.min(...samples.map(sample => sample.sum)) > .97);
+        assert(Math.max(...samples.map(sample => sample.sum)) < 1.03);
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { await p.close(); }
+    });
+    await check('들판 산책: 인사 거리까지 전진하고 고화질 원화 유지', async () => {
+      for (const [source, width, height] of [
+        ['http', 1920, 1080], ['http', 390, 844], ['file', 1920, 1080]
+      ]) {
+        const p = await makePage({ viewport: { width, height } });
+        p.setDefaultTimeout(30000);
+        try {
+          const query = 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0&leaf=0';
+          if (source === 'file') {
+            await p.goto('file://' + path.join(repo, 'index.html') + '?' + query,
+              { waitUntil: 'domcontentloaded' });
+            await p.waitForFunction(() =>
+              document.documentElement.dataset.sceneReady === 'true');
+          } else {
+            await open(p, query);
+          }
+          await p.waitForFunction(() =>
+            document.querySelector('#naeruHd').dataset.status === 'ready');
+          await p.keyboard.down('ArrowDown');
+          await p.waitForFunction(() => window.naeruGame && window.naeruGame.active);
+          await p.waitForFunction(() => {
+            const s = window.naeruGame && window.naeruGame.state;
+            return s && Math.abs(s.y - s.near) < .0001;
+          });
+          await p.keyboard.up('ArrowDown');
+          await p.waitForFunction(() => {
+            const s = window.naeruGame.state;
+            return Math.abs(s.screenScale - s.approachScale) /
+              s.approachScale < .03;
+          });
+          const state = await p.evaluate(() => {
+            const s = window.naeruGame.state;
+            const image = document.querySelector('#' + s.portraitId);
+            const baseOpacities = [...document.querySelectorAll(
+              'video.naeru, #naeruStill')].map(e => e.style.opacity);
+            const box = document.querySelector('#naeru-face').getBoundingClientRect();
+            return { ...s, portraitOpacity: image.style.opacity,
+              portraitWidth: image.naturalWidth, baseOpacities,
+              face: { x: box.x, y: box.y, width: box.width, height: box.height },
+              viewport: { width: innerWidth, height: innerHeight } };
+          });
+          assert.equal(state.portrait, true);
+          assert.match(state.portraitId, /^naeru(?:Hd|Close)$/);
+          assert.equal(state.portraitOpacity, '1');
+          assert.equal(state.portraitWidth, 4608);
+          assert(state.baseOpacities.every(opacity => opacity === '0'));
+          assert(Math.abs(state.screenScale - state.approachScale) /
+            state.approachScale < .03);
+          assert(state.face.y < state.viewport.height * .5);
+          assert(state.face.y + state.face.height > state.viewport.height * .5);
+          await shot(p, `game-near-${source}-${width}`);
+          assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+        } finally {
+          await p.keyboard.up('ArrowDown').catch(() => {});
+          await p.close();
+        }
+      }
     });
     await check('근접 모션: 기존 원화의 얼굴 보존·팔·혀·몸의 독립 움직임', async () => {
       const p = await makePage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 });
@@ -797,6 +955,11 @@ async function check(name, fn) {
             await open(p, `s=autumn&v=${band}&w=clear&ball=0&flit=0&ff=0`);
             await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');
             const video = p.locator('video.naeru.on');
+            // 1배 크기에서 영상→HD→근접 원화로 넘긴 뒤 확대 구간에는
+            // 고해상도 캔버스만 남아야 한다.
+            await p.waitForFunction(() =>
+              +document.querySelector('#naeruCloseRig').style.opacity > .99 &&
+              +document.querySelector('video.naeru.on').style.opacity === 0);
             const frozen = await video.evaluate(v => ({ time: v.currentTime,
               owner: v.dataset.pauseOwner, paused: v.paused }));
             assert.equal(frozen.owner, 'approach'); assert(frozen.paused);
@@ -1297,6 +1460,48 @@ async function check(name, fn) {
         assert.equal(await p.evaluate(() => window.visits.length), 4);
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
+    });
+    await check('가을 단풍잎: 한 장 낙하·계절 전환·동작 줄이기', async () => {
+      const p = await makePage({ viewport: { width: 1440, height: 900 } });
+      try {
+        await open(p, 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0&leaf=1');
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.autumnLeaf === 'flying');
+        await p.waitForFunction(() =>
+          Number(getComputedStyle(document.querySelector('#autumn-leaf')).opacity) > .2);
+        const first = await p.locator('#autumn-leaf').evaluate(e => e.style.transform);
+        await p.waitForTimeout(250);
+        const moving = await p.locator('#autumn-leaf').evaluate(e => ({
+          transform: e.style.transform,
+          src: e.getAttribute('src'),
+          count: document.querySelectorAll('#autumn-leaf').length
+        }));
+        assert.notEqual(moving.transform, first);
+        assert.match(moving.src, /autumn-maple-leaf\.png/);
+        assert.equal(moving.count, 1);
+        await p.waitForTimeout(1500);
+        await shot(p, 'autumn-leaf-flight');
+
+        await p.click('#settings-open');
+        await p.selectOption('#setting-season', 'winter');
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.season === 'winter' &&
+          document.documentElement.dataset.autumnLeaf === 'off');
+        assert.equal(await p.locator('#autumn-leaf').evaluate(e => e.style.opacity), '0');
+        assert.equal(await p.locator('#autumn-leaf').evaluate(e => e.style.transform), '');
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { await p.close(); }
+
+      const reduced = await makePage({ reducedMotion: 'reduce' });
+      try {
+        await open(reduced,
+          's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0&leaf=1');
+        await reduced.waitForTimeout(700);
+        assert.equal(await reduced.locator('#autumn-leaf').evaluate(e =>
+          getComputedStyle(e).opacity), '0');
+        assert.equal(await reduced.locator('#autumn-leaf').getAttribute('src'), null);
+        assert.deepEqual(reduced.errors, []); assert.deepEqual(reduced.missing, []);
+      } finally { await reduced.close(); }
     });
     await check('집중 시간 저장·완료·종료', async () => {
       const p = await makePage({ reducedMotion: 'reduce' });
