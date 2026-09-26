@@ -152,8 +152,9 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   }
   /* 다가오기는 바깥 겹의 원근 이동 + 안쪽 겹의 보폭으로 나눈다.
      기존 폴짝·인사와 transform을 공유하지 않는다. */
-  html[data-approach] #naeru-approach,
-  html[data-approach] #naeru-stride { will-change: transform; }
+  /* Safari가 접근 시작·종료 때 합성 레이어를 새로 만들며 한 프레임 번쩍이지 않게
+     평상시부터 같은 transform 레이어를 유지한다. */
+  #naeru-approach, #naeru-stride { will-change: transform; }
   /* 배경과 같은 cover 좌표를 쓰되 내루미의 이동·확대와는 독립된 앞풀이다.
      계절·시간대 색을 자산에 입혔으므로 #stage의 캐릭터용 필터 밖에 둔다. */
   #foreground { position: fixed; pointer-events: none; }
@@ -230,8 +231,10 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   @supports (mix-blend-mode: plus-lighter) {
     #foreground { isolation: isolate; }
     .foreground-layer { mix-blend-mode: plus-lighter; }
-    html[data-approach] #naeru-face { isolation: isolate; }
-    html[data-approach] :is(.naeru, #naeruStill, #naeruHd, #naeruClose, #naeruCloseRig) {
+    /* 접근 때만 격리·혼합을 켜면 Safari가 영상↔원화 교체와 동시에 합성 트리를
+       재구성한다. 항상 같은 트리를 쓰고 불투명도만 바꾼다. */
+    #naeru-face { isolation: isolate; }
+    :is(.naeru, #naeruStill, #naeruHd, #naeruClose, #naeruCloseRig) {
       mix-blend-mode: plus-lighter;
     }
   }
@@ -2718,7 +2721,7 @@ function createSceneMotion(restart, cleanup, ambient) {
   var closeup = document.getElementById("naeruClose");
   var rig = document.getElementById("naeruCloseRig");
   var portrait = hd, closeRequest = 0;
-  var baseImage = null, useHD = false, bridgeHD = false;
+  var baseImage = null, useHD = false;
   var stride = document.getElementById("naeru-stride");
   var move = document.getElementById("naeru-move");
   var back = document.getElementById("approach-return");
@@ -2788,17 +2791,13 @@ function createSceneMotion(restart, cleanup, ambient) {
   }
   function showArtwork(p) {
     if (!useHD || !baseImage) return;
-    // 원래 영상과 형태가 같은 HD 정지본을 1배 크기에서 짧게 거쳐 근접 원화의
-    // 미세한 윤곽 차이가 한 프레임짜리 깜빡임으로 보이지 않게 한다.
-    var handoff = blendBetween(0, .018, p);
-    var art = bridgeHD ? blendBetween(.035, .12, p) : 1;
+    // Safari는 영상→HD→근접 원화의 세 겹 전환에서 가운데 HD를 건너뛰어
+    // 잠깐 빈 프레임을 만들 수 있다. 멈춘 영상과 준비된 원화를 직접 겹쳐
+    // 1배에 가까운 구간에서 교차하고, 둘의 합은 항상 1로 유지한다.
+    var handoff = blendBetween(0, .05, p);
     baseImage.style.opacity = opacityValue(1 - handoff);
-    if (portrait === hd) {
-      hd.style.opacity = opacityValue(handoff);
-      return;
-    }
-    hd.style.opacity = bridgeHD ? opacityValue(handoff * (1 - art)) : "0";
-    portrait.style.opacity = opacityValue(handoff * art);
+    if (portrait !== hd) hd.style.opacity = "0";
+    portrait.style.opacity = opacityValue(handoff);
   }
   function reset() {
     var owned = running || reserved;
@@ -2822,7 +2821,7 @@ function createSceneMotion(restart, cleanup, ambient) {
     delete root.dataset.approachQuality;
     delete root.dataset.approachArt;
     if (baseImage) baseImage.style.opacity = "";
-    baseImage = null; useHD = false; bridgeHD = false;
+    baseImage = null; useHD = false;
     portrait = hd;
     var asset = window.naeruAsset(
       document.body.dataset.variant, root.dataset.season);
@@ -2918,7 +2917,6 @@ function createSceneMotion(restart, cleanup, ambient) {
     var hdReady = hd.dataset.variant === asset && hd.dataset.status === "ready";
     portrait = closeReady ? closeup : hd;
     useHD = closeReady || hdReady;
-    bridgeHD = closeReady && hdReady;
     root.dataset.approachQuality = useHD ? "hd" : "original";
     root.dataset.approachArt = closeReady ? "closeup" : useHD ? "restored" : "original";
     nextVisit = performance.now() + visitGap;
@@ -2938,15 +2936,14 @@ function createSceneMotion(restart, cleanup, ambient) {
     rigReady = closeReady && window.naeruCloseMotion.prepare(closeup,
       box.width * scale, box.height * scale);
     if (rigReady) portrait = rig;
-    if (hdReady) rasterAtFinalSize(hd, scale);
-    if (!rigReady && portrait !== hd && useHD) {
+    if (!rigReady && useHD) {
       // file://에서는 브라우저 보안상 로컬 이미지를 WebGL 텍스처로 못 넘긴다.
       // 작은 img를 부모 transform으로만 키우면 Safari가 저해상도 래스터를
       // 재사용하므로, 레이아웃 크기를 최종 크기로 잡고 역스케일해 같은 위치에 둔다.
       rasterAtFinalSize(portrait, scale);
     }
-    // transition을 먼저 끈 뒤 1배 크기에서 영상→HD→근접 원화 순으로 넘긴다.
-    // 1.8% 진행 시 이미 HD만 남으므로 확대 구간에는 저해상도 영상이 없다.
+    // transition을 먼저 끈 뒤 1배에 가까운 구간에서 영상과 고화질 원화를
+    // 직접 교차한다. 5% 진행 이후 확대 구간에는 고화질 원화만 남는다.
     changePhase("walking", performance.now());
     if (useHD) showArtwork(0);
     back.hidden = false;

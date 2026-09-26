@@ -712,6 +712,11 @@ async function check(name, fn) {
         await p.waitForFunction(() =>
           document.querySelector('#naeruHd').dataset.status === 'ready' &&
           document.querySelector('#naeruClose').dataset.status === 'ready');
+        const compositeBefore = await p.evaluate(() => ({
+          willChange: getComputedStyle(document.querySelector('#naeru-approach')).willChange,
+          isolation: getComputedStyle(document.querySelector('#naeru-face')).isolation,
+          blend: getComputedStyle(document.querySelector('video.naeru.on')).mixBlendMode
+        }));
         await p.evaluate(() => {
           window.naeruHandoffSamples = [];
           let seen = false, after = 0;
@@ -738,6 +743,11 @@ async function check(name, fn) {
           document.documentElement.dataset.approach === 'walking');
         await p.waitForFunction(() =>
           +document.querySelector('video.naeru.on').style.opacity === 0);
+        const compositeDuring = await p.evaluate(() => ({
+          willChange: getComputedStyle(document.querySelector('#naeru-approach')).willChange,
+          isolation: getComputedStyle(document.querySelector('#naeru-face')).isolation,
+          blend: getComputedStyle(document.querySelector('video.naeru.on')).mixBlendMode
+        }));
         await p.locator('#approach-return').click();
         await p.waitForFunction(() =>
           document.documentElement.dataset.approach === 'returning');
@@ -745,9 +755,17 @@ async function check(name, fn) {
           !document.documentElement.dataset.approach);
         await p.waitForTimeout(100);
         const samples = await p.evaluate(() => window.naeruHandoffSamples);
+        const compositeAfter = await p.evaluate(() => ({
+          willChange: getComputedStyle(document.querySelector('#naeru-approach')).willChange,
+          isolation: getComputedStyle(document.querySelector('#naeru-face')).isolation,
+          blend: getComputedStyle(document.querySelector('video.naeru.on')).mixBlendMode
+        }));
         assert(samples.length > 20);
         assert(Math.min(...samples.map(sample => sample.sum)) > .97);
         assert(Math.max(...samples.map(sample => sample.sum)) < 1.03);
+        assert.equal(compositeBefore.willChange, 'transform');
+        assert.deepEqual(compositeDuring, compositeBefore);
+        assert.deepEqual(compositeAfter, compositeBefore);
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });
