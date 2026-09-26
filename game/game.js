@@ -57,6 +57,9 @@
     ".clock-wrap, #settings-open { transition: opacity 1.2s ease; }" +
     "html[data-game=play] .clock-wrap { opacity: .18; }" +
     "html[data-game=play] #settings-open { opacity: .2; }" +
+    // 원래 영상과 근접 원화의 불투명도를 매 프레임 직접 맞춘다. 장면 전환용
+    // 2.5초 transition이 남으면 뒤로 걸을 때 영상만 늦게 나타나 빈 프레임이 생긴다.
+    "html[data-game] :is(.naeru, #naeruStill) { transition: none; }" +
     // 산책 중 탭·끌기가 확대·당겨서 새로고침·길게 누르기 메뉴로 새지 않게 한다.
     // 설정 창은 main 밖이라 스크롤을 그대로 쓴다.
     "html[data-game] :is(main, .bg-still, #naeru-touch) { touch-action: none; }" +
@@ -78,6 +81,11 @@
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function smooth(value) { return value * value * (3 - 2 * value); }
+  function opacityValue(value) {
+    if (value <= 0) return "0";
+    if (value >= 1) return "1";
+    return value.toFixed(4);
+  }
   function nearness(fy) {
     return smooth(clamp((fy - HOME_Y) / (NEAR - HOME_Y), 0, 1));
   }
@@ -303,23 +311,25 @@
     var next = closeup && closeup.dataset.variant === asset &&
       closeup.dataset.status === "ready" ? closeup :
       hd && hd.dataset.variant === asset && hd.dataset.status === "ready" ? hd : null;
-    var close = nearness(y) >= 0.035;
-    if (!next || !close) {
-      if (portrait) portrait.style.opacity = "0";
-      baseImages.forEach(function (image) { image.style.opacity = ""; });
-      portrait = next;
-      return;
-    }
+    // 앞·뒤 어느 방향으로 걸어도 영상과 고화질 원화의 합은 항상 1이다.
+    // 예전에는 돌아갈 때 원화를 먼저 0으로 만든 뒤 영상의 2.5초 transition을
+    // 기다려 Safari에서 실제 빈 프레임이 생겼다.
+    var handoff = next ? smooth(clamp(nearness(y) / .035, 0, 1)) : 0;
     if (portrait && portrait !== next) portrait.style.opacity = "0";
     portrait = next;
-    // 부모 원근과 카메라 확대 전에 최종 크기로 래스터화한다. 화면상 크기는
-    // 역스케일로 상쇄하므로 위치·실루엣은 원래 DOM 계약과 정확히 같다.
-    portrait.style.width = (nearApproachScale * 100).toFixed(3) + "%";
-    portrait.style.height = (nearApproachScale * 100).toFixed(3) + "%";
-    portrait.style.transformOrigin = "0 0";
-    portrait.style.transform = "scale(" + (1 / nearApproachScale).toFixed(7) + ")";
-    portrait.style.opacity = "1";
-    baseImages.forEach(function (image) { image.style.opacity = "0"; });
+    if (portrait) {
+      // 부모 원근과 카메라 확대 전에 최종 크기로 래스터화한다. 화면상 크기는
+      // 역스케일로 상쇄하므로 위치·실루엣은 원래 DOM 계약과 정확히 같다.
+      portrait.style.width = (nearApproachScale * 100).toFixed(3) + "%";
+      portrait.style.height = (nearApproachScale * 100).toFixed(3) + "%";
+      portrait.style.transformOrigin = "0 0";
+      portrait.style.transform = "scale(" + (1 / nearApproachScale).toFixed(7) + ")";
+      portrait.style.opacity = opacityValue(handoff);
+    }
+    var base = document.querySelector("video.naeru.on, #naeruStill.on");
+    baseImages.forEach(function (image) {
+      image.style.opacity = image === base ? opacityValue(1 - handoff) : "0";
+    });
   }
 
   // 도약할 때 늘고, 착지할 때 눌린다. 기준점이 발끝이라 발은 땅에 붙어 있다.

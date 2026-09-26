@@ -827,6 +827,48 @@ async function check(name, fn) {
         }
       }
     });
+    await check('들판 산책: 코앞에서 방향키로 돌아갈 때 투명 프레임 없음', async () => {
+      const p = await makePage({ viewport: { width: 1920, height: 1080 } });
+      p.setDefaultTimeout(30000);
+      try {
+        await open(p,
+          's=autumn&v=day&w=clear&act=idle&ball=0&flit=0&ff=0&leaf=0');
+        await p.waitForFunction(() =>
+          document.querySelector('#naeruClose').dataset.status === 'ready');
+        await p.keyboard.down('ArrowDown');
+        await p.waitForFunction(() => window.naeruGame && window.naeruGame.active &&
+          Math.abs(window.naeruGame.state.y - window.naeruGame.state.near) < .0001);
+        await p.keyboard.up('ArrowDown');
+        await p.evaluate(() => {
+          window.gameReturnSamples = [];
+          function sample() {
+            if (!window.naeruGame || !window.naeruGame.active) return;
+            const base = document.querySelector('video.naeru.on, #naeruStill.on');
+            const portrait = document.querySelector('#naeruClose');
+            window.gameReturnSamples.push({
+              y: window.naeruGame.state.y,
+              base: base ? +getComputedStyle(base).opacity : 0,
+              portrait: +getComputedStyle(portrait).opacity
+            });
+            requestAnimationFrame(sample);
+          }
+          requestAnimationFrame(sample);
+        });
+        await p.keyboard.down('ArrowUp');
+        await p.waitForFunction(() => window.naeruGame.state.y <= 1720 / 2160 + .001);
+        await p.keyboard.up('ArrowUp');
+        await p.waitForTimeout(100);
+        const samples = await p.evaluate(() => window.gameReturnSamples);
+        assert(samples.length > 20);
+        assert(Math.min(...samples.map(value => value.base + value.portrait)) > .97);
+        assert(Math.max(...samples.map(value => value.base + value.portrait)) < 1.03);
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally {
+        await p.keyboard.up('ArrowDown').catch(() => {});
+        await p.keyboard.up('ArrowUp').catch(() => {});
+        await p.close();
+      }
+    });
     await check('근접 모션: 기존 원화의 얼굴 보존·팔·혀·몸의 독립 움직임', async () => {
       const p = await makePage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 });
       p.setDefaultTimeout(30000);
