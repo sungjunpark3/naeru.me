@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""승인된 봄 낮 원화에서 8개 배경과 공통 투명 전경을 만든다."""
+"""승인된 봄 낮 원화에서 8개 배경·전경과 맑은 하늘 소스를 만든다."""
 from pathlib import Path
 
 import cv2
@@ -11,6 +11,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 SOURCE = HERE / "source"
 IMG = REPO / "img"
+CLOUD_SOURCE = REPO / "tools" / "clouds" / "source"
 SIZE = (3840, 2160)
 VARIANTS = ["dawn", "day", "dusk", "night",
             "dawn-rain", "day-rain", "dusk-rain", "night-rain"]
@@ -95,10 +96,72 @@ def apply_lighting(image, variant, models):
     return Image.fromarray(rgba)
 
 
+def build_cloud_sources(clean, models):
+    """봄 풍경 경계와 승인 원화의 구름을 4개 맑은 시간대로 분리한다."""
+    landscape = clean_alpha(Image.open(SOURCE / "day-landscape.png"))
+    landscape_alpha = np.asarray(landscape.getchannel("A"))
+    Image.fromarray(landscape_alpha).save(
+        CLOUD_SOURCE / "spring-landscape-mask.png")
+
+    original = np.asarray(clean.convert("RGB"), np.float32)
+    clear_image = Image.open(SOURCE / "day-clear-sky.png").convert("RGB")
+    clear = np.asarray(clear_image, np.float32)
+    height, width = landscape_alpha.shape
+    yy, xx = np.indices((height, width))
+    sky = landscape_alpha < 8
+
+    # 생성한 빈 하늘을 원화의 구름 없는 파란 영역에 먼저 맞춘다. 그 차이로
+    # 구름 위치를 잡으면 생성 누끼가 조금 다시 그려져도 원화 구름은 움직이지
+    # 않고 정확한 위치와 색을 유지한다.
+    red, green, blue = [original[:, :, index] for index in range(3)]
+    sample = (sky & (blue - red > 28) & (blue - green > 8) &
+              (yy < height * .64) & ((xx + yy) % 4 == 0))
+    design = np.column_stack((
+        clear[sample] / 255, np.ones(sample.sum()),
+        xx[sample] / width, yy[sample] / height))
+    matrix = np.linalg.lstsq(
+        design, original[sample] / 255, rcond=None)[0]
+    fitted = np.clip(
+        (clear / 255) @ matrix[:3] + matrix[3] +
+        (xx / width)[:, :, None] * matrix[4] +
+        (yy / height)[:, :, None] * matrix[5], 0, 1) * 255
+    difference = np.mean(np.abs(original - fitted), axis=2)
+
+    seeds = ((difference > 12) & sky).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(seeds, 8)
+    support = np.zeros_like(seeds)
+    for index in range(1, count):
+        if stats[index, cv2.CC_STAT_AREA] >= 45:
+            support[labels == index] = 1
+    support = cv2.dilate(support, np.ones((7, 7), np.uint8))
+    alpha = np.clip((difference - 5) / 18, 0, 1)
+    alpha *= support * sky
+    alpha = cv2.GaussianBlur(alpha.astype(np.float32), (0, 0), 1.15)
+    alpha *= sky
+    alpha = np.rint(np.clip(alpha, 0, 1) * 255).astype(np.uint8)
+    alpha[alpha < 3] = 0
+
+    clouds = np.dstack((original.astype(np.uint8), alpha))
+    clouds = Image.fromarray(clouds, "RGBA")
+    for variant in VARIANTS[:4]:
+        prefix = f"spring-{variant}"
+        apply_lighting(clear_image.convert("RGBA"), variant, models).convert(
+            "RGB").save(CLOUD_SOURCE / f"{prefix}-clear-sky.png")
+        graded_clouds = apply_lighting(clouds, variant, models)
+        rgba = np.asarray(graded_clouds).copy()
+        rgba[rgba[:, :, 3] == 0] = 0
+        graded_clouds = Image.fromarray(rgba)
+        graded_clouds.save(CLOUD_SOURCE / f"{prefix}-clouds.png")
+        graded_clouds.getchannel("A").save(
+            CLOUD_SOURCE / f"{prefix}-cloud-mask.png")
+    print("spring cloud sources: landscape mask + 4 clear skies/cloud layers")
+
+
 def build():
     clean = Image.open(SOURCE / "day-clean.png").convert("RGBA")
     plants = clean_alpha(Image.open(SOURCE / "day-plants.png"))
     models = lighting_models()
+    build_cloud_sources(clean, models)
     expected_alpha = None
 
     for variant in VARIANTS:

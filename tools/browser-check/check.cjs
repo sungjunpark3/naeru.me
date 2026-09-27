@@ -85,7 +85,8 @@ async function check(name, fn) {
               assert.equal(state.variant, band + (w === 'rain' ? '-rain' : ''));
               assert.notEqual(state.filter, 'none');
               assert.equal(state.still, '1'); assert.equal(state.video, false);
-              const layered = ['autumn', 'winter'].includes(season) && w === 'clear';
+              const layered = ['spring', 'autumn', 'winter'].includes(season) &&
+                w === 'clear';
               assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape),
                 layered ? 'ready' : 'none');
               assert.equal(await p.locator('.landscape-layer.on').count(), layered ? 1 : 0);
@@ -283,8 +284,8 @@ async function check(name, fn) {
         } finally { release(); await p.close(); }
       }));
     });
-    await check('가을·겨울 맑음 네 시간대: 정지본에서 영상으로 즉시 교체', async () => {
-      for (const season of ['autumn', 'winter']) {
+    await check('봄·가을·겨울 맑음 네 시간대: 정지본에서 영상으로 즉시 교체', async () => {
+      for (const season of ['spring', 'autumn', 'winter']) {
         for (const band of ['dawn', 'day', 'dusk', 'night']) {
         const p = await makePage();
         const requested = [];
@@ -346,8 +347,8 @@ async function check(name, fn) {
       }
       }
     });
-    await check('가을·겨울 맑음 구름: 60초 영상 재생·장면 이탈 정리', async () => {
-      for (const season of ['autumn', 'winter']) {
+    await check('봄·가을·겨울 맑음 구름: 60초 영상 재생·장면 이탈 정리', async () => {
+      for (const season of ['spring', 'autumn', 'winter']) {
       const p = await makePage({ viewport: { width: 1920, height: 1080 } });
       try {
         await open(p, `s=${season}&v=day&w=clear&act=0&ball=0&flit=0&ff=0`);
@@ -387,19 +388,24 @@ async function check(name, fn) {
       } finally { await p.close(); }
       }
     });
-    await check('가을·겨울 구름: 실패·동작 줄이기·강수 장면은 정적 폴백', async () => {
-      for (const kind of ['failed', 'reduced', 'rain', 'winter-rain', 'summer']) {
+    await check('봄·가을·겨울 구름: 실패·동작 줄이기·강수 장면은 정적 폴백', async () => {
+      for (const kind of [
+        'failed', 'reduced', 'spring-rain', 'rain', 'winter-rain', 'summer'
+      ]) {
         const reducedMotion = kind === 'reduced' ? 'reduce' : 'no-preference';
         const p = await makePage({ reducedMotion });
+        p.setDefaultNavigationTimeout(15000);
         let requested = 0;
         p.on('request', request => {
-          if (/sky-day-(autumn|winter)\.mp4/.test(request.url())) requested++;
+          if (/sky-day-(spring|autumn|winter)\.mp4/.test(request.url())) requested++;
         });
         if (kind === 'failed') {
           await p.route('**/sky-day-autumn.mp4?*', route => route.abort());
         }
         try {
-          const query = kind === 'rain'
+          const query = kind === 'spring-rain'
+            ? 's=spring&v=day&w=rain'
+            : kind === 'rain'
             ? 's=autumn&v=day&w=rain'
             : kind === 'winter-rain'
               ? 's=winter&v=day&w=rain'

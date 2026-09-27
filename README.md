@@ -81,6 +81,10 @@ tools/naeru-split/.venv/bin/python tools/christmas/build.py
 # 승인된 봄 낮 원화에서 들판·투명 앞식물의 8개 조명 자산 재생성
 tools/naeru-split/.venv/bin/python tools/spring/build.py
 
+# 봄 맑은 네 시간대의 풍경 누끼와 60초 구름 영상 재생성
+tools/naeru-split/.venv/bin/python tools/clouds/build.py --season spring \
+  dawn day dusk night
+
 # 고화질 무장식 전신 원화에서 가을 8종 정지본·몸짓·근접본 재생성
 tools/naeru-split/.venv/bin/python tools/autumn-naeru/build.py
 

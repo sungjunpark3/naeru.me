@@ -16,7 +16,7 @@ from coords import CROP_ORIGIN, CROP_SIZE, FRAME_SIZE, N_FRAMES, VARIANTS
 
 SEASONS = ["spring", "summer", "autumn", "winter"]
 CLEAR_VARIANTS = ["dawn", "day", "dusk", "night"]
-MOVING_SKY_SEASONS = ["autumn", "winter"]
+MOVING_SKY_SEASONS = ["spring", "autumn", "winter"]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--update-version", action="store_true")
 parser.add_argument("--videos", action="store_true", help="두 코덱의 실제 프레임 수도 검사")
@@ -165,7 +165,10 @@ for season in MOVING_SKY_SEASONS:
         landscape_difference = ImageChops.difference(sky_poster, original)
         landscape_mae = sum(ImageStat.Stat(
             landscape_difference, mask=opaque_landscape).mean) / 3
-        assert landscape_mae < 2, \
+        # 밝은 봄 초록·노을은 H.264 YUV420 왕복에서 평균 오차가 2.7까지 난다.
+        # 구름 잔상과 구분되는 범위만 계절별로 허용한다.
+        limit = 3 if season == "spring" else 2
+        assert landscape_mae < limit, \
             f"풍경 위 구름 잔상: {season}/{variant} MAE={landscape_mae:.2f}"
 
 html_path = REPO / "index.html"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""가을·겨울 맑은 네 시간대의 풍경 누끼와 구름 영상을 만든다.
+"""봄·가을·겨울 맑은 네 시간대의 풍경 누끼와 구름 영상을 만든다.
 
 day-outline.jpg는 사용자가 표시한 경계 참고본이다. 계절과 시간대의 풍경
 구도는 같아서 풍경 마스크를 공유한다. 빈 하늘과 구름 RGBA는 built-in
@@ -24,7 +24,7 @@ DURATION = 60
 N_FRAMES = FPS * DURATION
 CLOUD_TRAVEL = 700
 VARIANTS = ["dawn", "day", "dusk", "night"]
-SEASONS = ["autumn", "winter"]
+SEASONS = ["spring", "autumn", "winter"]
 
 
 def load_rgb(path, size):
@@ -41,8 +41,11 @@ def build_landscape(variant, season):
         REPO / f"img/bg-{variant}-{season}.jpg").convert("RGB")
     assert source.size == FRAME_SIZE
 
-    mask_name = "winter-landscape-mask.png" if season == "winter" \
-        else "day-landscape-mask.png"
+    mask_name = {
+        "spring": "spring-landscape-mask.png",
+        "autumn": "day-landscape-mask.png",
+        "winter": "winter-landscape-mask.png",
+    }[season]
     mask = Image.open(HERE / f"source/{mask_name}").convert("L")
     mask = mask.resize(FRAME_SIZE, Image.Resampling.LANCZOS)
     # 생성 마스크의 불투명 내부값 253을 255로 정규화하되 경계 알파는 유지한다.

@@ -39,8 +39,8 @@
 | `img/bg-<변형>-<계절>.jpg` | 런타임 배경 32장, 3840×2160 |
 | `img/foreground-<변형>-{spring,autumn,winter}.webp` | 계절별 투명 앞식물 24장, 3840×2160 |
 | `img/*-christmas.*` | 12월 20~31일 겨울 장식 풍경·전경 12장 |
-| `img/landscape-<시간대>-{autumn,winter}.webp` | 맑은 가을·겨울의 풍경 투명 레이어 |
-| `img/sky-<시간대>-{autumn,winter}.{webp,mp4}` | 같은 첫·끝 프레임의 60초 하늘 루프 |
+| `img/landscape-<시간대>-{spring,autumn,winter}.webp` | 맑은 계절의 풍경 투명 레이어 |
+| `img/sky-<시간대>-{spring,autumn,winter}.{webp,mp4}` | 같은 첫·끝 프레임의 60초 하늘 루프 |
 | `img/naeru-<변형>.webm`, `.mp4` | VP9·HEVC 알파 캐릭터 영상 16개 |
 | `img/naeru-<변형>.png` | 영상 로딩·실패·정지 모드용 캐릭터 8장 |
 | `img/naeru-<변형>-hd.webp` | 근접·정지 화면용 4608×3968 캐릭터 8장 |
@@ -102,7 +102,7 @@
   기다리며 실패·지연 시 꽃 없는 들판으로 진행한다. 뒤늦은 응답을 현재 장면에
   끼워 넣지 않는다. `repaint.py --seasons autumn`이 배경과 전경을 함께 재현한다.
   기존 SVG 꽃 색상 마스크는 제거했다.
-- 맑은 가을·겨울 네 시간대는 `#skyMotion`의 60초 구름 루프 뒤에
+- 맑은 봄·가을·겨울 네 시간대는 `#skyMotion`의 60초 구름 루프 뒤에
   `#landscape`의 나무·산등선·들판 누끼를 얹는다. 정지 포스터와 영상의 첫·끝
   프레임이 같아서 로드·반복 경계가 드러나지 않는다. 비·눈 하늘은 정적으로
   유지한다. 원화·마스크·재생성 코드는 `tools/clouds/`에 둔다.
