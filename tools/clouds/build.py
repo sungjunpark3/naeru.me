@@ -95,15 +95,17 @@ def prepare_cloud_layers(variant, season):
     coarse = np.clip(cloud_mask / 254, 0, 1)
 
     # 생성한 빈 하늘의 청색·노을 기울기를 원본의 맑은 부분에 맞춘다.
-    clear = (sky > .98) & (coarse < .03)
-    yy, xx = np.indices((VIDEO_SIZE[1], VIDEO_SIZE[0]))
-    clear &= (xx + yy) % 8 == 0
-    design = np.column_stack((clear_sky[clear] / 255,
-                              np.ones(clear.sum())))
-    matrix = np.linalg.lstsq(
-        design, original[clear] / 255, rcond=None)[0]
-    clear_sky = np.clip(
-        clear_sky @ matrix[:3] + matrix[3] * 255, 0, 255)
+    # 봄 해질녘·밤은 사용자가 승인한 새 색을 그대로 써야 하므로 되돌리지 않는다.
+    if not (season == "spring" and variant in ["dusk", "night"]):
+        clear = (sky > .98) & (coarse < .03)
+        yy, xx = np.indices((VIDEO_SIZE[1], VIDEO_SIZE[0]))
+        clear &= (xx + yy) % 8 == 0
+        design = np.column_stack((clear_sky[clear] / 255,
+                                  np.ones(clear.sum())))
+        matrix = np.linalg.lstsq(
+            design, original[clear] / 255, rcond=None)[0]
+        clear_sky = np.clip(
+            clear_sky @ matrix[:3] + matrix[3] * 255, 0, 255)
 
     # 생성 누끼에 섞인 들판 성분을 버리고 하늘에 걸친 구름만 보존한다.
     n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(

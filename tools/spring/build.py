@@ -145,10 +145,22 @@ def build_cloud_sources(clean, models):
     clouds = Image.fromarray(clouds, "RGBA")
     for variant in VARIANTS[:4]:
         prefix = f"spring-{variant}"
-        apply_lighting(clear_image.convert("RGBA"), variant, models).convert(
-            "RGB").save(CLOUD_SOURCE / f"{prefix}-clear-sky.png")
+        if variant in ["dusk", "night"]:
+            variant_sky = Image.open(
+                SOURCE / f"{variant}-clear-sky.png").convert("RGB")
+        else:
+            variant_sky = apply_lighting(
+                clear_image.convert("RGBA"), variant, models).convert("RGB")
+        variant_sky.save(CLOUD_SOURCE / f"{prefix}-clear-sky.png")
         graded_clouds = apply_lighting(clouds, variant, models)
         rgba = np.asarray(graded_clouds).copy()
+        if variant == "night":
+            rgb = rgba[:, :, :3].astype(np.float32)
+            light = (rgb[:, :, 0] * .2126 + rgb[:, :, 1] * .7152 +
+                     rgb[:, :, 2] * .0722)
+            rgba[:, :, :3] = np.clip(np.stack((
+                light * .52, light * .62, light * .78), axis=2),
+                0, 255).astype(np.uint8)
         rgba[rgba[:, :, 3] == 0] = 0
         graded_clouds = Image.fromarray(rgba)
         graded_clouds.save(CLOUD_SOURCE / f"{prefix}-clouds.png")
