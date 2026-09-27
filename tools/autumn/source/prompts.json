@@ -11,10 +11,18 @@
   "day_clean": "Remove only the large close foreground reeds and miscanthus from the approved autumn day concept and reconstruct the open meadow behind them; preserve all trees, sky, clouds, mountains, distant flowers and fallen leaves.",
   "day_reeds": "Extract only the large close foreground reeds, ivory miscanthus plumes, blades and nearby maple leaves from the approved concept onto genuine transparency at the exact original alignment; no background, sky, trees, mountains or distant meadow.",
   "day_landscape": "Extract the complete non-sky landscape from day-clean onto genuine transparency: preserve all trees, branches, leaves, mountains, distant forest and meadow; remove only open sky and clouds, including gaps between foliage; keep exact full-frame alignment and clean antialiased edges.",
+  "rain_sky_dawn": "Change only the open sky and clouds into dedicated layered autumn rain clouds: cool pearl gray and muted mauve, with a very restrained dusty peach glow close to the horizon; preserve the approved pastel brushwork and exact composition; no rain streaks, lightning, sun disc or blue-sky holes.",
+  "rain_sky_day": "Change only the open sky and clouds into dedicated layered autumn rain clouds: slate blue-gray and warm mushroom-gray with low mist toward the mountains and soft diffuse daylight; preserve the approved pastel brushwork and exact composition; no rain streaks, lightning, sun disc or blue-sky holes.",
+  "rain_sky_dusk": "Change only the open sky and clouds into dedicated layered autumn rain clouds: deep plum-gray and warm charcoal, with dim muted copper and dusty rose light limited to the horizon; preserve the approved pastel brushwork and exact composition; no rain streaks, lightning, sun disc or blue-sky holes.",
+  "rain_sky_night": "Change only the open sky and clouds into dedicated moonless autumn rain clouds: charcoal, muted navy-gray and soft violet-gray with low mountain haze and subtle warm-gray horizon light; preserve the approved pastel brushwork and exact composition; no rain streaks, lightning, moon, stars or blue-sky holes.",
   "built_in_outputs": {
     "day_concept": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-7f5ef644-e4c2-4eca-8244-a9d2a1761deb.png",
     "day_clean": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-d204af92-84d2-4deb-bf57-6b7a42060de7.png",
     "day_reeds": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-cedff624-4eab-4825-bcb7-ade3820c4fa0.png",
-    "day_landscape": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-7ddd5e2b-b85e-42ca-82c2-3ed3f0792012.png"
+    "day_landscape": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-7ddd5e2b-b85e-42ca-82c2-3ed3f0792012.png",
+    "rain_sky_dawn": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-267fb54e-e750-4b91-af24-8f4e6275f2b1.png",
+    "rain_sky_day": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-1014f5f5-34e6-49c7-a4a7-ce851f8332b3.png",
+    "rain_sky_dusk": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-eff50aeb-3c9a-4e10-9d80-8e0a4e4fc36a.png",
+    "rain_sky_night": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-310967f6-1362-472d-94a0-ab71228c8e75.png"
   }
 }

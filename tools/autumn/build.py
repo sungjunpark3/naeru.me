@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""승인된 가을 낮 원화에서 8개 배경·전경과 풍경 누끼를 만든다."""
+"""승인된 가을 원화에서 8개 배경·전경과 풍경 누끼를 만든다."""
 from pathlib import Path
 
 import cv2
@@ -16,6 +16,7 @@ SIZE = (3840, 2160)
 VARIANTS = ["dawn", "day", "dusk", "night",
             "dawn-rain", "day-rain", "dusk-rain", "night-rain"]
 CLEAR_VARIANTS = VARIANTS[:4]
+RAIN_VARIANTS = VARIANTS[4:]
 
 
 def clean_alpha(image, minimum_area):
@@ -95,6 +96,16 @@ def apply_lighting(image, variant, models):
     return Image.fromarray(rgba)
 
 
+def compose_rain_background(clean, landscape_mask, variant, models):
+    """새 비구름 아래에 형태가 고정된 나무·산·들판을 다시 올린다."""
+    time = variant.removesuffix("-rain")
+    rain_sky = Image.open(SOURCE / f"rain-sky-{time}.png").convert("RGB")
+    rain_sky = rain_sky.resize(SIZE, Image.Resampling.LANCZOS)
+    landscape = apply_lighting(clean, variant, models).convert("RGB")
+    landscape = landscape.resize(SIZE, Image.Resampling.LANCZOS)
+    return Image.composite(landscape, rain_sky, landscape_mask)
+
+
 def save_landscape(background, mask, variant):
     """기존 구름 영상 위를 덮을 새 나무·산·들판 레이어를 저장한다."""
     landscape = background.convert("RGBA")
@@ -128,8 +139,12 @@ def build():
     models = lighting_models()
     expected_alpha = None
     for variant in VARIANTS:
-        background = apply_lighting(clean, variant, models).convert("RGB")
-        background = background.resize(SIZE, Image.Resampling.LANCZOS)
+        if variant in RAIN_VARIANTS:
+            background = compose_rain_background(
+                clean, landscape_mask, variant, models)
+        else:
+            background = apply_lighting(clean, variant, models).convert("RGB")
+            background = background.resize(SIZE, Image.Resampling.LANCZOS)
         output = IMG / f"bg-{variant}-autumn.jpg"
         background.save(output, quality=95, subsampling=0)
         print(f"{variant}: {output.stat().st_size / 1024:.0f} KiB")
