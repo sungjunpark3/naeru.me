@@ -105,6 +105,11 @@ for name in runtime:
         with Image.open(p) as verified:
             verified.verify()
 
+# 지연 로드하는 산책 코드도 같은 판번호로 캐시를 갱신한다.
+game_path = REPO / "game" / "game.js"
+assert game_path.is_file() and game_path.stat().st_size, "누락: game/game.js"
+digest.update(b"game/game.js\0" + game_path.read_bytes())
+
 # 가을과 겨울은 각각 한 전신 원화에서 조명만 바꾼다. 시간대별 실루엣이
 # 달라지거나 평상시·근접본 사이에서 그림이 바뀌면 접근 중 튀어 보인다.
 for season, variants in [("autumn", VARIANTS),

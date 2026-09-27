@@ -820,7 +820,7 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });
-    await check('들판 산책: 사계절 확대 없이 앞쪽 끝까지 이동하고 고화질 유지', async () => {
+    await check('들판 산책: 사계절 인사 거리까지 전진하고 배경 확대 없이 고화질 유지', async () => {
       for (const [season, source, width, height] of [
         ['spring', 'http', 1920, 1080],
         ['summer', 'http', 1920, 1080],
@@ -850,7 +850,11 @@ async function check(name, fn) {
             return s && Math.abs(s.y - s.near) < .0001;
           });
           await p.keyboard.up('ArrowDown');
-          await p.waitForFunction(() => window.naeruGame.state.screenScale === 1);
+          await p.waitForFunction(() => {
+            const s = window.naeruGame.state;
+            return Math.abs(s.screenScale - s.approachScale) /
+              s.approachScale < .03;
+          });
           const state = await p.evaluate(() => {
             const s = window.naeruGame.state;
             const image = document.querySelector('#' + s.portraitId);
@@ -870,16 +874,15 @@ async function check(name, fn) {
           assert.equal(state.portraitOpacity, '1');
           assert.equal(state.portraitWidth, 4608);
           assert(state.baseOpacities.every(opacity => opacity === '0'));
-          assert.equal(state.scale, 1);
-          assert.equal(state.screenScale, 1);
-          assert.equal(state.approachScale, 1);
+          assert(Math.abs(state.screenScale - state.approachScale) /
+            state.approachScale < .03);
+          assert(state.approachScale > 3);
           assert.equal(state.zoom, 1);
-          assert(state.near >= .999);
-          assert(state.near > state.homeY + .18);
-          assert(!state.approachTransform.includes('scale('));
+          assert(state.near > state.homeY + .25);
+          assert(state.approachTransform.includes('scale('));
           assert(!state.cameraTransform.includes('scale('));
-          assert(state.face.y > state.viewport.height * .72);
-          assert(state.face.y < state.viewport.height);
+          assert(state.face.y < state.viewport.height * .5);
+          assert(state.face.y + state.face.height > state.viewport.height * .5);
           if (width === 390) {
             await p.evaluate(() => {
               document.body.dispatchEvent(new PointerEvent('pointerdown', {
@@ -904,7 +907,7 @@ async function check(name, fn) {
         }
       }
     });
-    await check('들판 산책: 앞쪽 끝에서 방향키로 돌아갈 때 투명 프레임 없음', async () => {
+    await check('들판 산책: 코앞에서 방향키로 돌아갈 때 투명 프레임 없음', async () => {
       const p = await makePage({ viewport: { width: 1920, height: 1080 } });
       p.setDefaultTimeout(30000);
       try {

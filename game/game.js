@@ -6,7 +6,7 @@
    처음 자리로 걸어 돌아가며 수평 시점도 원래 자리로 돌아오고, 그대로
    시작페이지가 된다.
 
-   겹의 소유: #naeru-approach=들판 위치 / #naeru-stride=걸음 /
+   겹의 소유: #naeru-approach=들판 위치·원근 크기 / #naeru-stride=걸음 /
    #naeru-move=점프 높이 / #naeru-act=도약·착지의 눌림 / #naeru-face=방향.
    진행 중에는 index의 몸짓·공·나비·다가오기를 naeru:game으로 멈춘다.
    그 동작들의 정리 코드가 탭 전환 등에서 다시 돌 수 있으므로 매 프레임
@@ -28,10 +28,13 @@
   // 발끝 (2020,1720). 위치는 발끝의 프레임 비율로 다룬다.
   var CROP_W = 576 / 3840, CROP_H = 496 / 2160;
   var HOME_X = 2020 / 3840, HOME_Y = 1720 / 2160;
-  // 가까워져도 화면과 캐릭터를 확대하지 않는다. 발끝만 프레임 아래 끝까지
-  // 실제로 이동해, 세로 화면에서도 빈 들판을 눌러 좌우로 계속 걸을 수 있다.
+  var FOOT_V = (1720 - 1328) / 496;          // 크롭 안 발끝 높이
+  var BROW_V = 119.5 / 496;                   // 가까이 오면 두 눈 사이를 따라간다
+  // 화면 아래 1보다 큰 논리 Y까지 걸어 나와 인사할 때만큼 가까워진다.
+  // 실제 한계는 화면비와 목표 배율을 안 뒤 setFrame()에서 계산한다.
   // 봄·여름은 좌우 앞꽃이 배경에 그려져 있어 그 위로 올라서지 않게 가장자리를 비운다.
-  var FAR = 0.755, NEAR = 1, LEFT = 0.2, RIGHT = 0.86;
+  var HORIZON = 0.63, FAR = 0.755, LEFT = 0.2, RIGHT = 0.86;
+  var nearY = 1.35, nearApproachScale = 8;
   var IDLE_MS = 30000;
   var SPEED_X = 0.15, SPEED_Y = 0.05;         // 프레임 비율/초(원래 크기 기준)
   var STEP_HZ = 3.2;
@@ -82,7 +85,11 @@
     return value.toFixed(4);
   }
   function nearness(fy) {
-    return smooth(clamp((fy - HOME_Y) / (NEAR - HOME_Y), 0, 1));
+    return smooth(clamp((fy - HOME_Y) / (nearY - HOME_Y), 0, 1));
+  }
+  function depth(fy) {
+    if (fy <= HOME_Y) return (fy - HORIZON) / (HOME_Y - HORIZON);
+    return 1 + (nearApproachScale - 1) * nearness(fy);
   }
   function isArrow(key) { return /^Arrow(Up|Down|Left|Right)$/.test(key); }
   function isSpace(e) { return e.key === " " || e.code === "Space"; }
@@ -102,14 +109,25 @@
     root.style.setProperty("--game-frame-top", b.T + "px");
     root.style.setProperty("--game-frame-width", b.W + "px");
     root.style.setProperty("--game-frame-height", b.H + "px");
+    var bodyW = b.W * CROP_W, bodyH = b.H * CROP_H;
+    nearApproachScale = Math.max(
+      b.vh * .92 / (bodyH * .46), b.vw * .8 / (bodyW * .54));
+    nearApproachScale = Math.min(
+      nearApproachScale, b.vw * .94 / (bodyW * .29));
+    // 접근 동작과 같은 배율에서 두 눈 사이가 화면 높이의 39%에 오도록
+    // 발끝의 논리 Y를 구한다. 배경을 확대하지 않아도 몸 자체가 그 거리까지
+    // 걸어 나오며, 세로 화면에서는 주변 들판을 그대로 눌러 이동할 수 있다.
+    var eyeInFrame = (b.vh * .39 - b.T) / b.H;
+    nearY = eyeInFrame + (FOOT_V - BROW_V) * CROP_H * nearApproachScale;
   }
-  // 누른 화면 위치를 들판의 발끝 좌표로 바꾼다. 하늘이나 가장자리를 누르면
-  // 가장 가까운 들판 지점으로 가며 캐릭터와 배경 크기는 바뀌지 않는다.
+  // 화면 아래의 보이는 들판(FAR~1)을 실제 전진 거리(FAR~nearY)에 대응시킨다.
+  // 그래서 발이 화면 밖까지 나온 코앞에서도 배경 확대 없이 빈 들판을 눌러 움직인다.
   function toField(cx, cy) {
     var b = frameBox(), mx = b.vw / 2, my = b.vh / 2;
     var px = mx + (cx - mx - camX) / zoom, py = my + (cy - my - camY) / zoom;
-    return { x: clamp((px - b.L) / b.W, LEFT, RIGHT),
-      y: clamp((py - b.T) / b.H, FAR, NEAR) };
+    var visibleY = clamp((py - b.T) / b.H, FAR, 1);
+    var fieldY = FAR + (visibleY - FAR) / (1 - FAR) * (nearY - FAR);
+    return { x: clamp((px - b.L) / b.W, LEFT, RIGHT), y: fieldY };
   }
   // 목표 발끝까지 같은 속도로 곧장 걷는다. 이번 프레임에 닿으면 그 자리에 두고 null.
   function seek(gx, gy, sc, dt) {
@@ -207,7 +225,7 @@
     if (window.naeruReduced()) { finish(); return; }
     claim();
 
-    var ix = 0, iy = 0, sc = 1, dir;
+    var ix = 0, iy = 0, sc = depth(y), dir;
     if (phase === "play") {
       ix = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
       iy = (keys.has("ArrowDown") ? 1 : 0) - (keys.has("ArrowUp") ? 1 : 0);
@@ -229,7 +247,8 @@
 
     var ox = x, oy = y;
     x = clamp(x + SPEED_X * sc * ix * dt, LEFT, RIGHT);
-    y = clamp(y + SPEED_Y * iy * dt, FAR, NEAR);
+    y = clamp(y + SPEED_Y * sc * iy * dt, FAR, nearY);
+    sc = depth(y);
     var moving = Math.abs(x - ox) + Math.abs(y - oy) > 1e-6;
 
     // 방향 전환은 공중에서만 한다. 땅에 있으면 작게 폴짝 뛰어 돈다.
@@ -257,12 +276,13 @@
     var lift = Math.pow(Math.sin(beat * Math.PI), 2) * walk;
 
     var place = "translate(" + ((x - HOME_X) / CROP_W * 100).toFixed(3) + "%," +
-      ((y - HOME_Y) / CROP_H * 100).toFixed(3) + "%)";
+      ((y - HOME_Y) / CROP_H * 100).toFixed(3) + "%) scale(" + sc.toFixed(4) + ")";
     approach.style.transform = place;
     stride.style.transform = "translate(" + (sway * 0.9).toFixed(3) + "%," +
       (-lift * 2.4).toFixed(3) + "%) rotate(" + (sway * 2 + lean * 1.6).toFixed(3) +
       "deg) scaleY(" + (1 - lift * 0.015).toFixed(4) + ")";
-    move.style.transform = up > 0 ? "translateY(" + (-up).toFixed(3) + "%)" : "";
+    // 점프 높이는 원근 크기를 따라간다. #naeru-move는 크기 겹 바깥이다.
+    move.style.transform = up > 0 ? "translateY(" + (-up * sc).toFixed(3) + "%)" : "";
     face.style.transform = facing < 0 ? "scaleX(-1)" : "";
     showPortrait();
     if (window.naeruShadow) {
@@ -297,10 +317,12 @@
     if (portrait && portrait !== next) portrait.style.opacity = "0";
     portrait = next;
     if (portrait) {
-      portrait.style.width = "100%";
-      portrait.style.height = "100%";
-      portrait.style.transformOrigin = "";
-      portrait.style.transform = "";
+      // 부모 원근 전에 최종 크기로 래스터화한다. 화면상 크기는
+      // 역스케일로 상쇄하므로 위치·실루엣은 원래 DOM 계약과 정확히 같다.
+      portrait.style.width = (nearApproachScale * 100).toFixed(3) + "%";
+      portrait.style.height = (nearApproachScale * 100).toFixed(3) + "%";
+      portrait.style.transformOrigin = "0 0";
+      portrait.style.transform = "scale(" + (1 / nearApproachScale).toFixed(7) + ")";
       portrait.style.opacity = opacityValue(handoff);
     }
     var base = document.querySelector("video.naeru.on, #naeruStill.on");
@@ -405,8 +427,9 @@
     },
     get active() { return active; },
     get state() {
-      return { x: x, y: y, homeY: HOME_Y, near: NEAR, scale: 1,
-        screenScale: 1, zoom: zoom, approachScale: 1, portrait: Boolean(
+      return { x: x, y: y, homeY: HOME_Y, near: nearY, scale: depth(y),
+        screenScale: depth(y) * zoom, zoom: zoom,
+        approachScale: nearApproachScale, portrait: Boolean(
           portrait && portrait.style.opacity === "1"),
         portraitId: portrait ? portrait.id : "" };
     }
