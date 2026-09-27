@@ -662,7 +662,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   <img id="autumn-leaf" alt="">
 </div>
 
-<!-- 가을의 꽃·앞풀은 처음부터 내루미 앞에 놓인 투명 원화다.
+<!-- 봄·가을의 꽃·앞풀은 처음부터 내루미 앞에 놓인 투명 원화다.
      배경 A/B와 같은 세대로 전환하며, 접근할 때 새로 나타나거나 커지지 않는다. -->
 <div id="foreground" aria-hidden="true">
   <img id="foregroundA" class="foreground-layer" alt="">
@@ -885,7 +885,7 @@ function createSceneMotion(restart, cleanup, ambient) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "3ead25d0f12b";
+  var ASSET_V = "c1ea73b2fbef";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -1194,10 +1194,8 @@ function createSceneMotion(restart, cleanup, ambient) {
         (christmas ? "christmas" : season) + ".webp") : null;
     var frontUrl = christmas
       ? av("foreground-" + variant + "-christmas.webp")
-      : season === "autumn"
-        ? av("foreground-" + variant + "-autumn.webp")
-        : season === "winter"
-          ? av("foreground-" + variant + "-winter.webp") : null;
+      : ["spring", "autumn", "winter"].indexOf(season) >= 0
+        ? av("foreground-" + variant + "-" + season + ".webp") : null;
     var landscapeReady = false, frontReady = false;
     requested = key; stopWatch(); sceneReady(false);
     prepareHD(character);

@@ -95,7 +95,7 @@ async function check(name, fn) {
                 assert.deepEqual(await p.locator('#landscape').boundingBox(),
                   await p.locator('#stage').boundingBox());
               }
-              const foreground = ['autumn', 'winter'].includes(season);
+              const foreground = ['spring', 'autumn', 'winter'].includes(season);
               assert.equal(await p.evaluate(() => document.documentElement.dataset.foreground),
                 foreground ? 'ready' : 'none');
               assert.equal(await p.locator('.foreground-layer.on').count(), foreground ? 1 : 0);

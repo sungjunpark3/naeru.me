@@ -23,8 +23,9 @@ parser.add_argument("--videos", action="store_true", help="두 코덱의 실제 
 args = parser.parse_args()
 
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
-images.update({f"foreground-{v}-autumn.webp": FRAME_SIZE for v in VARIANTS})
-images.update({f"foreground-{v}-winter.webp": FRAME_SIZE for v in VARIANTS})
+for season in ["spring", "autumn", "winter"]:
+    images.update({f"foreground-{v}-{season}.webp": FRAME_SIZE
+                   for v in VARIANTS})
 images.update({f"foreground-{v}-christmas.webp": FRAME_SIZE for v in VARIANTS})
 images.update({f"bg-{v}-christmas.jpg": FRAME_SIZE
                for v in VARIANTS if v.endswith("-rain")})
@@ -90,9 +91,14 @@ for name in runtime:
                 # 열린 하늘·중앙 통로에는 전경의 네모판·알파 먼지가 없어야 한다.
                 alpha = im.getchannel("A")
                 assert alpha.crop((0, 0, 3840, 1000)).getbbox() is None, name
-                assert alpha.crop((2150, 0, 2450, 2160)).getbbox() is None, name
-                signature = hashlib.sha256(alpha.tobytes()).digest()
+                # 가을·겨울은 중앙 통로 전체를 비웠다. 봄은 화면 아래의 낮은
+                # 꽃이 발을 가릴 수 있지만 상체와 이동 통로는 열려 있어야 한다.
                 season = name.removesuffix(".webp").rsplit("-", 1)[-1]
+                if season != "spring":
+                    assert alpha.crop((2150, 0, 2450, 2160)).getbbox() is None, name
+                else:
+                    assert alpha.crop((1700, 0, 2600, 1450)).getbbox() is None, name
+                signature = hashlib.sha256(alpha.tobytes()).digest()
                 foreground_alpha.setdefault(season, signature)
                 assert signature == foreground_alpha[season], \
                     f"시간대별 전경 형태 불일치: {name}"

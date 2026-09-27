@@ -1,0 +1,7 @@
+{
+  "mode": "built-in imagegen edit",
+  "reference": "img/bg-day-spring.jpg",
+  "day_concept": "Redraw the exact landscape as a cozy pastel spring daytime background while preserving the open central meadow and overall composition. Use translucent yellow-green new leaves, pale pink and ivory blossoms, azalea, forsythia, daisies and spring haze. Continue the same foreground flower families through the meadow in natural clusters, decreasing size, contrast and density with distance while keeping the central character corridor open. Keep large lower-edge plants suitable for later transparent DOM separation. No character, buildings, text, snow, autumn foliage, dense summer foliage or photorealism.",
+  "clean_plate": "Preserve the approved spring scene exactly while removing only the close plants entering from the lower border. Reconstruct soft spring grass behind them, retain the pink, yellow, white and ivory meadow flower clusters and keep the center corridor open. Full opaque RGB background, no character or sky change.",
+  "foreground": "Create a pixel-aligned transparent RGBA overlay from the approved scene containing only the close lower-border azalea, forsythia, daisies, ivory wildflowers, grasses and leaves. Preserve exact scale, color and lighting with delicate antialiased edges; remove all sky, trees, mountains, meadow and background pixels."
+}
