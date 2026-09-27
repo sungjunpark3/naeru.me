@@ -25,10 +25,15 @@ args = parser.parse_args()
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
 images.update({f"foreground-{v}-autumn.webp": FRAME_SIZE for v in VARIANTS})
 images.update({f"foreground-{v}-winter.webp": FRAME_SIZE for v in VARIANTS})
+images.update({f"foreground-{v}-christmas.webp": FRAME_SIZE for v in VARIANTS})
+images.update({f"bg-{v}-christmas.jpg": FRAME_SIZE
+               for v in VARIANTS if v.endswith("-rain")})
 for season in MOVING_SKY_SEASONS:
     for v in CLEAR_VARIANTS:
         images[f"landscape-{v}-{season}.webp"] = FRAME_SIZE
         images[f"sky-{v}-{season}.webp"] = (1920, 1080)
+for v in CLEAR_VARIANTS:
+    images[f"landscape-{v}-christmas.webp"] = FRAME_SIZE
 for v in VARIANTS:
     images.update({f"naeru-{v}.png": CROP_SIZE,
                    f"naeru-{v}-hd.webp": (4608, 3968),
@@ -87,7 +92,7 @@ for name in runtime:
                 assert alpha.crop((0, 0, 3840, 1000)).getbbox() is None, name
                 assert alpha.crop((2150, 0, 2450, 2160)).getbbox() is None, name
                 signature = hashlib.sha256(alpha.tobytes()).digest()
-                season = "winter" if name.endswith("-winter.webp") else "autumn"
+                season = name.removesuffix(".webp").rsplit("-", 1)[-1]
                 foreground_alpha.setdefault(season, signature)
                 assert signature == foreground_alpha[season], \
                     f"시간대별 전경 형태 불일치: {name}"

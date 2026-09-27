@@ -119,8 +119,11 @@ def apply_lighting(portrait, variant, models):
             # 포근한 새 겨울밤 설원은 눈의 반사광이 밝다. 이전 밤 캐릭터의
             # 조명식을 그대로 쓰면 평균 RGB가 22/24/47까지 내려가 얼굴과
             # 방한복 디테일이 사라지므로, 낮 원화에 차가운 달빛을 직접 입힌다.
-            strength = ([.38, .42, .56], [5, 8, 12]) if variant == "night" \
-                else ([.32, .36, .50], [4, 7, 11])
+            # 크리스마스 밤의 포근한 눈 반사광에 맞춰 얼굴·몸통의 중간톤을
+            # 조금만 들어 올린다. 빨강을 더 살려 새 조명에 보랏빛으로
+            # 가라앉지 않게 하되, 낮처럼 밝아지지는 않게 한다.
+            strength = ([.43, .46, .59], [7, 10, 14]) if variant == "night" \
+                else ([.37, .40, .53], [6, 9, 13])
             adjusted = (section * np.array(strength[0], np.float32) +
                         np.array(strength[1], np.float32))
         else:

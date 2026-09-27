@@ -885,7 +885,7 @@ function createSceneMotion(restart, cleanup, ambient) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "07350395cc5b";
+  var ASSET_V = "b42d8650acc8";
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
@@ -953,6 +953,12 @@ function createSceneMotion(restart, cleanup, ambient) {
       timeZone: TZ, month: "numeric"
     }).format(new Date()));
     return m === 12 || m <= 2 ? "winter" : m <= 5 ? "spring" : m <= 8 ? "summer" : "autumn";
+  }
+  function christmasOf(season, now) {
+    if (season !== "winter" || params.get("xmas") === "0") return false;
+    if (params.get("xmas") === "1") return true;
+    var date = seoulDate(now);
+    return date.slice(5) >= "12-20" && date.slice(5) <= "12-31";
   }
   function currentVariant() {
     var band = params.get("v") || window.naeruSettings.band;
@@ -1051,7 +1057,8 @@ function createSceneMotion(restart, cleanup, ambient) {
     document.getElementById("landscapeB")];
   var foreground = document.getElementById("foreground");
   var fronts = [document.getElementById("foregroundA"), document.getElementById("foregroundB")];
-  var slot = 0, active = null, activeSeason = null, requested = null;
+  var slot = 0, active = null, activeSeason = null, activeChristmas = false;
+  var requested = null;
   var generation = 0, noMotion = window.naeruReduced(), fallback = false, retries = 0;
   var hdRequest = 0;
   var format = null, formatPromise = null, stopWatch = function () {};
@@ -1059,15 +1066,14 @@ function createSceneMotion(restart, cleanup, ambient) {
   function movingSky(v, s) {
     return ["autumn", "winter"].indexOf(s) >= 0 && bands.indexOf(v) >= 0;
   }
-  function bgOf(v, s) {
+  function bgOf(v, s, christmas) {
     return movingSky(v, s)
       ? av("sky-" + v + "-" + s + ".webp")
-      : av("bg-" + v + "-" + s + ".jpg");
+      : av("bg-" + v + "-" + (christmas ? "christmas" : s) + ".jpg");
   }
   function characterOf(v, s) {
-    if (s === "autumn") return "autumn-" + v;
     if (s === "winter") return "winter-" + v;
-    return v;
+    return "autumn-" + v;
   }
   window.naeruAsset = characterOf;
   function stillOf(v, s) {
@@ -1178,16 +1184,20 @@ function createSceneMotion(restart, cleanup, ambient) {
     judge();
   }
 
-  function showScene(variant, season) {
+  function showScene(variant, season, christmas) {
     var token = ++generation, nextSlot = active ? 1 - slot : slot;
-    var key = variant + "/" + season, url = bgOf(variant, season);
+    var key = variant + "/" + season + "/" + (christmas ? "christmas" : "plain");
+    var url = bgOf(variant, season, christmas);
     var character = characterOf(variant, season);
     var landscapeUrl = movingSky(variant, season)
-      ? av("landscape-" + variant + "-" + season + ".webp") : null;
-    var frontUrl = season === "autumn"
-      ? av("foreground-" + variant + "-autumn.webp")
-      : season === "winter"
-        ? av("foreground-" + variant + "-winter.webp") : null;
+      ? av("landscape-" + variant + "-" +
+        (christmas ? "christmas" : season) + ".webp") : null;
+    var frontUrl = christmas
+      ? av("foreground-" + variant + "-christmas.webp")
+      : season === "autumn"
+        ? av("foreground-" + variant + "-autumn.webp")
+        : season === "winter"
+          ? av("foreground-" + variant + "-winter.webp") : null;
     var landscapeReady = false, frontReady = false;
     requested = key; stopWatch(); sceneReady(false);
     prepareHD(character);
@@ -1199,8 +1209,10 @@ function createSceneMotion(restart, cleanup, ambient) {
     function commit(video) {
       if (token !== generation) return;
       var oldSlot = 1 - nextSlot;
-      active = variant; activeSeason = season; slot = nextSlot;
+      active = variant; activeSeason = season; activeChristmas = christmas;
+      slot = nextSlot;
       root.dataset.season = season;
+      root.dataset.christmas = String(christmas);
       document.body.dataset.variant = variant;
       document.body.dataset.weather = variant.endsWith("-rain") ? "rain" : "clear";
       root.style.setProperty("--fall-far", season === "winter"
@@ -1292,7 +1304,10 @@ function createSceneMotion(restart, cleanup, ambient) {
     dateEl.dateTime = seoulDate(now);
     renderInfo();
     var variant = currentVariant(), season = seasonOf();
-    if (requested !== variant + "/" + season) showScene(variant, season);
+    var christmas = christmasOf(season, now);
+    var key = variant + "/" + season + "/" +
+      (christmas ? "christmas" : "plain");
+    if (requested !== key) showScene(variant, season, christmas);
   }
   document.addEventListener("naeru:settings", function () {
     params = new URLSearchParams(location.search);
@@ -1307,10 +1322,13 @@ function createSceneMotion(restart, cleanup, ambient) {
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) { videos.forEach(function (v) { v.pause(); }); return; }
     render();
-    if (!noMotion && active && requested === active + "/" + activeSeason) {
+    var activeKey = active + "/" + activeSeason + "/" +
+      (activeChristmas ? "christmas" : "plain");
+    if (!noMotion && active && requested === activeKey) {
       var v = videos[slot];
       if ((!v.getAttribute("src") || fallback) && retries < 3) {
-        retries++; fallback = false; showScene(active, activeSeason);
+        retries++; fallback = false;
+        showScene(active, activeSeason, activeChristmas);
       } else if (!fallback) v.play().catch(function () {});
     }
     if (!weather || Date.now() - weather.t > 60000) fetchWeather();

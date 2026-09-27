@@ -105,10 +105,8 @@ async function check(name, fn) {
               }
               await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
                 document.querySelector('#naeruStill').naturalWidth === 4608);
-              const character = season === 'autumn'
-                ? `autumn-${state.variant}`
-                : season === 'winter'
-                  ? `winter-${state.variant}` : state.variant;
+              const character = season === 'winter'
+                ? `winter-${state.variant}` : `autumn-${state.variant}`;
               assert.match(await p.locator('#naeruStill').getAttribute('src'),
                 new RegExp(`naeru-${character}-hd\\.webp`));
               assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
@@ -117,6 +115,49 @@ async function check(name, fn) {
           } finally { await p.close(); }
         }));
       }
+    });
+    await check('12월 20~31일 크리스마스 풍경: 매년 경계·구름·내루미 보존', async () => {
+      const dates = [
+        ['2026-12-19T03:00:00Z', false],
+        ['2026-12-20T03:00:00Z', true],
+        ['2026-12-31T03:00:00Z', true],
+        ['2027-01-01T03:00:00Z', false],
+        ['2027-12-20T03:00:00Z', true]
+      ];
+      for (const [date, christmas] of dates) {
+        const p = await makePage({ reducedMotion: 'reduce' });
+        try {
+          await p.clock.setFixedTime(new Date(date));
+          await open(p, 's=winter&v=day&w=clear&still=1');
+          assert.equal(await p.evaluate(() =>
+            document.documentElement.dataset.christmas), String(christmas));
+          assert.match(await p.locator('.bg-layer.on').evaluate(
+            element => element.style.backgroundImage), /sky-day-winter\.webp/);
+          assert.match(await p.locator('.landscape-layer.on').getAttribute('src'),
+            new RegExp(`landscape-day-${christmas ? 'christmas' : 'winter'}\\.webp`));
+          assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
+            new RegExp(`foreground-day-${christmas ? 'christmas' : 'winter'}\\.webp`));
+          assert.match(await p.locator('#naeruStill').getAttribute('src'),
+            /naeru-winter-day-(?:hd\.)?webp|naeru-winter-day\.png/);
+          if (date === '2026-12-20T03:00:00Z')
+            await shot(p, 'christmas-day-clear');
+          assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+        } finally { await p.close(); }
+      }
+
+      const p = await makePage({ reducedMotion: 'reduce' });
+      try {
+        await p.clock.setFixedTime(new Date('2026-12-24T03:00:00Z'));
+        await open(p, 's=winter&v=day&w=rain&still=1');
+        assert.match(await p.locator('.bg-layer.on').evaluate(
+          element => element.style.backgroundImage), /bg-day-rain-christmas\.jpg/);
+        assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
+          /foreground-day-rain-christmas\.webp/);
+        assert.match(await p.locator('#naeruStill').getAttribute('src'),
+          /naeru-winter-day-rain/);
+        await shot(p, 'christmas-day-rain');
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { await p.close(); }
     });
     await check('겨울 맑음·비 여덟 장면: 모자·목도리 몸짓', async () => {
       const p = await makePage({ viewport: { width: 1440, height: 900 } });
@@ -255,7 +296,17 @@ async function check(name, fn) {
           assert.equal(requested.some(url =>
             url.includes(`bg-${band}-${season}.jpg`)), false);
           await p.waitForFunction(() =>
-            document.documentElement.dataset.skyMotion === 'playing');
+            document.documentElement.dataset.skyMotion === 'playing')
+            .catch(async error => {
+              const state = await p.evaluate(() => ({
+                sky: document.documentElement.dataset.skyMotion,
+                landscape: document.documentElement.dataset.landscape,
+                src: document.querySelector('#skyMotion').currentSrc,
+                ready: document.querySelector('#skyMotion').readyState,
+                error: document.querySelector('#skyMotion').error?.code || 0
+              }));
+              throw new Error(`${season}/${band} ${JSON.stringify(state)}: ${error.message}`);
+            });
           const state = await p.locator('#skyMotion').evaluate(
             async (video, { band, season }) => {
             video.pause(); video.currentTime = 0;
@@ -769,14 +820,19 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });
-    await check('들판 산책: 인사 거리까지 전진하고 고화질 원화 유지', async () => {
-      for (const [source, width, height] of [
-        ['http', 1920, 1080], ['http', 390, 844], ['file', 1920, 1080]
+    await check('들판 산책: 사계절 확대 없이 앞쪽 끝까지 이동하고 고화질 유지', async () => {
+      for (const [season, source, width, height] of [
+        ['spring', 'http', 1920, 1080],
+        ['summer', 'http', 1920, 1080],
+        ['autumn', 'http', 1920, 1080],
+        ['winter', 'http', 1920, 1080],
+        ['autumn', 'http', 390, 844],
+        ['autumn', 'file', 1920, 1080]
       ]) {
         const p = await makePage({ viewport: { width, height } });
         p.setDefaultTimeout(30000);
         try {
-          const query = 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0&leaf=0';
+          const query = `s=${season}&v=day&w=clear&act=0&ball=0&flit=0&ff=0&leaf=0`;
           if (source === 'file') {
             await p.goto('file://' + path.join(repo, 'index.html') + '?' + query,
               { waitUntil: 'domcontentloaded' });
@@ -794,11 +850,7 @@ async function check(name, fn) {
             return s && Math.abs(s.y - s.near) < .0001;
           });
           await p.keyboard.up('ArrowDown');
-          await p.waitForFunction(() => {
-            const s = window.naeruGame.state;
-            return Math.abs(s.screenScale - s.approachScale) /
-              s.approachScale < .03;
-          });
+          await p.waitForFunction(() => window.naeruGame.state.screenScale === 1);
           const state = await p.evaluate(() => {
             const s = window.naeruGame.state;
             const image = document.querySelector('#' + s.portraitId);
@@ -807,6 +859,9 @@ async function check(name, fn) {
             const box = document.querySelector('#naeru-face').getBoundingClientRect();
             return { ...s, portraitOpacity: image.style.opacity,
               portraitWidth: image.naturalWidth, baseOpacities,
+              approachTransform: document.querySelector('#naeru-approach').style.transform,
+              cameraTransform: getComputedStyle(document.documentElement)
+                .getPropertyValue('--game-camera'),
               face: { x: box.x, y: box.y, width: box.width, height: box.height },
               viewport: { width: innerWidth, height: innerHeight } };
           });
@@ -815,11 +870,33 @@ async function check(name, fn) {
           assert.equal(state.portraitOpacity, '1');
           assert.equal(state.portraitWidth, 4608);
           assert(state.baseOpacities.every(opacity => opacity === '0'));
-          assert(Math.abs(state.screenScale - state.approachScale) /
-            state.approachScale < .03);
-          assert(state.face.y < state.viewport.height * .5);
-          assert(state.face.y + state.face.height > state.viewport.height * .5);
-          await shot(p, `game-near-${source}-${width}`);
+          assert.equal(state.scale, 1);
+          assert.equal(state.screenScale, 1);
+          assert.equal(state.approachScale, 1);
+          assert.equal(state.zoom, 1);
+          assert(state.near >= .999);
+          assert(state.near > state.homeY + .18);
+          assert(!state.approachTransform.includes('scale('));
+          assert(!state.cameraTransform.includes('scale('));
+          assert(state.face.y > state.viewport.height * .72);
+          assert(state.face.y < state.viewport.height);
+          if (width === 390) {
+            await p.evaluate(() => {
+              document.body.dispatchEvent(new PointerEvent('pointerdown', {
+                bubbles: true, pointerType: 'touch', pointerId: 71,
+                isPrimary: true, clientX: 20, clientY: innerHeight - 20
+              }));
+            });
+            await p.waitForFunction(() => window.naeruGame.state.x < .48);
+            await p.evaluate(() => {
+              document.body.dispatchEvent(new PointerEvent('pointerup', {
+                bubbles: true, pointerType: 'touch', pointerId: 71,
+                isPrimary: true, clientX: 20, clientY: innerHeight - 20
+              }));
+            });
+            assert.equal(await p.evaluate(() => window.naeruGame.state.zoom), 1);
+          }
+          await shot(p, `game-near-${season}-${source}-${width}`);
           assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
         } finally {
           await p.keyboard.up('ArrowDown').catch(() => {});
@@ -827,7 +904,7 @@ async function check(name, fn) {
         }
       }
     });
-    await check('들판 산책: 코앞에서 방향키로 돌아갈 때 투명 프레임 없음', async () => {
+    await check('들판 산책: 앞쪽 끝에서 방향키로 돌아갈 때 투명 프레임 없음', async () => {
       const p = await makePage({ viewport: { width: 1920, height: 1080 } });
       p.setDefaultTimeout(30000);
       try {
