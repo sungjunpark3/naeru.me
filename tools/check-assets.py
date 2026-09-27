@@ -90,11 +90,13 @@ for name in runtime:
             if name.startswith("foreground-"):
                 # 열린 하늘·중앙 통로에는 전경의 네모판·알파 먼지가 없어야 한다.
                 alpha = im.getchannel("A")
-                assert alpha.crop((0, 0, 3840, 1000)).getbbox() is None, name
-                # 가을·겨울은 중앙 통로 전체를 비웠다. 봄은 화면 아래의 낮은
-                # 꽃이 발을 가릴 수 있지만 상체와 이동 통로는 열려 있어야 한다.
                 season = name.removesuffix(".webp").rsplit("-", 1)[-1]
-                if season != "spring":
+                # 가을 억새는 꽃보다 높이 솟지만 하늘까지 침범하지 않는다.
+                clear_top = 550 if season == "autumn" else 1000
+                assert alpha.crop((0, 0, 3840, clear_top)).getbbox() is None, name
+                # 봄꽃·가을 억새는 화면 아래에서 발을 가릴 수 있지만 상체와
+                # 이동 통로는 열려 있어야 한다. 겨울·크리스마스는 중앙 전체가 빈다.
+                if season not in ["spring", "autumn"]:
                     assert alpha.crop((2150, 0, 2450, 2160)).getbbox() is None, name
                 else:
                     assert alpha.crop((1700, 0, 2600, 1450)).getbbox() is None, name
@@ -165,9 +167,9 @@ for season in MOVING_SKY_SEASONS:
         landscape_difference = ImageChops.difference(sky_poster, original)
         landscape_mae = sum(ImageStat.Stat(
             landscape_difference, mask=opaque_landscape).mean) / 3
-        # 밝은 봄 초록·노을은 H.264 YUV420 왕복에서 평균 오차가 2.7까지 난다.
-        # 구름 잔상과 구분되는 범위만 계절별로 허용한다.
-        limit = 3 if season == "spring" else 2
+        # 밝은 봄 초록과 새 가을 단풍·노을은 H.264 YUV420 왕복에서 평균
+        # 오차가 2단계를 조금 넘는다. 구름 잔상과 구분되는 범위만 허용한다.
+        limit = 3 if season in ["spring", "autumn"] else 2
         assert landscape_mae < limit, \
             f"풍경 위 구름 잔상: {season}/{variant} MAE={landscape_mae:.2f}"
 

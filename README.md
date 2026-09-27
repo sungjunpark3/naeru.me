@@ -40,7 +40,8 @@ python3 -m http.server 8000 --bind 127.0.0.1
 봄 원화는 여린 새잎과 꽃나무를 쓰며 진달래·개나리·데이지·흰 들꽃이 전경에서
 들판 원경까지 자연스럽게 이어진다. 가까운 식물만 투명 DOM 전경으로 분리한다.
 방향키·터치 산책에서는 사계절 모두 배경을 확대하지 않는다. 내루미는 Y축으로
-앞으로 걸어오면서 첫 인사와 같은 크기까지 확대되고 4608px 원화로 전환된다.
+앞으로 걸어오면서 승인된 산책 최대 위치까지 2.35배로 커지고 4608px 원화로
+전환된다. 약 5분마다 재생되는 자동 인사는 별도 동작이라 기존 거리까지 다가온다.
 매년 12월 20~31일에는 겨울의 하늘·구름·내루미를 유지한 채 나무·설원·앞풀만
 전구·리본·장식이 있는 크리스마스 원화로 바뀐다. 내루미 뒤편의 먼 상록수까지
 거리별 크기로 장식한다. 밤 장면은 하늘을 유지하면서 눈과 나무의 청색 암부를
@@ -80,6 +81,9 @@ tools/naeru-split/.venv/bin/python tools/christmas/build.py
 
 # 승인된 봄 낮 원화에서 들판·투명 앞식물의 8개 조명 자산 재생성
 tools/naeru-split/.venv/bin/python tools/spring/build.py
+
+# 승인된 가을 낮 원화에서 들판·투명 억새·풍경 누끼의 8개 조명 자산 재생성
+tools/naeru-split/.venv/bin/python tools/autumn/build.py
 
 # 봄 맑은 네 시간대의 풍경 누끼와 60초 구름 영상 재생성
 tools/naeru-split/.venv/bin/python tools/clouds/build.py --season spring \

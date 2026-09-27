@@ -1,0 +1,20 @@
+{
+  "mode": "built-in imagegen style-transfer/edit",
+  "composition_reference": "tools/autumn/source/day-reference.jpg",
+  "style_references": [
+    "tools/spring/source/day-concept.png",
+    "img/bg-day-winter.jpg"
+  ],
+  "day_concept": "Redraw the existing autumn composition with the cleaner painterly definition and restrained pastel finish of the approved spring and winter art. Layer golden ochre, warm apricot, muted crimson, olive, dusty rose and russet foliage; retain a broad central meadow that narrows naturally toward the mountains; continue tiny cosmos, seed heads, amber grasses and fallen maple leaves into the distance; frame the lower corners for later transparent foreground separation; no character or path.",
+  "palette_refinement": "Preserve the generated composition and geometry while reducing uniform red-orange saturation, converting roughly one third of the canopy to muted olive, sage, mustard ochre, caramel brown, dusty rose and soft russet; keep foreground detail and cooler atmospheric distance.",
+  "foreground_refinement": "Replace only the large close foreground flowers with airy clusters of warm beige reeds, tawny seed heads, ivory miscanthus plumes, olive-brown blades and a few russet maple leaves; preserve the distant meadow details and a clear lower-center opening.",
+  "day_clean": "Remove only the large close foreground reeds and miscanthus from the approved autumn day concept and reconstruct the open meadow behind them; preserve all trees, sky, clouds, mountains, distant flowers and fallen leaves.",
+  "day_reeds": "Extract only the large close foreground reeds, ivory miscanthus plumes, blades and nearby maple leaves from the approved concept onto genuine transparency at the exact original alignment; no background, sky, trees, mountains or distant meadow.",
+  "day_landscape": "Extract the complete non-sky landscape from day-clean onto genuine transparency: preserve all trees, branches, leaves, mountains, distant forest and meadow; remove only open sky and clouds, including gaps between foliage; keep exact full-frame alignment and clean antialiased edges.",
+  "built_in_outputs": {
+    "day_concept": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-7f5ef644-e4c2-4eca-8244-a9d2a1761deb.png",
+    "day_clean": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-d204af92-84d2-4deb-bf57-6b7a42060de7.png",
+    "day_reeds": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-cedff624-4eab-4825-bcb7-ade3820c4fa0.png",
+    "day_landscape": "/Users/sungjunpark/.codex/generated_images/01a08bd4-05c6-7451-81f8-ca801a3143a5/exec-7ddd5e2b-b85e-42ca-82c2-3ed3f0792012.png"
+  }
+}

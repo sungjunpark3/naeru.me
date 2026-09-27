@@ -510,6 +510,11 @@ async function check(name, fn) {
         assert.equal(await p.locator('.clock-wrap').isVisible(), false);
         assert.equal(await p.evaluate(() => document.documentElement.dataset.season), 'winter');
         await playing(p);
+        // 첫 방문 다가오기나 자율 몸짓 중에는 같은 버튼이 복귀·대기 역할을 한다.
+        // 키보드 인사 자체를 검사할 때는 뉴트럴 입력 상태까지 기다린다.
+        await p.waitForFunction(() => !window.naeru.busy && !window.naeru.hold &&
+          !document.documentElement.dataset.approach,
+        null, { timeout: 30000 });
         await p.locator('#naeru-touch').press('Enter');
         assert.equal(await p.evaluate(() => window.naeru.busy), true);
         await p.waitForFunction(() => !window.naeru.busy);
@@ -826,7 +831,7 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });
-    await check('들판 산책: 사계절 인사 거리까지 전진하고 배경 확대 없이 고화질 유지', async () => {
+    await check('들판 산책: 사계절 캡처 기준까지 전진하고 배경 확대 없이 고화질 유지', async () => {
       for (const [season, source, width, height] of [
         ['spring', 'http', 1920, 1080],
         ['summer', 'http', 1920, 1080],
@@ -858,8 +863,8 @@ async function check(name, fn) {
           await p.keyboard.up('ArrowDown');
           await p.waitForFunction(() => {
             const s = window.naeruGame.state;
-            return Math.abs(s.screenScale - s.approachScale) /
-              s.approachScale < .03;
+            return Math.abs(s.screenScale - s.walkScale) /
+              s.walkScale < .03;
           });
           const state = await p.evaluate(() => {
             const s = window.naeruGame.state;
@@ -880,15 +885,17 @@ async function check(name, fn) {
           assert.equal(state.portraitOpacity, '1');
           assert.equal(state.portraitWidth, 4608);
           assert(state.baseOpacities.every(opacity => opacity === '0'));
-          assert(Math.abs(state.screenScale - state.approachScale) /
-            state.approachScale < .03);
-          assert(state.approachScale > 3);
+          assert(Math.abs(state.screenScale - state.walkScale) /
+            state.walkScale < .03);
+          assert(state.walkScale > 2.3 && state.walkScale < 2.4);
+          assert(state.portraitScale >= state.walkScale);
           assert.equal(state.zoom, 1);
-          assert(state.near > state.homeY + .25);
+          assert(state.near > state.homeY + .20 && state.near < state.homeY + .23);
           assert(state.approachTransform.includes('scale('));
           assert(!state.cameraTransform.includes('scale('));
-          assert(state.face.y < state.viewport.height * .5);
-          assert(state.face.y + state.face.height > state.viewport.height * .5);
+          assert(state.face.y > state.viewport.height * .55);
+          assert(state.face.y < state.viewport.height * .62);
+          assert(state.face.y + state.face.height > state.viewport.height * 1.05);
           if (width === 390) {
             await p.evaluate(() => {
               document.body.dispatchEvent(new PointerEvent('pointerdown', {
@@ -911,6 +918,60 @@ async function check(name, fn) {
           await p.keyboard.up('ArrowDown').catch(() => {});
           await p.close();
         }
+      }
+    });
+    await check('가을 산책: 모바일 원근 통로가 먼 곳은 좁고 코앞은 넓음', async () => {
+      const p = await makePage({ viewport: { width: 390, height: 844 } });
+      p.setDefaultTimeout(30000);
+      try {
+        await open(p, 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0&leaf=0');
+        await p.waitForFunction(() =>
+          document.querySelector('#naeruHd').dataset.status === 'ready');
+        await p.keyboard.down('ArrowUp');
+        await p.waitForFunction(() => window.naeruGame &&
+          window.naeruGame.state.y < .756);
+        await p.keyboard.up('ArrowUp');
+        await p.keyboard.down('ArrowLeft');
+        await p.waitForFunction(() => {
+          const s = window.naeruGame.state;
+          return Math.abs(s.x - s.left) < .001;
+        });
+        await p.keyboard.up('ArrowLeft');
+        const far = await p.evaluate(() => ({ ...window.naeruGame.state }));
+        assert(far.left > .33 && far.right < .77);
+        await shot(p, 'game-autumn-far-left-390');
+
+        await p.keyboard.down('ArrowDown');
+        await p.waitForFunction(() => {
+          const s = window.naeruGame.state;
+          return Math.abs(s.y - s.near) < .0001;
+        });
+        await p.keyboard.up('ArrowDown');
+        await p.keyboard.down('ArrowLeft');
+        await p.waitForFunction(() => {
+          const s = window.naeruGame.state;
+          return Math.abs(s.x - s.left) < .001;
+        });
+        await p.keyboard.up('ArrowLeft');
+        const nearLeft = await p.evaluate(() => ({ ...window.naeruGame.state }));
+        assert(nearLeft.left < .17 && nearLeft.right > .89);
+        assert(nearLeft.right - nearLeft.left > far.right - far.left + .25);
+        await shot(p, 'game-autumn-near-left-390');
+
+        await p.keyboard.down('ArrowRight');
+        await p.waitForFunction(() => {
+          const s = window.naeruGame.state;
+          return Math.abs(s.x - s.right) < .001;
+        });
+        await p.keyboard.up('ArrowRight');
+        await shot(p, 'game-autumn-near-right-390');
+        assert.equal(await p.evaluate(() => window.naeruGame.state.zoom), 1);
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally {
+        for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+          await p.keyboard.up(key).catch(() => {});
+        }
+        await p.close();
       }
     });
     await check('들판 산책: 코앞에서 방향키로 돌아갈 때 투명 프레임 없음', async () => {
@@ -1058,6 +1119,7 @@ async function check(name, fn) {
     await check('다가오기: 네 화면비에서 접근·눈 맞춤·자동 복귀', async () => {
       await Promise.all([[1920, 1080], [390, 844], [844, 390], [2560, 1080]].map(async ([width, height]) => {
         const p = await makePage({ viewport: { width, height } });
+        p.setDefaultTimeout(30000);
         try {
           await open(p, 's=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0');
           await p.waitForFunction(() => document.documentElement.dataset.approach === 'walking');

@@ -43,7 +43,7 @@ def build_landscape(variant, season):
 
     mask_name = {
         "spring": "spring-landscape-mask.png",
-        "autumn": "day-landscape-mask.png",
+        "autumn": "autumn-landscape-mask.png",
         "winter": "winter-landscape-mask.png",
     }[season]
     mask = Image.open(HERE / f"source/{mask_name}").convert("L")
