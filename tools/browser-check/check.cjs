@@ -103,6 +103,8 @@ async function check(name, fn) {
               if (foreground) {
                 assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
                   new RegExp(`foreground-${state.variant}-${season}\\.webp`));
+                assert.equal(await p.locator('.foreground-layer.on').evaluate(e =>
+                  e.style.transform), season === 'autumn' ? 'translateY(2.5%)' : '');
               }
               await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
                 document.querySelector('#naeruStill').naturalWidth === 4608);

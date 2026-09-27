@@ -1224,6 +1224,11 @@ function createSceneMotion(restart, cleanup, ambient) {
       // 전경도 이 장면의 로드가 끝난 뒤 함께 표시한다. 오래된 요청의 응답은
       // 위의 generation 검사로 버리며, 실패하면 꽃 없는 완성된 들판을 쓴다.
       if (frontReady) fronts[nextSlot].src = frontUrl;
+      // 가을 억새는 줄기 비율을 보존한 채 화면 아래로 살짝 내려
+      // 내루미와 들판을 가리는 높이만 줄인다. 슬롯별 값이라 계절 전환 중에도
+      // 이전 전경의 위치가 갑자기 바뀌지 않는다.
+      fronts[nextSlot].style.transform = season === "autumn"
+        ? "translateY(2.5%)" : "";
       fronts[nextSlot].classList.toggle("on", frontReady);
       fronts[oldSlot].classList.remove("on");
       root.dataset.foreground = frontReady ? "ready" : frontUrl ? "failed" : "none";
