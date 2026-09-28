@@ -1248,7 +1248,7 @@ function createSceneMotion(restart, cleanup, ambient) {
       }, noMotion ? 0 : 2700);
     }
     // 풍경 레이어·전경 지연이 시계와 배경을 끝없이 붙잡지 않도록 상한을 둔다.
-    // 전경은 시간 초과 뒤에도 요청을 유지하고, 현재 장면과 일치할 때만 복구한다.
+    // 풍경·전경은 시간 초과 뒤에도 요청을 유지하고, 현재 장면일 때만 복구한다.
     function loadOptional(imageUrl, onLate) {
       if (!imageUrl) return Promise.resolve(false);
       return new Promise(function (resolve) {
@@ -1275,10 +1275,21 @@ function createSceneMotion(restart, cleanup, ambient) {
       fronts[nextSlot].classList.add("on");
       root.dataset.foreground = "ready";
     }
+    function recoverLandscape() {
+      if (token !== generation) return;
+      landscapeReady = true;
+      if (!committed || active !== variant || activeSeason !== season ||
+          activeChristmas !== christmas) return;
+      landscapes[nextSlot].src = landscapeUrl;
+      landscapes[nextSlot].classList.add("on");
+      root.dataset.landscape = "ready";
+      document.dispatchEvent(new Event("naeru:landscape"));
+    }
     Promise.all([decodeImage(url), decodeImage(stillOf(variant, season)),
-      loadOptional(landscapeUrl),
+      loadOptional(landscapeUrl, recoverLandscape),
       loadOptional(frontUrl, recoverForeground)]).then(function (loaded) {
-      landscapeReady = loaded[2]; frontReady = frontReady || loaded[3];
+      landscapeReady = landscapeReady || loaded[2];
+      frontReady = frontReady || loaded[3];
       if (token !== generation) return;
       if (noMotion || fallback || document.hidden) { commit(null); return; }
       // 첫 접속은 정지본을 먼저 띄우고 디코딩된 영상으로 교체한다.
@@ -1396,6 +1407,13 @@ function createSceneMotion(restart, cleanup, ambient) {
       if (token !== request) return;
       release("failed");
     }
+    function delayed() {
+      if (token !== request) return;
+      timeout = 0;
+      // 느린 첫 요청을 취소하면 새로고침 뒤 캐시가 생겼을 때만 재생된다.
+      // 정지 포스터를 유지하면서 다운로드는 계속해 완료 즉시 교체한다.
+      root.dataset.skyMotion = "waiting";
+    }
     onError = failed;
     onReady = function () {
       if (token !== request) return;
@@ -1409,13 +1427,14 @@ function createSceneMotion(restart, cleanup, ambient) {
     };
     video.addEventListener("loadeddata", onReady);
     video.addEventListener("error", onError);
-    timeout = setTimeout(failed, 8000);
+    timeout = setTimeout(delayed, 8000);
     video.poster = "img/sky-" + variant + "-" + season + ".webp?v=" + root.dataset.av;
     video.src = "img/sky-" + variant + "-" + season + ".mp4?v=" + root.dataset.av;
     video.load();
   }
 
   var motion = createSceneMotion(restart, function () { release("none"); }, true);
+  document.addEventListener("naeru:landscape", motion.start);
   motion.start();
 })();
 </script>

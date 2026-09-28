@@ -251,9 +251,10 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
     });
-    await check('가을 낮 풍경 레이어: 실패·시간 초과·장면 전환에도 원본 배경 유지', async () => {
+    await check('가을 낮 풍경 레이어: 실패·시간 초과 복구·장면 전환 보호', async () => {
       await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
-        const p = await makePage({ reducedMotion: 'reduce' });
+        const p = await makePage({ reducedMotion:
+          kind === 'slow' ? 'no-preference' : 'reduce' });
         let release;
         const held = new Promise(resolve => { release = resolve; });
         await p.route('**/landscape-day-autumn.webp?*', async route => {
@@ -278,8 +279,12 @@ async function check(name, fn) {
             assert.match(await p.locator('.bg-layer.on').evaluate(e => e.style.backgroundImage),
               /sky-day-autumn\.webp/);
             if (kind === 'slow') {
-              release(); await p.waitForTimeout(300);
-              assert.equal(await p.locator('.landscape-layer.on').count(), 0);
+              release();
+              await p.waitForFunction(() =>
+                document.documentElement.dataset.landscape === 'ready');
+              assert.equal(await p.locator('.landscape-layer.on').count(), 1);
+              await p.waitForFunction(() =>
+                document.documentElement.dataset.skyMotion === 'playing');
             }
           }
           assert.deepEqual(p.errors, []);
@@ -389,6 +394,31 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { await p.close(); }
       }
+    });
+    await check('맑은 하늘: 느린 첫 영상도 취소 없이 완료 후 재생', async () => {
+      const p = await makePage();
+      let release;
+      const held = new Promise(resolve => { release = resolve; });
+      await p.route('**/sky-day-autumn.mp4?*', async route => {
+        await held;
+        await route.fulfill({ path: path.join(repo, 'img/sky-day-autumn.mp4') });
+      });
+      try {
+        await open(p, 's=autumn&v=day&w=clear&act=0&ball=0&flit=0&ff=0');
+        await p.clock.runFor(8100);
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.skyMotion === 'waiting');
+        assert.equal(await p.locator('#skyMotion').evaluate(v =>
+          v.classList.contains('on')), false);
+        release();
+        await p.waitForFunction(() =>
+          document.documentElement.dataset.skyMotion === 'playing');
+        const before = await p.locator('#skyMotion').evaluate(v => v.currentTime);
+        await p.waitForTimeout(400);
+        assert(await p.locator('#skyMotion').evaluate(
+          (v, time) => !v.paused && v.currentTime > time, before));
+        assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
+      } finally { release(); await p.close(); }
     });
     await check('봄·가을·겨울 구름: 실패·동작 줄이기·강수 장면은 정적 폴백', async () => {
       for (const kind of [
