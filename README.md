@@ -1,143 +1,148 @@
 # 내루미 시작페이지
 
-서울의 시간·날씨와 사계절 초원을 보여주는 정적 페이지다. 내루미에게 클릭이나
-키보드로 인사하고, 오른쪽 아래 설정에서 계절·풍경의 시간·움직임·시계·날짜를
-바꿀 수 있다. 25분·50분 집중 타이머는 새로고침 후에도 이어진다.
-앱 실행에 설치나 빌드가 필요하지 않다.
+서울의 시각·날씨와 계절 풍경, 고화질 내루미를 표시하는 정적 사이트다.
+클릭·키보드 인사, 방향키·터치 산책, 화면 설정, 25·50분 집중 타이머를 제공한다.
+앱은 설치나 번들링 없이 `index.html`로 실행된다.
 
 ## 로컬 실행
-
-저장소 루트에서 실행한 뒤 <http://127.0.0.1:8000>을 연다.
 
 ```sh
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
-`?s=winter&v=night&w=rain&still=1`처럼 URL로 특정 풍경을 확인할 수 있다.
-`w`를 지정하면 실황 조회를 건너뛴다. 시계는 실제 서울 시각을 표시한다.
+<http://127.0.0.1:8000/?s=autumn&v=day&w=clear>에서 확인한다.
+`s`: `spring/summer/autumn/winter`, `v`: `dawn/day/dusk/night`,
+`w`: `clear/rain`. `w`를 지정하면 실황 조회를 건너뛴다.
+`still=1`은 정지 화면, `xmas=1`은 겨울 크리스마스판이다.
+`file://` 미리보기도 유지하며 WebGL이 제한되면 고화질 이미지로 표시한다.
 
-구조·작업 원칙은 [CLAUDE.md](CLAUDE.md), 이전 시행착오는
-[작업 기록](docs/HISTORY-2026-09-08.md), 수정·검사 결과는
-[변경 내역](docs/CHANGES-2026-09-11.md)에 정리했다.
-캐릭터의 투명 경계 점검과 발끝 복원은 [누끼 검증 기록](docs/MATTE-2026-09-11.md)에 있다.
+## 현재 구현 범위
 
-가을의 맑은 새벽·낮·노을·밤에는 처음 한 번, 이후 약 5분마다 내루미가
-화면 앞으로 다가와 인사한다. 다른 행동과 영상 속 팔 동작이 끝나 뉴트럴 포즈가
-되면 출발하며, 집중 종료에도 같은 방식으로 인사한다.
-설정의 **가까이 와줘**로 호출할 수 있다. 첫 인사가 예약된 상태에서도 작동하며,
-포즈를 기다릴 때는 “하던 동작을 마치고 다가갈게요”를 표시한다.
-`?s=autumn&v=day&w=clear&act=approach&ball=0&flit=0&ff=0`을 열면 한 번
-재생된다. `v`를 `dawn`, `dusk`, `night`로 바꾸면 다른 시간대도 볼 수 있다.
-[방문 조건·시간대 확장·화질 조사](docs/APPROACH-2026-09-15.md)를 참고한다.
-평소 정지 화면에는 8배 복원한 투명 이미지 8종을 사용한다.
-다가올 때는 굵은 윤곽을 얇게 다시 그린 근접용 원화로 전환한다.
-같은 원화에 새벽·낮·노을·밤의 조명을 적용하므로 시간대마다 형태가 달라지지 않는다.
-가을은 맑음·비 8개 장면의 정지본과 316프레임 영상도 다시 만들었다.
-영상은 고화질 원화의 형태를 유지하는 잔잔한 호흡만 재생한다.
-평상시와 근접 화면은 같은 고화질 원화를 쓴다.
-겨울은 맑음·비 8개 장면 모두 모자·목도리가 한 그림으로 그려진 전용 내루미를 쓴다.
-봄과 여름도 가을에서 승인한 무장식 고화질 내루미와 같은 정지본·영상을 쓴다.
-봄 원화는 여린 새잎과 꽃나무를 쓰며 진달래·개나리·데이지·흰 들꽃이 전경에서
-들판 원경까지 자연스럽게 이어진다. 가까운 식물만 투명 DOM 전경으로 분리한다.
-방향키·터치 산책에서는 사계절 모두 배경을 확대하지 않는다. 내루미는 Y축으로
-앞으로 걸어오면서 승인된 산책 최대 위치까지 2.35배로 커지고 4608px 원화로
-전환된다. 약 5분마다 재생되는 자동 인사는 별도 동작이라 기존 거리까지 다가온다.
-매년 12월 20~31일에는 겨울의 하늘·구름·내루미를 유지한 채 나무·설원·앞풀만
-전구·리본·장식이 있는 크리스마스 원화로 바뀐다. 내루미 뒤편의 먼 상록수까지
-거리별 크기로 장식한다. 밤 장면은 하늘을 유지하면서 눈과 나무의 청색 암부를
-부드럽게 올리고 기존 전구 주변에만 은은한 호박색 반사광을 더한다.
-`?s=winter&xmas=1`로 날짜와 관계없이 미리 볼 수 있고,
-`xmas=0`은 기본 겨울을 표시한다.
-봄·가을 꽃·풀과 겨울의 눈 덮인 앞풀은 배경에서 지우고 투명 전경으로 따로 그렸다.
-전경은 평소부터 같은 자리에 표시되며 내루미의 접근·확대에 따라 움직이지 않는다.
-계절과 시간대의 조명에 맞춰 전경 색을 입혔다.
-사계절 배경의 고정 그림자를 제거하고, 점프해도 지면에 남는 DOM 그림자를 쓴다.
-[그림자·고해상도 제작과 검증](docs/SHADOW-HD-2026-09-16.md)에 정리했다.
-가을과 겨울의 맑은 새벽·낮·노을·밤에는 나무·산등선·들판 뒤에서
-각 시간대의 60초 구름 영상이 반복된다.
-첫·마지막 프레임과 구름의 진행 방향을 맞춰 루프 경계가 보이지 않게 했다.
-첫 화면도 영상 첫 프레임에서 만든 정지본을 사용해 로딩 후 페이드가 없다.
+| 계절 | 원화·전경 | 맑은 하늘 | 내루미 |
+|---|---|---|---|
+| 봄 | 새 원화·들판 꽃·분리 전경 | 4시간대 60초 루프 | 승인된 무장식 가을 내루미 공유 |
+| 여름 | **새 계절 작업 전**, 기존 정적 배경 유지 | 정적 | 승인된 무장식 가을 내루미 공유 |
+| 가을 | 새 단풍 원화·분리 억새·비구름 원화 | 4시간대 60초 루프 | 무장식 고화질 원화 |
+| 겨울 | 포근한 원화·분리 눈풀 | 4시간대 60초 루프 | 모자·목도리 전용 원화 |
 
-## 그림 수정·검사
+- 비·눈 하늘은 정적이다. 겨울 강수는 눈으로 표시한다.
+- 가을·겨울 맑은 네 시간대에 처음 한 번, 이후 약 5분마다 뉴트럴 포즈에서
+  다가와 인사한다. 설정의 **가까이 와줘**, 집중 종료로도 호출한다.
+- 산책은 사계절 공통으로 발끝 Y=1.01, 최대 원근 배율 2.35다.
+  배경을 확대하지 않으며 자동 인사 거리는 별도로 유지한다.
+- 가을 전경 억새는 원래 레이어 위치에서 높이의 17.5% 아래로 이동한다.
+  단풍잎은 한 장씩 떨어지고, 맑은 날에는 가끔 혀로 받는다.
+- 매년 12월 20~31일에는 겨울 나무·설원·전경만 크리스마스 원화로 바뀐다.
+  하늘·구름·내루미는 겨울 자산을 유지한다.
+- 늦게 도착한 전경·풍경은 현재 장면일 때 복구한다. 느린 구름 영상도 요청을
+  유지하고, 준비되면 정지 포스터에서 영상으로 교체한다.
 
-일반 화면 수정에는 제작 환경이 필요하지 않다. 기존 그림을 재생성하거나
-자산 검사를 할 때는 아래 환경을 사용한다.
+## 구조
+
+```text
+index.html                 인라인 CSS·독립 IIFE·공통 장면 설정·파일별 자산 해시
+game/game.js              지연 로드하는 산책 코드
+img/                       현재 자산 + 호환 URL + 보존용 제작 입력
+tools/asset_catalog.py    자산 분류·규격·공식 제작 담당·배포 허용 목록
+tools/asset_versions.py   파일별 캐시 해시 갱신
+tools/build-assets.py     필요한 단계만 별도 사본에서 제작
+tools/{spring,autumn,winter,christmas}/  승인 원화와 제작 코드
+tools/{autumn-naeru,winter-naeru}/      승인 캐릭터 원화와 제작 코드
+tools/clouds/             풍경 마스크·구름 루프 제작
+tools/check.py            통합 검사
+tools/browser-check/      실제 브라우저·기준 커밋 화면 비교
+tools/publish.py          배포 파일 선별 복사
+netlify.toml              배포 명령과 .publish 경로
+docs/                     과거 작업 기록(현재 실행 지침 아님)
+```
+
+현재 작업 규칙은 [CLAUDE.md](CLAUDE.md)를 따른다.
+`img/`의 예전 파일도 새 캐릭터 정렬·혀 제작 등에 쓰이므로 문자열 검색만으로
+삭제하지 않는다. 분류와 용량은 `python3 tools/asset_catalog.py`로 확인한다.
+
+## 검사
+
+검사용 Python은 3.13, Node는 22.14.0을 CI에서 사용한다.
+Playwright와 하위 의존성은 `package-lock.json`으로 고정한다.
 
 ```sh
 python3 -m venv tools/naeru-split/.venv
 tools/naeru-split/.venv/bin/pip install -r tools/requirements-assets.txt
+npm ci --prefix tools/browser-check
+# Chrome/Edge가 없는 환경의 검사 브라우저 설치
+./tools/browser-check/node_modules/.bin/playwright install --with-deps chromium
 
-# 파일·이미지 크기·좌표 계약·배포 차단 규칙·내용 해시 검사
-tools/naeru-split/.venv/bin/python tools/check-assets.py
-
-# 겨울 원화 8종·앞풀 8종·풍경 마스크 재생성
-tools/naeru-split/.venv/bin/python tools/winter/build.py
-
-# 새로 그린 겨울 전신 원화에서 맑음·비 8종 정지본·몸짓과 맑은 근접본 재생성
-tools/naeru-split/.venv/bin/python tools/winter-naeru/build.py
-
-# 크리스마스 장식 풍경·앞풀 8종 재생성(겨울 하늘·구름·내루미는 재사용)
-tools/naeru-split/.venv/bin/python tools/christmas/build.py
-
-# 승인된 봄 낮 원화에서 들판·투명 앞식물의 8개 조명 자산 재생성
-tools/naeru-split/.venv/bin/python tools/spring/build.py
-
-# 승인된 가을 낮 원화에서 들판·투명 억새·풍경 누끼의 8개 조명 자산 재생성
-tools/naeru-split/.venv/bin/python tools/autumn/build.py
-
-# 봄 맑은 네 시간대의 풍경 누끼와 60초 구름 영상 재생성
-tools/naeru-split/.venv/bin/python tools/clouds/build.py --season spring \
-  dawn day dusk night
-
-# 고화질 무장식 전신 원화에서 가을 8종 정지본·몸짓·근접본 재생성
-tools/naeru-split/.venv/bin/python tools/autumn-naeru/build.py
-
-# 가을 맑은 네 시간대의 풍경 누끼와 60초 구름 영상 재생성
-tools/naeru-split/.venv/bin/python tools/clouds/build.py dawn day dusk night
-
-# 겨울 맑은 네 시간대의 풍경 누끼와 60초 구름 영상 재생성
-tools/naeru-split/.venv/bin/python tools/clouds/build.py --season winter \
-  dawn day dusk night
-tools/naeru-split/.venv/bin/python tools/check-assets.py --update-version
-
-# 캐릭터·구름 영상의 크기·코덱·프레임 수와 구름 루프 끝점 검사
-tools/naeru-split/.venv/bin/python tools/check-assets.py --videos
+# 자산·제작 보호·배포 사본·브라우저 검사
+# --videos: ffmpeg/ffprobe로 코덱·프레임 수·구름 첫/끝 프레임까지 검사
+tools/naeru-split/.venv/bin/python tools/check.py --videos
 ```
 
-배경 제작에는 `ffmpeg`, 영상 검사에는 `ffprobe`가 필요하다.
-전체 `tools/naeru-split/build.sh`는 추가로 `pngquant`, macOS HEVC 인코더,
-LaMa 인페인팅 환경이 필요하다. LaMa 설치는
-[lama_fill.py](tools/naeru-split/lama_fill.py) 첫 주석을 참고한다.
-전체 파이프라인은 수천 프레임을 다시 처리하므로 필요한 단계만 실행한다.
+macOS에서는 설치된 Chrome/Edge를 우선 사용한다. H.264 지원이 없으면 즉시
+실패하며, `NAERU_BROWSER`로 실행 파일을 지정할 수 있다. 실행 시 브라우저
+버전도 출력한다. `NAERU_PLAYWRIGHT`는 별도 설치된 모듈 경로 지정용이다.
 
-## 브라우저 검사
+`NAERU_CHECK_FILTER`는 검사 이름으로 범위를 좁힌다.
+`NAERU_CHECK_ROOT`는 검사할 정적 폴더를 지정한다. 통합 검사는 실제 배포 폴더를
+사용한다. `NAERU_CHECK_OUTPUT`을 지정할 경우 반드시 저장소 밖 임시 경로를 쓴다.
+일반 검사는 보고 파일을 만들지 않는다. 브라우저 검사 외에 Safari/iOS의 실제
+알파 재생과 모바일 접근·산책 화면도 확인한다.
 
-Node.js와 Chromium을 사용한다. 의존성은 개발 검사 디렉터리에만 설치한다.
+구조 정리처럼 그림 보존이 필요한 변경은 기준 커밋과 추가 비교한다.
 
 ```sh
-npm install --prefix tools/browser-check
-./tools/browser-check/node_modules/.bin/playwright install chromium
-npm test --prefix tools/browser-check
+tools/naeru-split/.venv/bin/python tools/check-repo.py --baseline <기준커밋>
+node tools/browser-check/compare.cjs <기준커밋>
 ```
 
-검사는 임시 로컬 HTTP 서버를 띄우고 끝나면 닫는다. 날짜·날씨를 고정한 상태로
-32개 풍경, 다섯 화면 크기, 설정, 동작 줄이기, 날씨 오류, 영상 실패,
-공의 착지, 탭 복귀, 타이머를 확인한다.
-다가오기 네 화면비·가을과 겨울 네 시간대·뉴트럴 포즈 대기·첫 방문과 5분 간격·
-자동 복귀·중단·장면 제한·집중 완료 예약도 함께 검사한다.
-첫 인사 대기 중 호출 버튼, 대기 안내와 다른 몸짓의 끼어들기 방지,
-포즈 대기 중 탭 숨김·정지 모드·풍경 변경도 확인한다.
+첫 명령은 모든 이미지·영상·원화의 바이트를 비교한다. 두 번째는 기준 커밋의
+HTML·산책 코드와 `.publish`를 40개 장면 × 데스크톱·모바일에서 비교한다.
+GPU 색상 반올림의 흔들림을 피하도록 정지 화면의 픽셀 비교는 소프트웨어 합성으로
+고정한다. 좌표·자산 URL도 대조하며, 실제 GPU 움직임·로딩 실패·느린 응답·입력은
+별도의 브라우저 통합 검사가 담당한다. 임시 비교 이미지는 통과 시 지우고, 실패 시 출력한 임시 경로에서 차이를 확인한다.
 
-기존 환경을 사용할 때는 `NAERU_PLAYWRIGHT`에 Playwright 모듈 경로,
-`NAERU_BROWSER`에 Chromium 실행 파일 경로를 지정할 수 있다.
-`NAERU_CHECK_OUTPUT`에 **저장소 밖 디렉터리**를 지정하면 스크린샷과
-`results.json`을 저장한다. 이 출력은 앱 배포에 포함하지 않는다.
-`NAERU_CHECK_FILTER`에 검사 이름의 일부를 지정하면 해당 검사만 실행한다.
+## 자산 제작
+
+일반 코드·문서 정리에는 원화를 재생성하지 않는다. 제작 환경은 위 Python
+환경과 ffmpeg를 사용하며, 캐릭터의 HEVC 알파 인코딩은 macOS가 필요하다.
+
+```sh
+# 실행 계획만 표시: 현재 파일은 바뀌지 않는다.
+tools/naeru-split/.venv/bin/python tools/build-assets.py autumn
+
+# 실제 제작은 저장소 밖의 새 작업 사본에서만 실행한다.
+tools/naeru-split/.venv/bin/python tools/build-assets.py autumn --output /tmp/naeru-autumn-work
+```
+
+| 대상 | 생성하는 파일 | 선행 입력 |
+|---|---|---|
+| `spring` | 봄 배경·전경·구름 제작 입력 | 봄 승인 원화 |
+| `autumn` | 가을 배경·전경·무손실 풍경 레이어 | 가을 승인 원화·비구름 |
+| `winter` | 겨울 배경·전경·구름 제작 입력 | 겨울 승인 원화 |
+| `christmas` | 장식 풍경·전경 | 현재 겨울 자산·장식 원화 |
+| `spring-landscape`, `winter-landscape` | 풍경 레이어 | 해당 계절 배경·마스크 |
+| `spring-sky`, `autumn-sky`, `winter-sky` | 60초 구름 영상·포스터 | 해당 계절 풍경·구름 입력 |
+| `autumn-naeru`, `winter-naeru` | 고화질 캐릭터·영상 | 승인 전신 원화·보존된 정렬 입력 |
+| `snow` | 눈 타일 2장 | 기존 절차적 생성 코드 |
+
+여름 대상과 무분별한 `all` 대상은 제공하지 않는다. 가을 풍경은 `autumn`만
+생성하고 구름 제작기는 이를 재사용한다. 구형 `season/repaint.py`와
+`naeru-split/build.sh`는 과거 기록으로 보존하되 직접 실행은 중단한다.
+
+작업 사본의 변경 목록·그림을 검토하고 필요한 결과만 원래 경로에 반영한다.
+작업 사본은 현재 저장소로 자동 복사하거나 푸시하지 않는다. 그림·산책 코드를
+변경한 뒤에는 아래 명령으로 파일별 해시를 갱신하고 통합 검사를 실행한다.
+
+```sh
+python3 tools/asset_versions.py --write
+```
 
 ## 배포
 
-Netlify가 `origin/main` push를 자동 배포한다. 앱 빌드 명령은 없다.
-`_headers`는 캐시·검색 제외 정책, `_redirects`는 개발 문서·도구·제작 입력의
-강제 404 규칙이다. Python 로컬 서버는 이 Netlify 규칙을 적용하지 않는다.
-원본 자산은 재현을 위해 저장소에 남으므로 HTTP 차단 자체로 배포 용량이
-줄어들지는 않는다. 실제 차단 응답은 Netlify 배포 후 확인한다.
+Netlify는 `origin/main` push를 자동 배포한다. `netlify.toml`의 명령이
+`tools/publish.py`를 실행해 허용 목록만 `.publish/`로 복사한다.
+번들링·압축·원화 재생성은 하지 않으며 기존 URL과 파일 바이트를 유지한다.
+
+`_headers`의 캐시·검색 제외와 `_redirects`의 강제 404 규칙도 그대로 복사한다.
+제작 입력 40개·도구·문서는 저장소에 보존하면서 배포 폴더에서 제외한다.
+현재 사용하지 않는 공개 캐릭터 파일도 기존 URL·제작 의존성을 위해 유지한다.
+배포 폴더에 알 수 없는 파일이 있거나 자산 해시가 오래됐으면 배포 준비를 중단한다.

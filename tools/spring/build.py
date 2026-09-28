@@ -195,4 +195,8 @@ def build():
 
 
 if __name__ == "__main__":
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from asset_workspace import require_workspace
+    require_workspace(REPO)
     build()

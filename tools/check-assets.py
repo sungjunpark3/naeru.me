@@ -14,68 +14,18 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools" / "naeru-split"))
 from coords import CROP_ORIGIN, CROP_SIZE, FRAME_SIZE, N_FRAMES, VARIANTS
 
-SEASONS = ["spring", "summer", "autumn", "winter"]
-CLEAR_VARIANTS = ["dawn", "day", "dusk", "night"]
-MOVING_SKY_SEASONS = ["spring", "autumn", "winter"]
+from asset_catalog import (images, videos, sky_videos, runtime, inputs,
+                           CLEAR_VARIANTS, MOVING_SKY_SEASONS)
+from asset_versions import sync_versions
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--update-version", action="store_true")
 parser.add_argument("--videos", action="store_true", help="두 코덱의 실제 프레임 수도 검사")
 args = parser.parse_args()
 
-images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
-for season in ["spring", "autumn", "winter"]:
-    images.update({f"foreground-{v}-{season}.webp": FRAME_SIZE
-                   for v in VARIANTS})
-images.update({f"foreground-{v}-christmas.webp": FRAME_SIZE for v in VARIANTS})
-images.update({f"bg-{v}-christmas.jpg": FRAME_SIZE
-               for v in VARIANTS if v.endswith("-rain")})
-for season in MOVING_SKY_SEASONS:
-    for v in CLEAR_VARIANTS:
-        images[f"landscape-{v}-{season}.webp"] = FRAME_SIZE
-        images[f"sky-{v}-{season}.webp"] = (1920, 1080)
-for v in CLEAR_VARIANTS:
-    images[f"landscape-{v}-christmas.webp"] = FRAME_SIZE
-for v in VARIANTS:
-    images.update({f"naeru-{v}.png": CROP_SIZE,
-                   f"naeru-{v}-hd.webp": (4608, 3968),
-                   f"naeru-{v}-nt.png": CROP_SIZE,
-                   f"tongue-{v}.png": CROP_SIZE})
-for v in ["dawn", "day", "dusk", "night"]:
-    images[f"naeru-{v}-close.webp"] = (4608, 3968)
-images.update({"og.jpg": (1200, 630), "favicon.png": (64, 64),
-               "apple-touch-icon.png": (180, 180),
-               "autumn-maple-leaf.png": (1326, 1187),
-               "autumn-maple-leaf-gold.png": (1254, 1254),
-               "autumn-maple-leaf-crimson.png": (1254, 1254)})
-images.update({f"{kind}-{depth}.png": (512, 1024)
-               for kind in ["rain", "snow"] for depth in ["far", "near"]})
-videos = [f"naeru-{v}.{fmt}" for v in VARIANTS for fmt in ["webm", "mp4"]]
-for v in VARIANTS:
-    images.update({f"naeru-autumn-{v}.png": CROP_SIZE,
-                   f"naeru-autumn-{v}-hd.webp": (4608, 3968),
-                   f"naeru-autumn-{v}-nt.png": CROP_SIZE,
-                   f"tongue-autumn-{v}.png": CROP_SIZE})
-    videos.extend([
-        f"naeru-autumn-{v}.{fmt}" for fmt in ["webm", "mp4"]])
-for v in CLEAR_VARIANTS:
-    images[f"naeru-autumn-{v}-close.webp"] = (4608, 3968)
-for v in VARIANTS:
-    images.update({f"naeru-winter-{v}.png": CROP_SIZE,
-                   f"naeru-winter-{v}-hd.webp": (4608, 3968),
-                   f"naeru-winter-{v}-nt.png": CROP_SIZE})
-    videos.extend([
-        f"naeru-winter-{v}.{fmt}" for fmt in ["webm", "mp4"]])
-for v in CLEAR_VARIANTS:
-    images[f"naeru-winter-{v}-close.webp"] = (4608, 3968)
-sky_videos = [f"sky-{v}-{season}.mp4"
-              for season in MOVING_SKY_SEASONS for v in CLEAR_VARIANTS]
-runtime = sorted([*images, *videos, *sky_videos, "alpha-probe.webm"])
-digest = hashlib.sha256()
 foreground_alpha = {}
 for name in runtime:
     p = REPO / "img" / name
     assert p.is_file() and p.stat().st_size, f"누락: {name}"
-    digest.update(name.encode() + b"\0" + p.read_bytes())
     if name in images:
         with Image.open(p) as im:
             assert im.size == images[name], f"크기 불일치: {name} {im.size}"
@@ -113,10 +63,9 @@ for name in runtime:
         with Image.open(p) as verified:
             verified.verify()
 
-# 지연 로드하는 산책 코드도 같은 판번호로 캐시를 갱신한다.
+# 지연 로드하는 산책 코드도 파일별 판번호 검사에 포함한다.
 game_path = REPO / "game" / "game.js"
 assert game_path.is_file() and game_path.stat().st_size, "누락: game/game.js"
-digest.update(b"game/game.js\0" + game_path.read_bytes())
 
 # 가을과 겨울은 각각 한 전신 원화에서 조명만 바꾼다. 시간대별 실루엣이
 # 달라지거나 평상시·근접본 사이에서 그림이 바뀌면 접근 중 튀어 보인다.
@@ -234,13 +183,5 @@ if args.videos:
     print(f"구름 영상 {len(sky_videos)}개: "
           "1920×1080·H.264·24fps·1440프레임·끝점 일치 PASS")
 
-version = digest.hexdigest()[:12]
-pattern = r'(var ASSET_V = ")[^"]+(";)'
-assert re.search(pattern, html), "ASSET_V 선언을 찾을 수 없음"
-if args.update_version:
-    html = re.sub(pattern, lambda m: m[1] + version + m[2], html)
-    html_path.write_text(html)
-else:
-    assert f'var ASSET_V = "{version}";' in html, \
-        "자산이 바뀌었습니다. check-assets.py --update-version을 실행하세요."
+version = sync_versions(REPO, write=args.update_version)
 print(f"자산 {len(runtime)}개·좌표·경로 보호 PASS / ASSET_V={version}")

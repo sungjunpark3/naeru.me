@@ -271,4 +271,6 @@ def repaint_seasons(selected, tmp, L, yy, sky, tree, shape):
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(
+        "과거 색변환 제작기는 보존용입니다. 최신 원화를 덮어쓰지 않도록 실행을 중단했습니다. "
+        "tools/build-assets.py {spring,autumn,winter}를 사용하세요. 여름은 미작업 상태입니다.")

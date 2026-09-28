@@ -37,6 +37,8 @@ def source_prefix(variant, season):
 
 
 def build_landscape(variant, season):
+    if season == "autumn":
+        raise ValueError("가을 풍경은 tools/autumn/build.py의 무손실 원화에서만 생성합니다.")
     source = Image.open(
         REPO / f"img/bg-{variant}-{season}.jpg").convert("RGB")
     assert source.size == FRAME_SIZE
@@ -214,11 +216,24 @@ def build_cloud_video(variant, season):
           f"{poster_output.stat().st_size / 1024:.0f} KiB")
 
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--season", choices=SEASONS, default="autumn")
-parser.add_argument("variants", nargs="*", choices=VARIANTS,
-                    default=VARIANTS)
-args = parser.parse_args()
-for selected_variant in args.variants:
-    build_landscape(selected_variant, args.season)
-    build_cloud_video(selected_variant, args.season)
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--season", choices=SEASONS, required=True)
+    parser.add_argument("--only", choices=["sky", "landscape"], required=True)
+    parser.add_argument("variants", nargs="+", choices=VARIANTS)
+    args = parser.parse_args()
+    if args.season == "autumn" and args.only == "landscape":
+        parser.error("가을 풍경은 tools/autumn/build.py에서만 생성합니다.")
+    import sys
+    sys.path.insert(0, str(HERE.parent))
+    from asset_workspace import require_workspace
+    require_workspace(REPO)
+    for variant in args.variants:
+        if args.only == "landscape":
+            build_landscape(variant, args.season)
+        else:
+            build_cloud_video(variant, args.season)
+
+
+if __name__ == "__main__":
+    main()

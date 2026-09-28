@@ -799,6 +799,28 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
 </style><p class="scene-ui" style="top:24px;left:24px">시계와 날씨를 보려면 JavaScript를 켜주세요.</p></noscript>
 
 <script>
+/* 장면 기능의 공통 기준. 여름은 기존 정적 배경을 보존하는 미작업 계절이다.
+   이 설정은 URL·레이어·동작의 적용 범위만 모으며 각 IIFE의 실행 순서는 유지한다. */
+window.naeruScene = (function () {
+  var bands = Object.freeze(["dawn", "day", "dusk", "night"]);
+  var seasons = Object.freeze({
+    spring: Object.freeze({ character: "autumn", foreground: true, sky: true, approach: false }),
+    summer: Object.freeze({ character: "autumn", foreground: false, sky: false, approach: false }),
+    autumn: Object.freeze({ character: "autumn", foreground: true, sky: true, approach: true }),
+    winter: Object.freeze({ character: "winter", foreground: true, sky: true, approach: true })
+  });
+  return Object.freeze({
+    bands: bands,
+    seasons: seasons,
+    movingSky: function (variant, season) {
+      return !!seasons[season] && seasons[season].sky && bands.indexOf(variant) >= 0;
+    },
+    foregroundTransform: function (season) {
+      return season === "autumn" ? "translateY(17.5%)" : "";
+    },
+    visitGap: 5 * 60 * 1000
+  });
+})();
 /* ── 프레임 사각형 계산: 배경 영상이 cover로 차지하는 16:9 상자.
    #frame(공)과 #stage(내루미) 둘 다 이 식 하나에 맞춘다 — 공 IIFE가 이미
    6개 화면비에서 검증한 수식 그대로, 개체마다 따로 계산하지 않는 게 요점.
@@ -883,12 +905,287 @@ function createSceneMotion(restart, cleanup, ambient) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "23f609952271";
+  var ASSET_V = "eb59b22b60b3";
+  /* asset-versions:start — tools/asset_versions.py가 관리 */
+  var ASSET_HASHES = {
+    "game/game.js": "371f28c968a5",
+    "img/alpha-probe.webm": "faab4f5d34d8",
+    "img/apple-touch-icon.png": "2f40744024e1",
+    "img/autumn-maple-leaf-crimson.png": "e5014ca35ae9",
+    "img/autumn-maple-leaf-gold.png": "e5d4fb6d3f08",
+    "img/autumn-maple-leaf.png": "ef6052083c6f",
+    "img/bg-dawn-autumn.jpg": "4808c9523d9d",
+    "img/bg-dawn-rain-autumn.jpg": "3809aadf5875",
+    "img/bg-dawn-rain-christmas.jpg": "2ee11319e606",
+    "img/bg-dawn-rain-spring.jpg": "95fac788c4ef",
+    "img/bg-dawn-rain-summer.jpg": "7c2beac1860c",
+    "img/bg-dawn-rain-winter.jpg": "4340231083f2",
+    "img/bg-dawn-spring.jpg": "a48a39ee8aa2",
+    "img/bg-dawn-summer.jpg": "26c0c90097b3",
+    "img/bg-dawn-winter.jpg": "bbf7da6efb98",
+    "img/bg-day-autumn.jpg": "465c9467abc6",
+    "img/bg-day-rain-autumn.jpg": "49814585c5ab",
+    "img/bg-day-rain-christmas.jpg": "4d4ffbfc0433",
+    "img/bg-day-rain-spring.jpg": "2332c7a97bdf",
+    "img/bg-day-rain-summer.jpg": "3feb93b04b3e",
+    "img/bg-day-rain-winter.jpg": "e7c110f66eb3",
+    "img/bg-day-spring.jpg": "6b88783d41c5",
+    "img/bg-day-summer.jpg": "4cbab2223ad5",
+    "img/bg-day-winter.jpg": "7c6516315490",
+    "img/bg-dusk-autumn.jpg": "f3cbf1169f2d",
+    "img/bg-dusk-rain-autumn.jpg": "8d44e5573c1c",
+    "img/bg-dusk-rain-christmas.jpg": "fd393e363cf1",
+    "img/bg-dusk-rain-spring.jpg": "ac680118acc1",
+    "img/bg-dusk-rain-summer.jpg": "4a123483ccf1",
+    "img/bg-dusk-rain-winter.jpg": "57932d101a7c",
+    "img/bg-dusk-spring.jpg": "d061963267ee",
+    "img/bg-dusk-summer.jpg": "1ea5e07961c8",
+    "img/bg-dusk-winter.jpg": "149db68916ff",
+    "img/bg-night-autumn.jpg": "f99d23b273ce",
+    "img/bg-night-rain-autumn.jpg": "cc0c2984f3f3",
+    "img/bg-night-rain-christmas.jpg": "58a53e59fc10",
+    "img/bg-night-rain-spring.jpg": "a98f984852bc",
+    "img/bg-night-rain-summer.jpg": "ba38dfe7d177",
+    "img/bg-night-rain-winter.jpg": "3ad82b3fd502",
+    "img/bg-night-spring.jpg": "e99295203d85",
+    "img/bg-night-summer.jpg": "3691d00caeb7",
+    "img/bg-night-winter.jpg": "6675d827c7f6",
+    "img/favicon.png": "5e7358ffb100",
+    "img/foreground-dawn-autumn.webp": "857576ad87ed",
+    "img/foreground-dawn-christmas.webp": "8df360d548bf",
+    "img/foreground-dawn-rain-autumn.webp": "4eb41e2eed02",
+    "img/foreground-dawn-rain-christmas.webp": "703a862d2530",
+    "img/foreground-dawn-rain-spring.webp": "2648685af97e",
+    "img/foreground-dawn-rain-winter.webp": "0be4212f5c06",
+    "img/foreground-dawn-spring.webp": "b94977277225",
+    "img/foreground-dawn-winter.webp": "93b33a0d4906",
+    "img/foreground-day-autumn.webp": "148b8006d769",
+    "img/foreground-day-christmas.webp": "7c04ef00de02",
+    "img/foreground-day-rain-autumn.webp": "34b35905ab07",
+    "img/foreground-day-rain-christmas.webp": "32d2762fd81d",
+    "img/foreground-day-rain-spring.webp": "6b4979bbf51d",
+    "img/foreground-day-rain-winter.webp": "84a97d004581",
+    "img/foreground-day-spring.webp": "860f158c5b48",
+    "img/foreground-day-winter.webp": "0eff5c76d48b",
+    "img/foreground-dusk-autumn.webp": "23f9cc76adee",
+    "img/foreground-dusk-christmas.webp": "2d740e6e7a36",
+    "img/foreground-dusk-rain-autumn.webp": "52fc33c5b0ee",
+    "img/foreground-dusk-rain-christmas.webp": "37c776746955",
+    "img/foreground-dusk-rain-spring.webp": "61a8e9528e0a",
+    "img/foreground-dusk-rain-winter.webp": "2bcc8026f8e5",
+    "img/foreground-dusk-spring.webp": "fb20c5cc1c65",
+    "img/foreground-dusk-winter.webp": "d2ba7bea6dc8",
+    "img/foreground-night-autumn.webp": "7c09dc78c8b8",
+    "img/foreground-night-christmas.webp": "8b31ee754429",
+    "img/foreground-night-rain-autumn.webp": "32e41478e890",
+    "img/foreground-night-rain-christmas.webp": "80f6311dac85",
+    "img/foreground-night-rain-spring.webp": "4a1864cfd2eb",
+    "img/foreground-night-rain-winter.webp": "06f0e1b46d09",
+    "img/foreground-night-spring.webp": "9d6caeca51e2",
+    "img/foreground-night-winter.webp": "1ed6d23e9adf",
+    "img/landscape-dawn-autumn.webp": "1fd3fe466db7",
+    "img/landscape-dawn-christmas.webp": "d612789aacf0",
+    "img/landscape-dawn-spring.webp": "e332d1f91c57",
+    "img/landscape-dawn-winter.webp": "94cd9284d4b1",
+    "img/landscape-day-autumn.webp": "d0c4888af92c",
+    "img/landscape-day-christmas.webp": "3360004cbfed",
+    "img/landscape-day-spring.webp": "ffe69194f391",
+    "img/landscape-day-winter.webp": "b9cb3e28e445",
+    "img/landscape-dusk-autumn.webp": "590fe9071fc1",
+    "img/landscape-dusk-christmas.webp": "f44e139cb646",
+    "img/landscape-dusk-spring.webp": "105dead20f64",
+    "img/landscape-dusk-winter.webp": "865bd2556d16",
+    "img/landscape-night-autumn.webp": "ec746a11379d",
+    "img/landscape-night-christmas.webp": "639916e73b8b",
+    "img/landscape-night-spring.webp": "6a6e12e40409",
+    "img/landscape-night-winter.webp": "0e74d8ef31ba",
+    "img/naeru-autumn-dawn-close.webp": "94e06c1dfa81",
+    "img/naeru-autumn-dawn-hd.webp": "94e06c1dfa81",
+    "img/naeru-autumn-dawn-nt.png": "5688c6e67db8",
+    "img/naeru-autumn-dawn-rain-hd.webp": "d1cb439d8ff5",
+    "img/naeru-autumn-dawn-rain-nt.png": "94374462ed60",
+    "img/naeru-autumn-dawn-rain.mp4": "6db45c114794",
+    "img/naeru-autumn-dawn-rain.png": "02b945b7ad9a",
+    "img/naeru-autumn-dawn-rain.webm": "53f67305fdb0",
+    "img/naeru-autumn-dawn.mp4": "e1cd5e31d8bb",
+    "img/naeru-autumn-dawn.png": "98a83869dc5b",
+    "img/naeru-autumn-dawn.webm": "38691c1c8977",
+    "img/naeru-autumn-day-close.webp": "9cf3c7b5ae08",
+    "img/naeru-autumn-day-hd.webp": "9cf3c7b5ae08",
+    "img/naeru-autumn-day-nt.png": "4ab141b34f3c",
+    "img/naeru-autumn-day-rain-hd.webp": "4b2c2fa39f9e",
+    "img/naeru-autumn-day-rain-nt.png": "82e164f021a6",
+    "img/naeru-autumn-day-rain.mp4": "3b874a89d867",
+    "img/naeru-autumn-day-rain.png": "f58a3ce326aa",
+    "img/naeru-autumn-day-rain.webm": "46fd57771926",
+    "img/naeru-autumn-day.mp4": "f18adcc95716",
+    "img/naeru-autumn-day.png": "db2afb082cef",
+    "img/naeru-autumn-day.webm": "b32fc10a2039",
+    "img/naeru-autumn-dusk-close.webp": "7091ae4be8b9",
+    "img/naeru-autumn-dusk-hd.webp": "7091ae4be8b9",
+    "img/naeru-autumn-dusk-nt.png": "62ec27955e3a",
+    "img/naeru-autumn-dusk-rain-hd.webp": "f5f038ce7e71",
+    "img/naeru-autumn-dusk-rain-nt.png": "8c5093dcad9d",
+    "img/naeru-autumn-dusk-rain.mp4": "45c0da158c5e",
+    "img/naeru-autumn-dusk-rain.png": "cf62806657e7",
+    "img/naeru-autumn-dusk-rain.webm": "f607c71671ed",
+    "img/naeru-autumn-dusk.mp4": "43124a5fe7c3",
+    "img/naeru-autumn-dusk.png": "f51becb40cd4",
+    "img/naeru-autumn-dusk.webm": "c0ec8fb53f28",
+    "img/naeru-autumn-night-close.webp": "244e83ea48c1",
+    "img/naeru-autumn-night-hd.webp": "244e83ea48c1",
+    "img/naeru-autumn-night-nt.png": "a7aa8c3d9d69",
+    "img/naeru-autumn-night-rain-hd.webp": "2e484132db8c",
+    "img/naeru-autumn-night-rain-nt.png": "3990fc5d9a8b",
+    "img/naeru-autumn-night-rain.mp4": "981fb015649b",
+    "img/naeru-autumn-night-rain.png": "9f87b78ae9bf",
+    "img/naeru-autumn-night-rain.webm": "4078b05efe8d",
+    "img/naeru-autumn-night.mp4": "024c06532bc4",
+    "img/naeru-autumn-night.png": "f470d87fea8d",
+    "img/naeru-autumn-night.webm": "bfa21561c49e",
+    "img/naeru-dawn-close.webp": "94e06c1dfa81",
+    "img/naeru-dawn-hd.webp": "7f35d56dc422",
+    "img/naeru-dawn-nt.png": "9cf266f77959",
+    "img/naeru-dawn-rain-hd.webp": "abc5776ca5e4",
+    "img/naeru-dawn-rain-nt.png": "63eeaa725d3a",
+    "img/naeru-dawn-rain.mp4": "e282e9e8aab7",
+    "img/naeru-dawn-rain.png": "f4feb35da2ea",
+    "img/naeru-dawn-rain.webm": "b04a527e1ced",
+    "img/naeru-dawn.mp4": "9e06c6d33eeb",
+    "img/naeru-dawn.png": "d2ee70fafafa",
+    "img/naeru-dawn.webm": "624c1adbdb97",
+    "img/naeru-day-close.webp": "9cf3c7b5ae08",
+    "img/naeru-day-hd.webp": "e39d688a499f",
+    "img/naeru-day-nt.png": "cc12796567a1",
+    "img/naeru-day-rain-hd.webp": "c9c7b1a45bd7",
+    "img/naeru-day-rain-nt.png": "575c0b2fd06e",
+    "img/naeru-day-rain.mp4": "7001ae7dff63",
+    "img/naeru-day-rain.png": "962cd8251ee6",
+    "img/naeru-day-rain.webm": "e8c0086ac948",
+    "img/naeru-day.mp4": "381f2be58f1c",
+    "img/naeru-day.png": "286d149c97a6",
+    "img/naeru-day.webm": "6981cae2d6cc",
+    "img/naeru-dusk-close.webp": "7091ae4be8b9",
+    "img/naeru-dusk-hd.webp": "8108fcce7993",
+    "img/naeru-dusk-nt.png": "86a8f9b5ab87",
+    "img/naeru-dusk-rain-hd.webp": "ea02902e7197",
+    "img/naeru-dusk-rain-nt.png": "94f1e458baef",
+    "img/naeru-dusk-rain.mp4": "77b226a8a473",
+    "img/naeru-dusk-rain.png": "0555974b32e8",
+    "img/naeru-dusk-rain.webm": "5c5a67befab5",
+    "img/naeru-dusk.mp4": "8643f17d991e",
+    "img/naeru-dusk.png": "862b439f23fd",
+    "img/naeru-dusk.webm": "505d93f9cfa6",
+    "img/naeru-night-close.webp": "244e83ea48c1",
+    "img/naeru-night-hd.webp": "f92fb8186deb",
+    "img/naeru-night-nt.png": "bf24a18ed0c3",
+    "img/naeru-night-rain-hd.webp": "b141f382956a",
+    "img/naeru-night-rain-nt.png": "d18f7f2157ed",
+    "img/naeru-night-rain.mp4": "40fda0cdf1eb",
+    "img/naeru-night-rain.png": "13eded4e12c8",
+    "img/naeru-night-rain.webm": "1c66f141186a",
+    "img/naeru-night.mp4": "9d1b839dcd2c",
+    "img/naeru-night.png": "d3fcf2d1ee4c",
+    "img/naeru-night.webm": "502f686e7e90",
+    "img/naeru-winter-dawn-close.webp": "c151f38ead6d",
+    "img/naeru-winter-dawn-hd.webp": "c151f38ead6d",
+    "img/naeru-winter-dawn-nt.png": "9b3a8d295084",
+    "img/naeru-winter-dawn-rain-hd.webp": "3025dcc4f4ba",
+    "img/naeru-winter-dawn-rain-nt.png": "2aa62fab79b2",
+    "img/naeru-winter-dawn-rain.mp4": "0f6da11498e3",
+    "img/naeru-winter-dawn-rain.png": "2aa62fab79b2",
+    "img/naeru-winter-dawn-rain.webm": "4b0b5b51970b",
+    "img/naeru-winter-dawn.mp4": "71649bc1449a",
+    "img/naeru-winter-dawn.png": "9b3a8d295084",
+    "img/naeru-winter-dawn.webm": "1831877f43f8",
+    "img/naeru-winter-day-close.webp": "ecb19e45e24e",
+    "img/naeru-winter-day-hd.webp": "ecb19e45e24e",
+    "img/naeru-winter-day-nt.png": "9fac5721d426",
+    "img/naeru-winter-day-rain-hd.webp": "d59b7f1ba87a",
+    "img/naeru-winter-day-rain-nt.png": "086987fc9ecf",
+    "img/naeru-winter-day-rain.mp4": "b2baa8fca385",
+    "img/naeru-winter-day-rain.png": "086987fc9ecf",
+    "img/naeru-winter-day-rain.webm": "88c6354762d1",
+    "img/naeru-winter-day.mp4": "17d227cc4a23",
+    "img/naeru-winter-day.png": "9fac5721d426",
+    "img/naeru-winter-day.webm": "b958b3585a1a",
+    "img/naeru-winter-dusk-close.webp": "b4536c44a448",
+    "img/naeru-winter-dusk-hd.webp": "b4536c44a448",
+    "img/naeru-winter-dusk-nt.png": "13a0d94781e1",
+    "img/naeru-winter-dusk-rain-hd.webp": "c21430707ce5",
+    "img/naeru-winter-dusk-rain-nt.png": "5bb263807000",
+    "img/naeru-winter-dusk-rain.mp4": "4aeab42ef331",
+    "img/naeru-winter-dusk-rain.png": "5bb263807000",
+    "img/naeru-winter-dusk-rain.webm": "d2a8e3d4b99b",
+    "img/naeru-winter-dusk.mp4": "518d8216aa76",
+    "img/naeru-winter-dusk.png": "13a0d94781e1",
+    "img/naeru-winter-dusk.webm": "b06c2930ee02",
+    "img/naeru-winter-night-close.webp": "86dfe55d4091",
+    "img/naeru-winter-night-hd.webp": "86dfe55d4091",
+    "img/naeru-winter-night-nt.png": "58a58113bb90",
+    "img/naeru-winter-night-rain-hd.webp": "0e394066d4de",
+    "img/naeru-winter-night-rain-nt.png": "c81e806c2e74",
+    "img/naeru-winter-night-rain.mp4": "32cf9ddace24",
+    "img/naeru-winter-night-rain.png": "c81e806c2e74",
+    "img/naeru-winter-night-rain.webm": "3da7ac11fdbb",
+    "img/naeru-winter-night.mp4": "c20085a903f2",
+    "img/naeru-winter-night.png": "58a58113bb90",
+    "img/naeru-winter-night.webm": "e1d1c39a6a3b",
+    "img/og.jpg": "3fdf1a77a427",
+    "img/rain-far.png": "610ed0c9cbd1",
+    "img/rain-near.png": "da992a1ee58a",
+    "img/sky-dawn-autumn.mp4": "ef0b2c3f7ad5",
+    "img/sky-dawn-autumn.webp": "988f8de71eb3",
+    "img/sky-dawn-spring.mp4": "ad18702455a9",
+    "img/sky-dawn-spring.webp": "0b3c467f5f07",
+    "img/sky-dawn-winter.mp4": "6129054f8820",
+    "img/sky-dawn-winter.webp": "7c0b38956698",
+    "img/sky-day-autumn.mp4": "68baa41d7b0e",
+    "img/sky-day-autumn.webp": "dc1314c3e409",
+    "img/sky-day-spring.mp4": "11538c41bfad",
+    "img/sky-day-spring.webp": "1bc93de44ff0",
+    "img/sky-day-winter.mp4": "b2a07db4f83d",
+    "img/sky-day-winter.webp": "02ebe3cc125a",
+    "img/sky-dusk-autumn.mp4": "a3a4751c5d0b",
+    "img/sky-dusk-autumn.webp": "66f05440218c",
+    "img/sky-dusk-spring.mp4": "fde2a184a62d",
+    "img/sky-dusk-spring.webp": "16778b07a7a0",
+    "img/sky-dusk-winter.mp4": "6137bce1f527",
+    "img/sky-dusk-winter.webp": "2b036302322e",
+    "img/sky-night-autumn.mp4": "30ca29fed202",
+    "img/sky-night-autumn.webp": "d9cb53966f80",
+    "img/sky-night-spring.mp4": "e1f656472ef8",
+    "img/sky-night-spring.webp": "ddce281b488e",
+    "img/sky-night-winter.mp4": "26647e852abb",
+    "img/sky-night-winter.webp": "998ef2120e32",
+    "img/snow-far.png": "b7bb482e9488",
+    "img/snow-near.png": "6da4128c4cf5",
+    "img/tongue-autumn-dawn-rain.png": "5d5bdc40d4d7",
+    "img/tongue-autumn-dawn.png": "5eb8d918df35",
+    "img/tongue-autumn-day-rain.png": "851512bfbe3b",
+    "img/tongue-autumn-day.png": "a629a456df57",
+    "img/tongue-autumn-dusk-rain.png": "75cde7715f2a",
+    "img/tongue-autumn-dusk.png": "e36bc83d5d89",
+    "img/tongue-autumn-night-rain.png": "842862c38ed8",
+    "img/tongue-autumn-night.png": "89a07b6f5209",
+    "img/tongue-dawn-rain.png": "3f79bbabbcfd",
+    "img/tongue-dawn.png": "6d6d5ee3b6d9",
+    "img/tongue-day-rain.png": "7ab9cd1362a3",
+    "img/tongue-day.png": "4e526499037d",
+    "img/tongue-dusk-rain.png": "6d3a4be06f0b",
+    "img/tongue-dusk.png": "f89d69495b1a",
+    "img/tongue-night-rain.png": "c7e9c1ac9061",
+    "img/tongue-night.png": "c52079d37bc7"
+  };
+  /* asset-versions:end */
+  window.naeruAssetURL = function (path) {
+    return path + "?v=" + (ASSET_HASHES[path] || ASSET_V);
+  };
   var root = document.documentElement;
   root.dataset.av = ASSET_V;
   var params = new URLSearchParams(location.search);
-  var bands = ["dawn", "day", "dusk", "night"];
-  var seasons = ["spring", "summer", "autumn", "winter"];
+  var bands = window.naeruScene.bands;
+  var seasons = Object.keys(window.naeruScene.seasons);
   var rainy = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67,
                71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99];
   var codes = [0, 1, 2, 3, 45, 48].concat(rainy);
@@ -1060,9 +1357,9 @@ function createSceneMotion(restart, cleanup, ambient) {
   var generation = 0, noMotion = window.naeruReduced(), fallback = false, retries = 0;
   var hdRequest = 0;
   var format = null, formatPromise = null, stopWatch = function () {};
-  function av(file) { return "img/" + file + "?v=" + ASSET_V; }
+  function av(file) { return window.naeruAssetURL("img/" + file); }
   function movingSky(v, s) {
-    return ["spring", "autumn", "winter"].indexOf(s) >= 0 && bands.indexOf(v) >= 0;
+    return window.naeruScene.movingSky(v, s);
   }
   function bgOf(v, s, christmas) {
     return movingSky(v, s)
@@ -1070,8 +1367,7 @@ function createSceneMotion(restart, cleanup, ambient) {
       : av("bg-" + v + "-" + (christmas ? "christmas" : s) + ".jpg");
   }
   function characterOf(v, s) {
-    if (s === "winter") return "winter-" + v;
-    return "autumn-" + v;
+    return (window.naeruScene.seasons[s] || window.naeruScene.seasons.autumn).character + "-" + v;
   }
   window.naeruAsset = characterOf;
   function stillOf(v, s) {
@@ -1192,7 +1488,7 @@ function createSceneMotion(restart, cleanup, ambient) {
         (christmas ? "christmas" : season) + ".webp") : null;
     var frontUrl = christmas
       ? av("foreground-" + variant + "-christmas.webp")
-      : ["spring", "autumn", "winter"].indexOf(season) >= 0
+      : window.naeruScene.seasons[season].foreground
         ? av("foreground-" + variant + "-" + season + ".webp") : null;
     var landscapeReady = false, frontReady = false, committed = false;
     requested = key; stopWatch(); sceneReady(false);
@@ -1227,8 +1523,7 @@ function createSceneMotion(restart, cleanup, ambient) {
       // 가을 억새는 줄기 비율을 보존한 채 화면 아래로 살짝 내려
       // 내루미와 들판을 가리는 높이만 줄인다. 슬롯별 값이라 계절 전환 중에도
       // 이전 전경의 위치가 갑자기 바뀌지 않는다.
-      fronts[nextSlot].style.transform = season === "autumn"
-        ? "translateY(17.5%)" : "";
+      fronts[nextSlot].style.transform = window.naeruScene.foregroundTransform(season);
       fronts[nextSlot].classList.toggle("on", frontReady);
       fronts[oldSlot].classList.remove("on");
       root.dataset.foreground = frontReady ? "ready" : frontUrl ? "failed" : "none";
@@ -1270,8 +1565,7 @@ function createSceneMotion(restart, cleanup, ambient) {
       if (!committed || active !== variant || activeSeason !== season ||
           activeChristmas !== christmas) return;
       fronts[nextSlot].src = frontUrl;
-      fronts[nextSlot].style.transform = season === "autumn"
-        ? "translateY(17.5%)" : "";
+      fronts[nextSlot].style.transform = window.naeruScene.foregroundTransform(season);
       fronts[nextSlot].classList.add("on");
       root.dataset.foreground = "ready";
     }
@@ -1396,8 +1690,7 @@ function createSceneMotion(restart, cleanup, ambient) {
   function restart() {
     var variant = document.body.dataset.variant;
     var season = root.dataset.season;
-    var eligible = ["spring", "autumn", "winter"].indexOf(season) >= 0 &&
-      ["dawn", "day", "dusk", "night"].indexOf(variant) >= 0 &&
+    var eligible = window.naeruScene.movingSky(variant, season) &&
       root.dataset.landscape === "ready";
     if (!eligible) { root.dataset.skyMotion = "none"; return; }
 
@@ -1428,8 +1721,8 @@ function createSceneMotion(restart, cleanup, ambient) {
     video.addEventListener("loadeddata", onReady);
     video.addEventListener("error", onError);
     timeout = setTimeout(delayed, 8000);
-    video.poster = "img/sky-" + variant + "-" + season + ".webp?v=" + root.dataset.av;
-    video.src = "img/sky-" + variant + "-" + season + ".mp4?v=" + root.dataset.av;
+    video.poster = window.naeruAssetURL("img/sky-" + variant + "-" + season + ".webp");
+    video.src = window.naeruAssetURL("img/sky-" + variant + "-" + season + ".mp4");
     video.load();
   }
 
@@ -1494,7 +1787,7 @@ function createSceneMotion(restart, cleanup, ambient) {
         if (loaded.indexOf(name) < 0) loaded.push(name);
         root.dataset.autumnLeafAssets = String(loaded.length);
       };
-      image.src = "img/" + name + "?v=" + root.dataset.av;
+      image.src = window.naeruAssetURL("img/" + name);
     });
   }
   function chooseAsset() {
@@ -1502,7 +1795,7 @@ function createSceneMotion(restart, cleanup, ambient) {
     if (!choices.length) choices = loaded.slice();
     lastAsset = choices[Math.floor(Math.random() * choices.length)];
     leaf.dataset.variant = lastAsset;
-    leaf.src = "img/" + lastAsset + "?v=" + root.dataset.av;
+    leaf.src = window.naeruAssetURL("img/" + lastAsset);
   }
   function place(x, y, angle, scale, opacity) {
     leaf.style.opacity = Math.max(0, Math.min(1, opacity)).toFixed(3);
@@ -2629,7 +2922,6 @@ function createSceneMotion(restart, cleanup, ambient) {
   if (!nt || !tong) return;
 
   function rand(a, b) { return a + Math.random() * (b - a); }
-  function ver() { return "?v=" + (document.documentElement.dataset.av || "0"); }
   function activeVideo() {
     return document.querySelector("#naeruA.on, #naeruB.on");
   }
@@ -2656,8 +2948,8 @@ function createSceneMotion(restart, cleanup, ambient) {
     function ok() { if (--left === 0) ready = true; }
     nt.onload = tong.onload = ok;
     nt.onerror = tong.onerror = function () { loadedFor = null; };  // 다음에 다시
-    nt.src   = "img/naeru-" + asset + "-nt.png" + ver();
-    tong.src = "img/tongue-" + asset + ".png" + ver();
+    nt.src   = window.naeruAssetURL("img/naeru-" + asset + "-nt.png");
+    tong.src = window.naeruAssetURL("img/tongue-" + asset + ".png");
   }
 
   function tick(dur, fn, done) {
@@ -2918,20 +3210,20 @@ function createSceneMotion(restart, cleanup, ambient) {
   var panel = document.getElementById("settings-panel");
   var pending = null, running = false, visited = false;
   var reserved = false, frozenVideo = null;
-  var visitGap = 5 * 60 * 1000, nextVisit = performance.now() + visitGap;
+  var visitGap = window.naeruScene.visitGap, nextVisit = performance.now() + visitGap;
   var readyAt = performance.now(), geometry = null, progress = 0;
   var phase = "", phaseStart = 0, returnFrom = 1;
   var rigReady = false, rigPose = [0, 0, 0], returnPose = [0, 0, 0];
 
   function eligible() {
-    return ["autumn", "winter"].indexOf(root.dataset.season) >= 0 &&
+    return !!window.naeruScene.seasons[root.dataset.season] &&
+           window.naeruScene.seasons[root.dataset.season].approach &&
            document.body.dataset.weather === "clear" &&
-           ["dawn", "day", "dusk", "night"].indexOf(document.body.dataset.variant) >= 0 &&
+           window.naeruScene.bands.indexOf(document.body.dataset.variant) >= 0 &&
            !window.naeruReduced() && params.get("act") !== "0";
   }
   function prepareLayers() {
     if (!eligible() || root.dataset.sceneReady !== "true") return;
-    var version = "?v=" + root.dataset.av;
     var variant = document.body.dataset.variant;
     var asset = window.naeruAsset(variant, root.dataset.season);
     // 작은 영상의 굵은 선을 그대로 확대하지 않는다. 근접용 원화는 접근할 수
@@ -2947,7 +3239,7 @@ function createSceneMotion(restart, cleanup, ambient) {
       };
       // decode()를 별도 Image에서 호출하지 않는다. 실제 표시·WebGL 입력에 쓰는
       // 요소가 완전히 로드된 뒤에만 ready가 되어 로컬에서도 빈 프레임이 없다.
-      closeup.src = "img/naeru-" + asset + "-close.webp" + version;
+      closeup.src = window.naeruAssetURL("img/naeru-" + asset + "-close.webp");
     }
   }
 
@@ -3362,7 +3654,7 @@ function createSceneMotion(restart, cleanup, ambient) {
   function load() {
     loading = true;
     var script = document.createElement("script");
-    script.src = "game/game.js?v=" + (document.documentElement.dataset.av || "");
+    script.src = window.naeruAssetURL("game/game.js");
     script.onload = function () { if (window.naeruGame) window.naeruGame.boot(held, tap); };
     script.onerror = function () {
       script.remove(); loading = false; held.clear(); tap = null;

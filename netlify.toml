@@ -1,0 +1,4 @@
+# 앱은 계속 정적 파일로 실행한다. 제작 환경 없이 배포 파일만 선별 복사한다.
+[build]
+  command = "python3 tools/publish.py"
+  publish = ".publish"

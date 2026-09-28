@@ -11,6 +11,10 @@
 # 그림만 고칠 땐 처음부터 다시 돌릴 필요 없다 — plate.py/matte.py/인코딩
 # 구간만 따로 다시 실행해도 된다(주석 참고).
 set -e
+# 현재 캐릭터는 autumn-naeru/winter-naeru의 승인 원화에서 만든다.
+# 아래는 과거 제작 기록이다. 최신 원화와 계절 배경에 쓰지 않는다.
+print -u2 "보존용 구형 파이프라인입니다. tools/build-assets.py로 필요한 제작 단계를 선택하세요."
+exit 2
 
 HERE=${0:A:h}
 REPO=${HERE:h:h}

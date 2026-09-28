@@ -58,6 +58,10 @@ def build(name, n, lo, hi):
 
 
 if __name__ == "__main__":
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from asset_workspace import require_workspace
+    require_workspace(REPO)
     # 원경은 작고 촘촘하게, 근경은 크고 성기게 — 비 레이어와 같은 깊이 구성.
     #
     # **개수는 화면에 깔리는 타일 수를 곱해서 생각해야 한다.** background-size를

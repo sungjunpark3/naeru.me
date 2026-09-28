@@ -1,10 +1,10 @@
 /* 앱에는 의존성을 추가하지 않고 실제 브라우저의 표시·입력·상태 전환을 검사한다. */
-const { chromium } = require(process.env.NAERU_PLAYWRIGHT || 'playwright');
+const { launchBrowser } = require('./browser.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
-const repo = path.resolve(__dirname, '../..');
+const repo = path.resolve(process.env.NAERU_CHECK_ROOT || path.join(__dirname, '../..'));
 const out = process.env.NAERU_CHECK_OUTPUT;
 if (out) fs.mkdirSync(out, { recursive: true });
 const mime = { '.html': 'text/html', '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp',
@@ -37,11 +37,7 @@ async function check(name, fn) {
 (async () => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = 'http://127.0.0.1:' + server.address().port;
-  const browser = await chromium.launch({ headless: true,
-    args: process.platform === 'darwin' ?
-      ['--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'] :
-      ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
-    ...(process.env.NAERU_BROWSER ? { executablePath: process.env.NAERU_BROWSER } : {}) });
+  const browser = await launchBrowser();
   async function makePage(options = {}) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, ...options });
     page.setDefaultTimeout(8000);
@@ -630,9 +626,11 @@ async function check(name, fn) {
             window.requestAnimationFrame = fn => setTimeout(() => fn(performance.now()), 1000 / fps);
             window.cancelAnimationFrame = clearTimeout;
           }, fps);
-          await open(p, 'v=day&w=clear&ball=1&flit=0&ff=0');
+          // 공의 저프레임 착지 검사는 자동 인사·단풍잎의 무작위 예약과 분리한다.
+          // 방문·포즈·다른 동작과의 중단/복구는 뒤의 통합 검사에서 확인한다.
+          await open(p, 's=autumn&v=day&w=clear&act=idle&ball=1&flit=0&ff=0&leaf=0');
           await p.waitForFunction(() => document.querySelector('#ball').style.opacity === '1',
-            null, { timeout: 30000 }); // 첫 인사가 끝난 뒤 공이 들어온다.
+            null, { timeout: 30000 });
           await p.waitForFunction(() => document.querySelector('#ball').style.opacity === '0' &&
             !window.naeru.busy, null, { timeout: 12000 });
           await p.locator('#naeru-touch').press('Space');
@@ -1853,5 +1851,5 @@ async function check(name, fn) {
     if (out) fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 2));
   }
   console.log(`${results.filter(r => r.pass).length}/${results.length} checks passed`);
-  if (results.some(r => !r.pass)) process.exitCode = 1;
+  if (!results.length || results.some(r => !r.pass)) process.exitCode = 1;
 })().catch(e => { console.error(e); server.close(); process.exitCode = 1; });

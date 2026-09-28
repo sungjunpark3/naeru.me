@@ -8,3 +8,4 @@ tools/naeru-hd/build/
 tools/winter-naeru/build/
 tools/autumn-naeru/build/
 tools/browser-check/node_modules/
+.publish/
