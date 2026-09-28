@@ -1194,7 +1194,7 @@ function createSceneMotion(restart, cleanup, ambient) {
       ? av("foreground-" + variant + "-christmas.webp")
       : ["spring", "autumn", "winter"].indexOf(season) >= 0
         ? av("foreground-" + variant + "-" + season + ".webp") : null;
-    var landscapeReady = false, frontReady = false;
+    var landscapeReady = false, frontReady = false, committed = false;
     requested = key; stopWatch(); sceneReady(false);
     prepareHD(character);
     // 첫 화면의 시계와 배경은 날씨 요청을 기다리지 않는다.
@@ -1228,10 +1228,11 @@ function createSceneMotion(restart, cleanup, ambient) {
       // 내루미와 들판을 가리는 높이만 줄인다. 슬롯별 값이라 계절 전환 중에도
       // 이전 전경의 위치가 갑자기 바뀌지 않는다.
       fronts[nextSlot].style.transform = season === "autumn"
-        ? "translateY(2.5%)" : "";
+        ? "translateY(17.5%)" : "";
       fronts[nextSlot].classList.toggle("on", frontReady);
       fronts[oldSlot].classList.remove("on");
       root.dataset.foreground = frontReady ? "ready" : frontUrl ? "failed" : "none";
+      committed = true;
       still.src = stillOf(variant, season);
       still.classList.toggle("on", !video);
       videos.forEach(function (v) {
@@ -1247,19 +1248,37 @@ function createSceneMotion(restart, cleanup, ambient) {
       }, noMotion ? 0 : 2700);
     }
     // 풍경 레이어·전경 지연이 시계와 배경을 끝없이 붙잡지 않도록 상한을 둔다.
-    // 늦은 원화는 이미 시작한 장면에 끼워 넣지 않고 다음 전환에서 사용한다.
-    function loadOptional(imageUrl) {
+    // 전경은 시간 초과 뒤에도 요청을 유지하고, 현재 장면과 일치할 때만 복구한다.
+    function loadOptional(imageUrl, onLate) {
       if (!imageUrl) return Promise.resolve(false);
       return new Promise(function (resolve) {
-        var timeout = setTimeout(function () { resolve(false); }, 4000);
+        var timedOut = false;
+        var timeout = setTimeout(function () {
+          timedOut = true; resolve(false);
+        }, 4000);
         decodeImage(imageUrl).then(function () {
-          clearTimeout(timeout); resolve(true);
+          clearTimeout(timeout);
+          if (timedOut) {
+            if (onLate) onLate();
+          } else resolve(true);
         }).catch(function () { clearTimeout(timeout); resolve(false); });
       });
     }
+    function recoverForeground() {
+      if (token !== generation) return;
+      frontReady = true;
+      if (!committed || active !== variant || activeSeason !== season ||
+          activeChristmas !== christmas) return;
+      fronts[nextSlot].src = frontUrl;
+      fronts[nextSlot].style.transform = season === "autumn"
+        ? "translateY(17.5%)" : "";
+      fronts[nextSlot].classList.add("on");
+      root.dataset.foreground = "ready";
+    }
     Promise.all([decodeImage(url), decodeImage(stillOf(variant, season)),
-      loadOptional(landscapeUrl), loadOptional(frontUrl)]).then(function (loaded) {
-      landscapeReady = loaded[2]; frontReady = loaded[3];
+      loadOptional(landscapeUrl),
+      loadOptional(frontUrl, recoverForeground)]).then(function (loaded) {
+      landscapeReady = loaded[2]; frontReady = frontReady || loaded[3];
       if (token !== generation) return;
       if (noMotion || fallback || document.hidden) { commit(null); return; }
       // 첫 접속은 정지본을 먼저 띄우고 디코딩된 영상으로 교체한다.

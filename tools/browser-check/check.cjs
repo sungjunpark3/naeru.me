@@ -104,7 +104,7 @@ async function check(name, fn) {
                 assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
                   new RegExp(`foreground-${state.variant}-${season}\\.webp`));
                 assert.equal(await p.locator('.foreground-layer.on').evaluate(e =>
-                  e.style.transform), season === 'autumn' ? 'translateY(2.5%)' : '');
+                  e.style.transform), season === 'autumn' ? 'translateY(17.5%)' : '');
               }
               await p.waitForFunction(() => document.querySelector('#naeruHd').dataset.status === 'ready' &&
                 document.querySelector('#naeruStill').naturalWidth === 4608);
@@ -432,7 +432,7 @@ async function check(name, fn) {
         } finally { await p.close(); }
       }
     });
-    await check('가을 전경: 실패·시간 초과·오래된 응답에도 장면과 입력 유지', async () => {
+    await check('가을 전경: 실패·시간 초과 복구·오래된 응답에도 장면과 입력 유지', async () => {
       await Promise.all(['failed', 'slow', 'scene'].map(async kind => {
         const p = await makePage({ reducedMotion: 'reduce' });
         let release;
@@ -457,8 +457,12 @@ async function check(name, fn) {
             assert.equal(await p.locator('.foreground-layer.on').count(), 0);
             assert.equal(await p.locator('#naeruStill').isVisible(), true);
             if (kind === 'slow') {
-              release(); await p.waitForTimeout(300);
-              assert.equal(await p.locator('.foreground-layer.on').count(), 0);
+              release();
+              await p.waitForFunction(() =>
+                document.documentElement.dataset.foreground === 'ready');
+              assert.equal(await p.locator('.foreground-layer.on').count(), 1);
+              assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
+                /foreground-day-autumn\.webp/);
             }
             await p.click('#settings-open'); await p.selectOption('#setting-band', 'night');
             await p.waitForFunction(() => document.documentElement.dataset.foreground === 'ready');
