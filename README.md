@@ -21,7 +21,7 @@ python3 -m http.server 8000 --bind 127.0.0.1
 | 계절 | 원화·전경 | 맑은 하늘 | 내루미 |
 |---|---|---|---|
 | 봄 | 새 원화·들판 꽃·분리 전경 | 4시간대 60초 루프 | 승인된 무장식 가을 내루미 공유 |
-| 여름 | **새 계절 작업 전**, 기존 정적 배경 유지 | 정적 | 승인된 무장식 가을 내루미 공유 |
+| 여름 | 초록 나무·들판·고사리 전경·작은 흰 꽃·비구름 | 4시간대 60초 루프 | 승인된 무장식 가을 내루미 공유 |
 | 가을 | 새 단풍 원화·분리 억새·비구름 원화 | 4시간대 60초 루프 | 무장식 고화질 원화 |
 | 겨울 | 포근한 원화·분리 눈풀 | 4시간대 60초 루프 | 모자·목도리 전용 원화 |
 
@@ -46,7 +46,7 @@ img/                       현재 자산 + 호환 URL + 보존용 제작 입력
 tools/asset_catalog.py    자산 분류·규격·공식 제작 담당·배포 허용 목록
 tools/asset_versions.py   파일별 캐시 해시 갱신
 tools/build-assets.py     필요한 단계만 별도 사본에서 제작
-tools/{spring,autumn,winter,christmas}/  승인 원화와 제작 코드
+tools/{spring,summer,autumn,winter,christmas}/  원화와 제작 코드
 tools/{autumn-naeru,winter-naeru}/      승인 캐릭터 원화와 제작 코드
 tools/clouds/             풍경 마스크·구름 루프 제작
 tools/check.py            통합 검사
@@ -116,15 +116,16 @@ tools/naeru-split/.venv/bin/python tools/build-assets.py autumn --output /tmp/na
 | 대상 | 생성하는 파일 | 선행 입력 |
 |---|---|---|
 | `spring` | 봄 배경·전경·구름 제작 입력 | 봄 승인 원화 |
+| `summer` | 여름 배경·전경·풍경 레이어·구름 제작 입력 | 여름 시간대별 원화·누끼·빈 하늘 |
 | `autumn` | 가을 배경·전경·무손실 풍경 레이어 | 가을 승인 원화·비구름 |
 | `winter` | 겨울 배경·전경·구름 제작 입력 | 겨울 승인 원화 |
 | `christmas` | 장식 풍경·전경 | 현재 겨울 자산·장식 원화 |
 | `spring-landscape`, `winter-landscape` | 풍경 레이어 | 해당 계절 배경·마스크 |
-| `spring-sky`, `autumn-sky`, `winter-sky` | 60초 구름 영상·포스터 | 해당 계절 풍경·구름 입력 |
+| `spring-sky`, `summer-sky`, `autumn-sky`, `winter-sky` | 60초 구름 영상·포스터 | 해당 계절 풍경·구름 입력 |
 | `autumn-naeru`, `winter-naeru` | 고화질 캐릭터·영상 | 승인 전신 원화·보존된 정렬 입력 |
 | `snow` | 눈 타일 2장 | 기존 절차적 생성 코드 |
 
-여름 대상과 무분별한 `all` 대상은 제공하지 않는다. 가을 풍경은 `autumn`만
+무분별한 `all` 대상은 제공하지 않는다. 여름·가을 풍경은 해당 계절 제작기가
 생성하고 구름 제작기는 이를 재사용한다. 구형 `season/repaint.py`와
 `naeru-split/build.sh`는 과거 기록으로 보존하되 직접 실행은 중단한다.
 

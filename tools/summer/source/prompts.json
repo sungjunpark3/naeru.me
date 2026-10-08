@@ -1,0 +1,65 @@
+{
+  "tool": "built-in image_gen",
+  "brief": "여름은 초록 중심의 무성한 나무·들판·고사리·풀. 파란 꽃 제외, 작은 흰 꽃만 유지. 승인된 낮 컨셉의 구도를 고정하고 4시간대 맑음/비 원화와 누끼, 구름 없는 하늘을 제작.",
+  "sources": {
+    "concept": "day-concept.png",
+    "backgrounds": [
+      "day-clean.png",
+      "dawn.png",
+      "dusk.png",
+      "night.png",
+      "day-rain.png",
+      "dawn-rain.png",
+      "dusk-rain.png",
+      "night-rain.png"
+    ],
+    "cutouts": [
+      "day-landscape.png",
+      "day-plants.png",
+      "day-clouds.png"
+    ],
+    "emptySkies": [
+      "day-clear-sky.png",
+      "dawn-clear-sky.png",
+      "dusk-clear-sky.png",
+      "night-clear-sky.png"
+    ]
+  },
+  "prompts": [
+    {
+      "key": "summer-dusk",
+      "ref": "day-clean.png",
+      "prompt": "Use case: lighting-weather. Edit this exact summer landscape into a warm summer sunset. Preserve the exact canvas, camera, meadow, mountain silhouettes, tree trunks, branches, foliage placement and every object; only change illumination and sky colors. No new objects. The open sky is muted rose and coral above, luminous peach/apricot near the horizon. Existing cumulus clouds have salmon-pink sunlit edges and dusty lavender shadow. Low evening sun from upper right makes gentle longer tree shadows angle toward lower left across the meadow; preserve all plants and ground contours. Keep summer foliage unmistakably rich GREEN, with warm amber rim lighting, not autumn yellow/orange foliage. Retain small white meadow flowers only. Cozy, softly painted storybook anime environment, crisp fine details matching the input. Do not add a visible sun, buildings, characters, fireflies, colored flowers, text or vignette. No big foreground bushes or grasses. Same 16:9 composition."
+    },
+    {
+      "key": "summer-rain-dusk",
+      "ref": "day-rain.png",
+      "prompt": "Use case: lighting-weather. Edit this exact overcast summer landscape into RAINY DUSK. Keep the exact composition, trees and individual foliage silhouettes, distant mountains, meadow geometry, painting style and canvas. Only change time-of-day lighting: dense layered storm clouds in muted dusty mauve/slate with a soft subdued warm rose glow low on the horizon, diffused dim evening light. Green summer foliage becomes deep olive/emerald with restrained warm evening undertones; still clearly green, never orange autumn leaves. No direct sun or hard long shadows because sky is overcast. Preserve tiny white flowers, do not add other colors of flowers. Keep details visible, tranquil and cozy. No rain streaks (rain will be rendered separately), no lightning, no new foreground plants, no characters, no text. No moon, no sun disk, no blue gaps in the rain cloud cover. Exact same frame and placement."
+    },
+    {
+      "key": "summer-rain-dawn",
+      "prompt": "Use case: lighting-weather. Relight this exact green summer overcast meadow into RAINY DAWN. Preserve every tree silhouette, branch, leaf position, mountain ridge, field shape and the exact canvas. Only lighting and sky tone change. Cloudy early morning before sunrise: pearl-gray clouds with muted lilac shadows and a subtle pale peach glow at the low horizon, soft cool dim illumination on moist rich green leaves and grass. Quiet softly painted storybook atmosphere. Diffused overcast light, no direct rays or strong shadows, no blue daytime holes in cloud cover. Tiny white meadow flowers only. Do not add objects, rain streaks, foreground bushes, characters, lamps, sun or moon, colored flowers or text. Maintain detailed readable meadow, not excessively dark."
+    },
+    {
+      "key": "summer-rain-night",
+      "prompt": "Use case: lighting-weather. Relight this EXACT green summer overcast meadow into RAINY NIGHT. Preserve the exact canvas and all geometry, individual tree silhouettes, branch positions, distant mountains, field and foliage. Only illumination and cloud colors change. Truly nighttime dark charcoal-indigo overcast sky, very soft dim gray-violet cloud structure, no daylight blue. Deep muted forest green foliage under subtle silvery ambient night light; retain readable softly painted detail without looking blue daytime. Peaceful cozy night, no visible moon or stars because cloud cover. No lamps, fireflies, characters, buildings, lightning, painted rain streaks, foreground plants or text. Tiny white meadow flowers remain dimly visible; no other flower colors. Keep all objects at identical positions."
+    },
+    {
+      "time": "dawn",
+      "prompt": "Use case: precise-object-edit. Make a CLOUDLESS PLATE from this exact dawn summer scene for a layered animation. Change ONLY the clouds: erase every cloud and small cloud wisp within the sky and reconstruct the smooth, softly painted EMPTY SKY behind them using the existing cloud-free sky colors at that height. Keep the original soft blue-lilac dawn and pale peach horizon gradient, unchanged overall brightness. All tree trunks, branches, foliage, mountain ridges, field, grass and flowers stay EXACTLY as they are at the same pixels; do not redraw or move them. No clouds anywhere, no haze that looks like clouds, no stars, sun, moon, extra objects or text. Do not brighten the image. Same 16:9 canvas and composition."
+    },
+    {
+      "time": "dusk",
+      "prompt": "Use case: precise-object-edit. Make a CLOUDLESS PLATE from this exact dusk summer scene for a layered animation. Change ONLY the clouds: erase every cloud and small cloud wisp within the sky and reconstruct the smooth, softly painted EMPTY SKY behind them using the existing cloud-free sky colors at that height. Keep the original warm rosy/coral sunset and peach/apricot horizon gradient, unchanged overall brightness. All tree trunks, branches, foliage, mountain ridges, field, grass and flowers stay EXACTLY as they are at the same pixels; do not redraw or move them. No clouds anywhere, no haze that looks like clouds, no stars, sun, moon, extra objects or text. Do not brighten the image. Same 16:9 canvas and composition."
+    },
+    {
+      "time": "night",
+      "prompt": "Use case: precise-object-edit. Make a CLOUDLESS PLATE from this exact night summer scene for a layered animation. Change ONLY the clouds: erase every cloud and small cloud wisp within the sky and reconstruct the smooth, softly painted EMPTY SKY behind them using the existing cloud-free sky colors at that height. Keep the original very dark midnight charcoal/indigo night gradient, unchanged overall brightness. All tree trunks, branches, foliage, mountain ridges, field, grass and flowers stay EXACTLY as they are at the same pixels; do not redraw or move them. No clouds anywhere, no haze that looks like clouds, no stars, sun, moon, extra objects or text. Do not brighten the image. Same 16:9 canvas and composition."
+    },
+    {
+      "key": "summer-complete-clouds",
+      "ref": "day-clean.png",
+      "prompt": "Use case: background-extraction. Create a transparent isolated CLOUD LAYER for the attached summer scene, used as a moving sky in a game. Use the attached image as reference for cloud palette, softly painted anime brushwork and broad arrangement. Retain several fluffy white summer cumulus groups primarily on the left and right, small wisps across the middle, small distant clouds below. IMPORTANT: Reconstruct complete natural rounded cloud lobes where clouds were hidden behind trees; no leaf-shaped holes, no tree-shaped cut edges, no mountain-shaped cutouts. The cloud layer must contain ONLY clouds, with genuinely transparent RGBA background between and around every cloud. No trees, leaves, land, mountains, blue sky, flowers, objects, text or checkerboard. Cloud forms softly billow at every edge, fully natural. Wide 16:9 same-size canvas, clouds may continue off frame edges and extend behind former landscape. Keep the upper middle region mostly open so a clock can read easily. Preserve the scene’s warm white cloud light and subtle pale blue/lavender shaded cloud undersides. Crisp painterly detail, delicate soft transparent wisps. This is a complete cloud-only animation texture, not the sky opening cropped along tree silhouettes."
+    }
+  ]
+}

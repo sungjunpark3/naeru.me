@@ -67,7 +67,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   }
 
   /* 배경 원화는 정지 이미지다. img/bg-<변형>.jpg는 그 변형의 첫 프레임에서
-     내루미를 지운 완성본이라 예전 런타임 patch 레이어는 없다. 맑은 봄·가을·겨울은
+     내루미를 지운 완성본이라 예전 런타임 patch 레이어는 없다. 맑은 사계절은
      풍경 누끼 뒤에서 하늘 영상만 움직이고, 나머지 동작은 DOM 겹이 맡는다. */
 
   /* 루프 순간 브라우저가 비디오를 한 프레임 놓쳐도
@@ -105,7 +105,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   #bgA { background-image: var(--bg-a); }
   #bgB { background-image: var(--bg-b); }
 
-  /* 봄·가을·겨울 맑은 하늘. 정지본이 영상 첫 프레임과 같으므로 페이드 없이
+  /* 사계절 맑은 하늘. 정지본이 영상 첫 프레임과 같으므로 페이드 없이
      즉시 교체해도 화면이 튀지 않는다. 실패하면 같은 정지본을 유지한다. */
   #skyMotion {
     position: fixed; inset: 0; width: 100%; height: 100%;
@@ -114,7 +114,7 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
   }
   #skyMotion.on { opacity: 1; }
 
-  /* 맑은 봄·가을·겨울의 나무·산등선·들판. 원본의 하늘만 투명하게 뚫어
+  /* 맑은 사계절의 나무·산등선·들판. 원본의 하늘만 투명하게 뚫어
      뒤의 60초 하늘 영상만 움직인다. */
   #landscape { position: fixed; pointer-events: none; }
   .landscape-layer {
@@ -620,11 +620,11 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
 <div id="bgA" class="bg-layer"></div>
 <div id="bgB" class="bg-layer"></div>
 
-<!-- 구름 영상은 정적 배경과 풍경 누끼 사이에서 맑은 봄·가을·겨울에 재생된다. -->
+<!-- 구름 영상은 정적 배경과 풍경 누끼 사이에서 맑은 사계절에 재생된다. -->
 <video id="skyMotion" aria-hidden="true" muted loop playsinline
        preload="none"></video>
 
-<!-- 맑은 봄·가을·겨울은 하늘 뒤판 위에 나무·산등선·들판 누끼를 얹는다. -->
+<!-- 맑은 사계절은 하늘 뒤판 위에 나무·산등선·들판 누끼를 얹는다. -->
 <div id="landscape" aria-hidden="true">
   <img id="landscapeA" class="landscape-layer" alt="">
   <img id="landscapeB" class="landscape-layer" alt="">
@@ -799,13 +799,13 @@ window.naeruSettings = { season: "auto", band: "auto", motion: "auto",
 </style><p class="scene-ui" style="top:24px;left:24px">시계와 날씨를 보려면 JavaScript를 켜주세요.</p></noscript>
 
 <script>
-/* 장면 기능의 공통 기준. 여름은 기존 정적 배경을 보존하는 미작업 계절이다.
+/* 장면 기능의 공통 기준. 사계절 모두 전경과 맑은 하늘 레이어를 사용한다.
    이 설정은 URL·레이어·동작의 적용 범위만 모으며 각 IIFE의 실행 순서는 유지한다. */
 window.naeruScene = (function () {
   var bands = Object.freeze(["dawn", "day", "dusk", "night"]);
   var seasons = Object.freeze({
     spring: Object.freeze({ character: "autumn", foreground: true, sky: true, approach: false }),
-    summer: Object.freeze({ character: "autumn", foreground: false, sky: false, approach: false }),
+    summer: Object.freeze({ character: "autumn", foreground: true, sky: true, approach: false }),
     autumn: Object.freeze({ character: "autumn", foreground: true, sky: true, approach: true }),
     winter: Object.freeze({ character: "winter", foreground: true, sky: true, approach: true })
   });
@@ -905,7 +905,7 @@ function createSceneMotion(restart, cleanup, ambient) {
 <script>
 (function () {
   var TZ = "Asia/Seoul", WKEY = "naeru-weather";
-  var ASSET_V = "72832b35a51b";
+  var ASSET_V = "ab2397f02587";
   /* asset-versions:start — tools/asset_versions.py가 관리 */
   var ASSET_HASHES = {
     "game/game.js": "371f28c968a5",
@@ -918,37 +918,37 @@ function createSceneMotion(restart, cleanup, ambient) {
     "img/bg-dawn-rain-autumn.jpg": "997089f555c3",
     "img/bg-dawn-rain-christmas.jpg": "2ee11319e606",
     "img/bg-dawn-rain-spring.jpg": "95fac788c4ef",
-    "img/bg-dawn-rain-summer.jpg": "7c2beac1860c",
+    "img/bg-dawn-rain-summer.jpg": "11d06763ed1e",
     "img/bg-dawn-rain-winter.jpg": "4340231083f2",
     "img/bg-dawn-spring.jpg": "a48a39ee8aa2",
-    "img/bg-dawn-summer.jpg": "26c0c90097b3",
+    "img/bg-dawn-summer.jpg": "7c1c4596e65f",
     "img/bg-dawn-winter.jpg": "bbf7da6efb98",
     "img/bg-day-autumn.jpg": "78d474a39efd",
     "img/bg-day-rain-autumn.jpg": "28747d1e4a79",
     "img/bg-day-rain-christmas.jpg": "4d4ffbfc0433",
     "img/bg-day-rain-spring.jpg": "2332c7a97bdf",
-    "img/bg-day-rain-summer.jpg": "3feb93b04b3e",
+    "img/bg-day-rain-summer.jpg": "f76b0aa9d207",
     "img/bg-day-rain-winter.jpg": "e7c110f66eb3",
     "img/bg-day-spring.jpg": "6b88783d41c5",
-    "img/bg-day-summer.jpg": "4cbab2223ad5",
+    "img/bg-day-summer.jpg": "c35bcf2bdfd6",
     "img/bg-day-winter.jpg": "7c6516315490",
     "img/bg-dusk-autumn.jpg": "eae04dbce16a",
     "img/bg-dusk-rain-autumn.jpg": "bb85a17787fd",
     "img/bg-dusk-rain-christmas.jpg": "fd393e363cf1",
     "img/bg-dusk-rain-spring.jpg": "ac680118acc1",
-    "img/bg-dusk-rain-summer.jpg": "4a123483ccf1",
+    "img/bg-dusk-rain-summer.jpg": "08878380e533",
     "img/bg-dusk-rain-winter.jpg": "57932d101a7c",
     "img/bg-dusk-spring.jpg": "d061963267ee",
-    "img/bg-dusk-summer.jpg": "1ea5e07961c8",
+    "img/bg-dusk-summer.jpg": "6d8365760f81",
     "img/bg-dusk-winter.jpg": "149db68916ff",
     "img/bg-night-autumn.jpg": "ddd61d2b7223",
     "img/bg-night-rain-autumn.jpg": "fb40e7333cca",
     "img/bg-night-rain-christmas.jpg": "58a53e59fc10",
     "img/bg-night-rain-spring.jpg": "a98f984852bc",
-    "img/bg-night-rain-summer.jpg": "ba38dfe7d177",
+    "img/bg-night-rain-summer.jpg": "4342d6a93624",
     "img/bg-night-rain-winter.jpg": "3ad82b3fd502",
     "img/bg-night-spring.jpg": "e99295203d85",
-    "img/bg-night-summer.jpg": "3691d00caeb7",
+    "img/bg-night-summer.jpg": "7c3c73b2e4f7",
     "img/bg-night-winter.jpg": "6675d827c7f6",
     "img/favicon.png": "5e7358ffb100",
     "img/foreground-dawn-autumn.webp": "857576ad87ed",
@@ -956,48 +956,60 @@ function createSceneMotion(restart, cleanup, ambient) {
     "img/foreground-dawn-rain-autumn.webp": "4eb41e2eed02",
     "img/foreground-dawn-rain-christmas.webp": "703a862d2530",
     "img/foreground-dawn-rain-spring.webp": "2648685af97e",
+    "img/foreground-dawn-rain-summer.webp": "f5865f47537e",
     "img/foreground-dawn-rain-winter.webp": "0be4212f5c06",
     "img/foreground-dawn-spring.webp": "b94977277225",
+    "img/foreground-dawn-summer.webp": "a5fe62976238",
     "img/foreground-dawn-winter.webp": "93b33a0d4906",
     "img/foreground-day-autumn.webp": "148b8006d769",
     "img/foreground-day-christmas.webp": "7c04ef00de02",
     "img/foreground-day-rain-autumn.webp": "34b35905ab07",
     "img/foreground-day-rain-christmas.webp": "32d2762fd81d",
     "img/foreground-day-rain-spring.webp": "6b4979bbf51d",
+    "img/foreground-day-rain-summer.webp": "e26286878788",
     "img/foreground-day-rain-winter.webp": "84a97d004581",
     "img/foreground-day-spring.webp": "860f158c5b48",
+    "img/foreground-day-summer.webp": "7184b4621222",
     "img/foreground-day-winter.webp": "0eff5c76d48b",
     "img/foreground-dusk-autumn.webp": "23f9cc76adee",
     "img/foreground-dusk-christmas.webp": "2d740e6e7a36",
     "img/foreground-dusk-rain-autumn.webp": "52fc33c5b0ee",
     "img/foreground-dusk-rain-christmas.webp": "37c776746955",
     "img/foreground-dusk-rain-spring.webp": "61a8e9528e0a",
+    "img/foreground-dusk-rain-summer.webp": "0049802388ee",
     "img/foreground-dusk-rain-winter.webp": "2bcc8026f8e5",
     "img/foreground-dusk-spring.webp": "fb20c5cc1c65",
+    "img/foreground-dusk-summer.webp": "9c0420f9277a",
     "img/foreground-dusk-winter.webp": "d2ba7bea6dc8",
     "img/foreground-night-autumn.webp": "7c09dc78c8b8",
     "img/foreground-night-christmas.webp": "8b31ee754429",
     "img/foreground-night-rain-autumn.webp": "32e41478e890",
     "img/foreground-night-rain-christmas.webp": "80f6311dac85",
     "img/foreground-night-rain-spring.webp": "4a1864cfd2eb",
+    "img/foreground-night-rain-summer.webp": "5588d6d289e4",
     "img/foreground-night-rain-winter.webp": "06f0e1b46d09",
     "img/foreground-night-spring.webp": "9d6caeca51e2",
+    "img/foreground-night-summer.webp": "c3b497acb4f1",
     "img/foreground-night-winter.webp": "1ed6d23e9adf",
     "img/landscape-dawn-autumn.webp": "457f7834f461",
     "img/landscape-dawn-christmas.webp": "d612789aacf0",
     "img/landscape-dawn-spring.webp": "e332d1f91c57",
+    "img/landscape-dawn-summer.webp": "e8ce20deb16e",
     "img/landscape-dawn-winter.webp": "94cd9284d4b1",
     "img/landscape-day-autumn.webp": "789dfe53ff4c",
     "img/landscape-day-christmas.webp": "3360004cbfed",
     "img/landscape-day-spring.webp": "ffe69194f391",
+    "img/landscape-day-summer.webp": "725303c4c8ae",
     "img/landscape-day-winter.webp": "b9cb3e28e445",
     "img/landscape-dusk-autumn.webp": "8806b9764f57",
     "img/landscape-dusk-christmas.webp": "f44e139cb646",
     "img/landscape-dusk-spring.webp": "105dead20f64",
+    "img/landscape-dusk-summer.webp": "827ad280405f",
     "img/landscape-dusk-winter.webp": "865bd2556d16",
     "img/landscape-night-autumn.webp": "ef03dd9244c3",
     "img/landscape-night-christmas.webp": "639916e73b8b",
     "img/landscape-night-spring.webp": "6a6e12e40409",
+    "img/landscape-night-summer.webp": "d12e2d0cacae",
     "img/landscape-night-winter.webp": "0e74d8ef31ba",
     "img/naeru-autumn-dawn-close.webp": "94e06c1dfa81",
     "img/naeru-autumn-dawn-hd.webp": "94e06c1dfa81",
@@ -1138,24 +1150,32 @@ function createSceneMotion(restart, cleanup, ambient) {
     "img/sky-dawn-autumn.webp": "fe26ce3d14de",
     "img/sky-dawn-spring.mp4": "ad18702455a9",
     "img/sky-dawn-spring.webp": "0b3c467f5f07",
+    "img/sky-dawn-summer.mp4": "a2a1fa932762",
+    "img/sky-dawn-summer.webp": "0de2e895db68",
     "img/sky-dawn-winter.mp4": "6129054f8820",
     "img/sky-dawn-winter.webp": "7c0b38956698",
     "img/sky-day-autumn.mp4": "f2d5962e8311",
     "img/sky-day-autumn.webp": "38cc93f060fe",
     "img/sky-day-spring.mp4": "11538c41bfad",
     "img/sky-day-spring.webp": "1bc93de44ff0",
+    "img/sky-day-summer.mp4": "af651a158ac4",
+    "img/sky-day-summer.webp": "a80c3dbf6e5b",
     "img/sky-day-winter.mp4": "b2a07db4f83d",
     "img/sky-day-winter.webp": "02ebe3cc125a",
     "img/sky-dusk-autumn.mp4": "b7f9a3aff142",
     "img/sky-dusk-autumn.webp": "442ebc6e1290",
     "img/sky-dusk-spring.mp4": "fde2a184a62d",
     "img/sky-dusk-spring.webp": "16778b07a7a0",
+    "img/sky-dusk-summer.mp4": "22cec661630c",
+    "img/sky-dusk-summer.webp": "fd9cdba9bda7",
     "img/sky-dusk-winter.mp4": "6137bce1f527",
     "img/sky-dusk-winter.webp": "2b036302322e",
     "img/sky-night-autumn.mp4": "d407932852c0",
     "img/sky-night-autumn.webp": "c31c27648e8a",
     "img/sky-night-spring.mp4": "e1f656472ef8",
     "img/sky-night-spring.webp": "ddce281b488e",
+    "img/sky-night-summer.mp4": "f66e1f93af95",
+    "img/sky-night-summer.webp": "23c19f5a8452",
     "img/sky-night-winter.mp4": "26647e852abb",
     "img/sky-night-winter.webp": "998ef2120e32",
     "img/snow-far.png": "b7bb482e9488",
@@ -1667,7 +1687,7 @@ function createSceneMotion(restart, cleanup, ambient) {
 </script>
 
 <script>
-/* ── 봄·가을·겨울 맑은 날 구름 ──────────────────────────────────
+/* ── 사계절 맑은 날 구름 ──────────────────────────────────────
    정적 배경과 풍경 누끼 사이에서 60초 영상을 반복한다. 영상의 첫·마지막
    디코딩 프레임은 같고, 종료 직전 들어온 구름의 위치·속도가 다음 첫 프레임과
    이어진다. 다른 장면·숨은 탭·동작 줄이기에서는 파일 자체를 내려놓는다. */

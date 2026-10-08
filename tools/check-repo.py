@@ -33,7 +33,7 @@ def main():
     actual = {p.name for p in (REPO / 'img').iterdir() if p.is_file() and p.name != '.DS_Store'}
     assert actual == set(runtime + inputs), f'미분류 자산: {actual ^ set(runtime + inputs)}'
     assert all('img/' + name in publish for name in compatibility)
-    assert all(owner(f'bg-{v}-summer.jpg') == 'summer-pending'
+    assert all(owner(f'bg-{v}-summer.jpg') == 'summer'
                for v in ['dawn', 'day', 'dusk', 'night', 'dawn-rain', 'day-rain', 'dusk-rain', 'night-rain'])
 
     # 현재 체크아웃에서 제작기를 실행하면 중단한다. 새 작업 사본에서만 허용한다.
@@ -78,7 +78,12 @@ def main():
         assert (source / 'master.png').read_bytes() == b'approved original'
         must_fail(lambda: builder.make_workspace(source, output), AssertionError)
         must_fail(lambda: builder.make_workspace(source, source / 'nested'), AssertionError)
-    assert 'summer' not in builder.TARGETS
+    assert 'summer' in builder.TARGETS and 'summer-sky' in builder.TARGETS
+    assert 'summer-landscape' not in builder.TARGETS
+    assert builder.validate_changes({}, {'img/foreground-day-summer.webp': 'new'}, 'summer')
+    must_fail(lambda: builder.validate_changes({}, {'img/bg-day-winter.jpg': 'new'}, 'summer'), AssertionError)
+    must_fail(lambda: builder.validate_changes({}, {'tools/unregistered.png': 'new'}, 'summer'), AssertionError)
+    must_fail(lambda: builder.validate_changes({'img/bg-day-summer.jpg': 'old'}, {}, 'summer'), AssertionError)
 
     # 앱은 인라인 실행을 유지한다. 모든 스크립트를 실제 Node 구문 검사에 넘긴다.
     html = (REPO / 'index.html').read_text()
@@ -109,7 +114,7 @@ def main():
         changed = [name for name, actual_hash in zip(expected, hashes) if expected[name] != actual_hash]
         assert not changed, '기준본과 다른 원화: ' + ', '.join(changed)
         print(f'{args.baseline}: 이미지·영상·원화 {len(expected)}개 바이트 일치')
-    print('제작 경계·여름 보존 분류·배포 허용 목록·파일별 캐시·스크립트 구문 PASS')
+    print('제작 경계·계절별 자산 분류·배포 허용 목록·파일별 캐시·스크립트 구문 PASS')
 
 
 if __name__ == '__main__':

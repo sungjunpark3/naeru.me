@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""봄·가을·겨울 맑은 네 시간대의 풍경 누끼와 구름 영상을 만든다.
+"""사계절 맑은 네 시간대의 풍경 누끼와 구름 영상을 만든다.
 
 day-outline.jpg는 사용자가 표시한 경계 참고본이다. 계절과 시간대의 풍경
 구도는 같아서 풍경 마스크를 공유한다. 빈 하늘과 구름 RGBA는 built-in
@@ -24,7 +24,7 @@ DURATION = 60
 N_FRAMES = FPS * DURATION
 CLOUD_TRAVEL = 700
 VARIANTS = ["dawn", "day", "dusk", "night"]
-SEASONS = ["spring", "autumn", "winter"]
+SEASONS = ["spring", "summer", "autumn", "winter"]
 
 
 def load_rgb(path, size):
@@ -37,8 +37,8 @@ def source_prefix(variant, season):
 
 
 def build_landscape(variant, season):
-    if season == "autumn":
-        raise ValueError("가을 풍경은 tools/autumn/build.py의 무손실 원화에서만 생성합니다.")
+    if season in ["summer", "autumn"]:
+        raise ValueError("여름·가을 풍경은 해당 계절 제작기에서만 생성합니다.")
     source = Image.open(
         REPO / f"img/bg-{variant}-{season}.jpg").convert("RGB")
     assert source.size == FRAME_SIZE
@@ -97,8 +97,8 @@ def prepare_cloud_layers(variant, season):
     coarse = np.clip(cloud_mask / 254, 0, 1)
 
     # 생성한 빈 하늘의 청색·노을 기울기를 원본의 맑은 부분에 맞춘다.
-    # 봄 해질녘·밤은 사용자가 승인한 새 색을 그대로 써야 하므로 되돌리지 않는다.
-    if not (season == "spring" and variant in ["dusk", "night"]):
+    # 봄 해질녘·밤은 승인된 새 색을 보존한다. 여름은 전용 제작기에서 이미 맞췄다.
+    if not (season == "summer" or (season == "spring" and variant in ["dusk", "night"])):
         clear = (sky > .98) & (coarse < .03)
         yy, xx = np.indices((VIDEO_SIZE[1], VIDEO_SIZE[0]))
         clear &= (xx + yy) % 8 == 0
@@ -116,7 +116,7 @@ def prepare_cloud_layers(variant, season):
     for index in range(1, n_labels):
         region = labels == index
         if (stats[index, cv2.CC_STAT_AREA] > 120 and
-                sky[region].mean() > .32):
+                (season == "summer" or sky[region].mean() > .32)):
             keep[region] = 1
     keep = cv2.dilate(
         keep.astype(np.uint8), np.ones((7, 7), np.uint8))
@@ -222,8 +222,8 @@ def main():
     parser.add_argument("--only", choices=["sky", "landscape"], required=True)
     parser.add_argument("variants", nargs="+", choices=VARIANTS)
     args = parser.parse_args()
-    if args.season == "autumn" and args.only == "landscape":
-        parser.error("가을 풍경은 tools/autumn/build.py에서만 생성합니다.")
+    if args.season in ["summer", "autumn"] and args.only == "landscape":
+        parser.error("여름·가을 풍경은 해당 계절 제작기에서만 생성합니다.")
     import sys
     sys.path.insert(0, str(HERE.parent))
     from asset_workspace import require_workspace

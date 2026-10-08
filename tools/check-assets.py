@@ -116,9 +116,9 @@ for season in MOVING_SKY_SEASONS:
         landscape_difference = ImageChops.difference(sky_poster, original)
         landscape_mae = sum(ImageStat.Stat(
             landscape_difference, mask=opaque_landscape).mean) / 3
-        # 밝은 봄 초록과 새 가을 단풍·노을은 H.264 YUV420 왕복에서 평균
+        # 밝은 봄·여름 초록과 가을 단풍·노을은 H.264 YUV420 왕복에서 평균
         # 오차가 2단계를 조금 넘는다. 구름 잔상과 구분되는 범위만 허용한다.
-        limit = 3 if season in ["spring", "autumn"] else 2
+        limit = 3 if season in ["spring", "summer", "autumn"] else 2
         assert landscape_mae < limit, \
             f"풍경 위 구름 잔상: {season}/{variant} MAE={landscape_mae:.2f}"
 

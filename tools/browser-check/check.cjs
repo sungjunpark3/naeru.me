@@ -81,8 +81,7 @@ async function check(name, fn) {
               assert.equal(state.variant, band + (w === 'rain' ? '-rain' : ''));
               assert.notEqual(state.filter, 'none');
               assert.equal(state.still, '1'); assert.equal(state.video, false);
-              const layered = ['spring', 'autumn', 'winter'].includes(season) &&
-                w === 'clear';
+              const layered = w === 'clear';
               assert.equal(await p.evaluate(() => document.documentElement.dataset.landscape),
                 layered ? 'ready' : 'none');
               assert.equal(await p.locator('.landscape-layer.on').count(), layered ? 1 : 0);
@@ -92,7 +91,7 @@ async function check(name, fn) {
                 assert.deepEqual(await p.locator('#landscape').boundingBox(),
                   await p.locator('#stage').boundingBox());
               }
-              const foreground = ['spring', 'autumn', 'winter'].includes(season);
+              const foreground = true;
               assert.equal(await p.evaluate(() => document.documentElement.dataset.foreground),
                 foreground ? 'ready' : 'none');
               assert.equal(await p.locator('.foreground-layer.on').count(), foreground ? 1 : 0);
@@ -287,8 +286,8 @@ async function check(name, fn) {
         } finally { release(); await p.close(); }
       }));
     });
-    await check('봄·가을·겨울 맑음 네 시간대: 정지본에서 영상으로 즉시 교체', async () => {
-      for (const season of ['spring', 'autumn', 'winter']) {
+    await check('사계절 맑음 네 시간대: 정지본에서 영상으로 즉시 교체', async () => {
+      for (const season of ['spring', 'summer', 'autumn', 'winter']) {
         for (const band of ['dawn', 'day', 'dusk', 'night']) {
         const p = await makePage();
         const requested = [];
@@ -350,8 +349,8 @@ async function check(name, fn) {
       }
       }
     });
-    await check('봄·가을·겨울 맑음 구름: 60초 영상 재생·장면 이탈 정리', async () => {
-      for (const season of ['spring', 'autumn', 'winter']) {
+    await check('사계절 맑음 구름: 60초 영상 재생·정지 전환 정리', async () => {
+      for (const season of ['spring', 'summer', 'autumn', 'winter']) {
       const p = await makePage({ viewport: { width: 1920, height: 1080 } });
       try {
         await open(p, `s=${season}&v=day&w=clear&act=0&ball=0&flit=0&ff=0`);
@@ -380,9 +379,9 @@ async function check(name, fn) {
         await shot(p, `${season}-day-cloud-motion`);
 
         await p.click('#settings-open');
-        await p.selectOption('#setting-season', 'summer');
-        await p.waitForFunction(() => document.documentElement.dataset.season === 'summer' &&
-          document.documentElement.dataset.sceneReady === 'true');
+        await p.selectOption('#setting-motion', 'still');
+        await p.waitForFunction(() => document.documentElement.dataset.motion === 'still' &&
+          document.documentElement.dataset.skyMotion === 'none');
         assert.equal(await p.evaluate(() =>
           document.documentElement.dataset.skyMotion), 'none');
         assert.equal(await p.locator('#skyMotion').getAttribute('src'), null);
@@ -416,16 +415,16 @@ async function check(name, fn) {
         assert.deepEqual(p.errors, []); assert.deepEqual(p.missing, []);
       } finally { release(); await p.close(); }
     });
-    await check('봄·가을·겨울 구름: 실패·동작 줄이기·강수 장면은 정적 폴백', async () => {
+    await check('사계절 구름: 실패·동작 줄이기·강수 장면은 정적 폴백', async () => {
       for (const kind of [
-        'failed', 'reduced', 'spring-rain', 'rain', 'winter-rain', 'summer'
+        'failed', 'reduced', 'spring-rain', 'rain', 'winter-rain', 'summer-rain'
       ]) {
         const reducedMotion = kind === 'reduced' ? 'reduce' : 'no-preference';
         const p = await makePage({ reducedMotion });
         p.setDefaultNavigationTimeout(15000);
         let requested = 0;
         p.on('request', request => {
-          if (/sky-day-(spring|autumn|winter)\.mp4/.test(request.url())) requested++;
+          if (/sky-day-(spring|summer|autumn|winter)\.mp4/.test(request.url())) requested++;
         });
         if (kind === 'failed') {
           await p.route('**/sky-day-autumn.mp4?*', route => route.abort());
@@ -437,8 +436,8 @@ async function check(name, fn) {
             ? 's=autumn&v=day&w=rain'
             : kind === 'winter-rain'
               ? 's=winter&v=day&w=rain'
-            : kind === 'summer'
-              ? 's=summer&v=day&w=clear'
+            : kind === 'summer-rain'
+              ? 's=summer&v=day&w=rain'
               : 's=autumn&v=day&w=clear';
           await open(p, `${query}&act=0&ball=0&flit=0&ff=0`);
           if (kind === 'failed') {
@@ -496,7 +495,9 @@ async function check(name, fn) {
           await p.selectOption('#setting-season', 'summer');
           await p.waitForFunction(() => document.documentElement.dataset.season === 'summer' &&
             document.documentElement.dataset.sceneReady === 'true');
-          assert.equal(await p.locator('.foreground-layer.on').count(), 0);
+          assert.equal(await p.locator('.foreground-layer.on').count(), 1);
+          assert.match(await p.locator('.foreground-layer.on').getAttribute('src'),
+            /foreground-night-summer\.webp/);
           assert.deepEqual(p.errors, []);
         } finally { release(); await p.close(); }
       }));

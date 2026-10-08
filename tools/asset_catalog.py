@@ -8,10 +8,10 @@ from coords import FRAME_SIZE, CROP_SIZE, VARIANTS
 
 SEASONS = ["spring", "summer", "autumn", "winter"]
 CLEAR_VARIANTS = ["dawn", "day", "dusk", "night"]
-MOVING_SKY_SEASONS = ["spring", "autumn", "winter"]
+MOVING_SKY_SEASONS = ["spring", "summer", "autumn", "winter"]
 
 images = {f"bg-{v}-{s}.jpg": FRAME_SIZE for v in VARIANTS for s in SEASONS}
-for season in ["spring", "autumn", "winter"]:
+for season in SEASONS:
     images.update({f"foreground-{v}-{season}.webp": FRAME_SIZE
                    for v in VARIANTS})
 images.update({f"foreground-{v}-christmas.webp": FRAME_SIZE for v in VARIANTS})
@@ -71,18 +71,16 @@ publish = ["index.html", "404.html", "_headers", "_redirects", "game/game.js"] +
 
 
 def owner(name):
-    """하나의 최종 파일은 하나의 제작 경로만 소유한다. 여름은 미작업 보존."""
+    """하나의 최종 파일은 하나의 제작 경로만 소유한다."""
     if name in inputs or name in compatibility:
         return "legacy-preserved"
-    if name.endswith("-summer.jpg"):
-        return "summer-pending"
     if "-christmas." in name:
         return "christmas"
-    for season in ["spring", "autumn", "winter"]:
+    for season in SEASONS:
         if name.startswith((f"naeru-{season}-", f"tongue-{season}-")):
             return season + "-naeru"
         if name.endswith(f"-{season}.webp") and name.startswith("landscape-"):
-            return "autumn" if season == "autumn" else season + "-landscape"
+            return season if season in ["summer", "autumn"] else season + "-landscape"
         if name.startswith("sky-") and f"-{season}." in name:
             return season + "-sky"
         if f"-{season}." in name:
